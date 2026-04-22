@@ -29,8 +29,9 @@ mamba activate robosim
 python3 -m robosim.server --port 50051
 ```
 
-## 环境说明
+## 开发规约与环境说明
 
+- robosim 环境提供了 `ruff` 和 `mypy`。在 PR/提交前需要通过 `ruff` 和 `mypy` 的 lint 检查。之后我会设置 pre-commit hooks；
 - 本项目开发环境统一使用 miniforge 管理的虚拟环境；
 - robosim 环境已经提供了固定 gRPC 的版本（`grpcio==1.78.1`,`protobuf==6.33.5`），不得随意更改这个版本，这提供了对 OpenHarmony ArkUI 的兼容性；
 
