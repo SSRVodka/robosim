@@ -1,0 +1,574 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+<xacro:macro name="body_xacro">
+  <link
+    name="base_body">
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="file://$(find xl_ipads_fixed_desc)/meshes/convex/base_link.stl" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+  </link>
+  <link
+    name="link0">
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="file://$(find xl_ipads_fixed_desc)/meshes/convex/link0.stl" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0 0 0 1" />
+      </material>
+    </visual>
+  </link>
+  <!-- <joint
+    name="joint0"
+    type="prismatic">
+    <origin
+      xyz="5.7543E-05 0.04397 0.1934"
+      rpy="0 0 0" />
+    <parent
+      link="base_body" />
+    <child
+      link="link0" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-0.5"
+      upper="0.5"
+      effort="0"
+      velocity="0" />
+  </joint> -->
+  <joint
+    name="joint0"
+    type="fixed">
+    <origin
+      xyz="5.7543E-05 0.04397 0.1934"
+      rpy="0 0 0" />
+    <parent
+      link="base_body" />
+    <child
+      link="link0" />
+    <axis
+      xyz="0 0 1" />
+  </joint>
+  <link
+    name="right_Link1">
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="file://$(find xl_ipads_fixed_desc)/meshes/convex/right_link1.stl" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.501960784313725 0.501960784313725 0.501960784313725 1" />
+      </material>
+    </visual>
+  </link>
+  <joint
+    name="rightjoint1"
+    type="fixed">
+    <!-- type="revolute"> -->
+    <origin
+      xyz="0.15994 0.0865 0.6697"
+      rpy="0 1.5708 0" />
+    <parent
+      link="link0" />
+    <child
+      link="right_Link1" />
+    <axis
+      xyz="0 0 -1" />
+    <!-- <limit
+      lower="-3.14"
+      upper="3.14"
+      effort="10000"
+      velocity="2.5" /> -->
+  </joint>
+  <link
+    name="right_Link2">
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="file://$(find xl_ipads_fixed_desc)/meshes/convex/right_link2.stl" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.501960784313725 0.501960784313725 0.501960784313725 1" />
+      </material>
+    </visual>
+  </link>
+  <joint
+    name="rightjoint2"
+    type="fixed">
+    <!-- type="revolute"> -->
+    <origin
+      xyz="-0.011481 0.056751 0.0995"
+      rpy="0 -1.5708 -1.3712" />
+    <parent
+      link="right_Link1" />
+    <child
+      link="right_Link2" />
+    <axis
+      xyz="0 0 -1" />
+    <!-- <limit
+      lower="-3.14"
+      upper="3.14"
+      effort="10000"
+      velocity="2.5" /> -->
+  </joint>
+  <link
+    name="right_Link3">
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="file://$(find xl_ipads_fixed_desc)/meshes/convex/right_link3.stl" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.501960784313725 0.501960784313725 0.501960784313725 1" />
+      </material>
+    </visual>
+  </link>
+  <joint
+    name="rightjoint3"
+    type="fixed">
+    <!-- type="revolute"> -->
+    <origin
+      xyz="0.011996 0.13907 -0.0579"
+      rpy="1.3712 0 0" />
+    <parent
+      link="right_Link2" />
+    <child
+      link="right_Link3" />
+    <axis
+      xyz="0.083084 0.19761 -0.97675" />
+    <!-- <limit
+      lower="-3.14"
+      upper="3.14"
+      effort="10000"
+      velocity="2.5" /> -->
+  </joint>
+  <link
+    name="right_Link4">
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="file://$(find xl_ipads_fixed_desc)/meshes/convex/right_link4.stl" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.501960784313725 0.501960784313725 0.501960784313725 1" />
+      </material>
+    </visual>
+  </link>
+  <joint
+    name="rightjoint4"
+    type="fixed">
+    <!-- type="revolute"> -->
+    <origin
+      xyz="-0.038388 0.037967 -0.18849"
+      rpy="3.1281 -1.4887 3.1416" />
+    <parent
+      link="right_Link3" />
+    <child
+      link="right_Link4" />
+    <axis
+      xyz="0 0 -1" />
+    <!-- <limit
+      lower="-3.14"
+      upper="3.14"
+      effort="10000"
+      velocity="2.5" /> -->
+  </joint>
+  <link
+    name="right_Link5">
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="file://$(find xl_ipads_fixed_desc)/meshes/convex/right_link5.stl" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.501960784313725 0.501960784313725 0.501960784313725 1" />
+      </material>
+    </visual>
+  </link>
+  <joint
+    name="rightjoint5"
+    type="fixed">
+    <!-- type="revolute"> -->
+    <origin
+      xyz="-0.0059377 0.10727 -0.054229"
+      rpy="1.5708 -1.3312 -3.0862" />
+    <parent
+      link="right_Link4" />
+    <child
+      link="right_Link5" />
+    <axis
+      xyz="0 0 1" />
+    <!-- <limit
+      lower="-3.14"
+      upper="3.14"
+      effort="10000"
+      velocity="2.5" /> -->
+  </joint>
+  <link
+    name="right_Link6">
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="file://$(find xl_ipads_fixed_desc)/meshes/convex/right_link6.stl" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.501960784313725 0.501960784313725 0.501960784313725 1" />
+      </material>
+    </visual>
+  </link>
+  <joint
+    name="rightjoint6"
+    type="fixed">
+    <!-- type="revolute"> -->
+    <origin
+      xyz="-0.004371 0.044756 0.127"
+      rpy="1.6249 -0.018003 -2.8207" />
+    <parent
+      link="right_Link5" />
+    <child
+      link="right_Link6" />
+    <axis
+      xyz="-0.22166 0.056722 0.97347" />
+    <!-- <limit
+      lower="-3.14"
+      upper="3.14"
+      effort="10000"
+      velocity="2.5" /> -->
+  </joint>
+  <link
+    name="right_Link7">
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="file://$(find xl_ipads_fixed_desc)/meshes/convex/right_link7.stl" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.250980392156863 0.250980392156863 0.250980392156863 1" />
+      </material>
+    </visual>
+  </link>
+  <joint
+    name="rightjoint7"
+    type="fixed">
+    <!-- type="revolute"> -->
+    <origin
+      xyz="0.018548 0.15024 -0.052517"
+      rpy="1.5002 -0.8608 0" />
+    <parent
+      link="right_Link6" />
+    <child
+      link="right_Link7" />
+    <axis
+      xyz="0 0 -1" />
+    <!-- <limit
+      lower="-3.14"
+      upper="3.14"
+      effort="10000"
+      velocity="2.5" /> -->
+  </joint>
+  <link
+    name="left_Link1">
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="file://$(find xl_ipads_fixed_desc)/meshes/convex/left_link1.stl" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.501960784313725 0.501960784313725 0.501960784313725 1" />
+      </material>
+    </visual>
+  </link>
+  <joint
+    name="leftjoint1"
+    type="fixed">
+    <!-- type="revolute"> -->
+    <origin
+      xyz="-0.18906 0.0865 0.6697"
+      rpy="0 -1.5708 0" />
+    <parent
+      link="link0" />
+    <child
+      link="left_Link1" />
+    <axis
+      xyz="0 0 -1" />
+    <!-- <limit
+      lower="-3.14"
+      upper="3.14"
+      effort="10000"
+      velocity="2.5" /> -->
+  </joint>
+  <link
+    name="left_Link2">
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="file://$(find xl_ipads_fixed_desc)/meshes/convex/left_link2.stl" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.501960784313725 0.501960784313725 0.501960784313725 1" />
+      </material>
+    </visual>
+  </link>
+  <joint
+    name="leftjoint2"
+    type="fixed">
+    <!-- type="revolute"> -->
+    <origin
+      xyz="0 -0.057901 0.0705"
+      rpy="1.5708 1.4791 0" />
+    <parent
+      link="left_Link1" />
+    <child
+      link="left_Link2" />
+    <axis
+      xyz="0 0 -1" />
+    <!-- <limit
+      lower="-3.14"
+      upper="3.14"
+      effort="10000"
+      velocity="2.5" /> -->
+  </joint>
+  <link
+    name="left_Link3">
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="file://$(find xl_ipads_fixed_desc)/meshes/convex/left_link3.stl" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.501960784313725 0.501960784313725 0.501960784313725 1" />
+      </material>
+    </visual>
+  </link>
+  <joint
+    name="leftjoint3"
+    type="fixed">
+    <!-- type="revolute"> -->
+    <origin
+      xyz="0.00040028 0.1135 -0.0579"
+      rpy="-1.5708 0 0" />
+    <parent
+      link="left_Link2" />
+    <child
+      link="left_Link3" />
+    <axis
+      xyz="0 0 1" />
+    <!-- <limit
+      lower="-3.14"
+      upper="3.14"
+      effort="10000"
+      velocity="2.5" /> -->
+  </joint>
+  <link
+    name="left_Link4">
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="file://$(find xl_ipads_fixed_desc)/meshes/convex/left_link4.stl" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.501960784313725 0.501960784313725 0.501960784313725 1" />
+      </material>
+    </visual>
+  </link>
+  <joint
+    name="lefthjoint4"
+    type="fixed">
+    <!-- type="revolute"> -->
+    <origin
+      xyz="-0.044955 0.030331 0.2145"
+      rpy="1.5708 -1.5708 -2.1643" />
+    <parent
+      link="left_Link3" />
+    <child
+      link="left_Link4" />
+    <axis
+      xyz="0 0 -1" />
+    <!-- <limit
+      lower="-3.14"
+      upper="3.14"
+      effort="10000"
+      velocity="2.5" /> -->
+  </joint>
+  <link
+    name="left_Link5">
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="file://$(find xl_ipads_fixed_desc)/meshes/convex/left_link5.stl" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.501960784313725 0.501960784313725 0.501960784313725 1" />
+      </material>
+    </visual>
+  </link>
+  <joint
+    name="leftjoint5"
+    type="fixed">
+    <!-- type="revolute"> -->
+    <origin
+      xyz="0.087044 0.012485 -0.054231"
+      rpy="1.7056 0.97107 1.7337" />
+    <parent
+      link="left_Link4" />
+    <child
+      link="left_Link5" />
+    <axis
+      xyz="0.011536 -0.1177 -0.99298" />
+    <!-- <limit
+      lower="-3.14"
+      upper="3.14"
+      effort="10000"
+      velocity="2.5" /> -->
+  </joint>
+  <link
+    name="left_Link6">
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="file://$(find xl_ipads_fixed_desc)/meshes/convex/left_link6.stl" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.501960784313725 0.501960784313725 0.501960784313725 1" />
+      </material>
+    </visual>
+  </link>
+  <joint
+    name="leftjoint6"
+    type="fixed">
+    <!-- type="revolute"> -->
+    <origin
+      xyz="-0.042573 -0.0014327 0.14721"
+      rpy="2.7135 1.5283 3.1416" />
+    <parent
+      link="left_Link5" />
+    <child
+      link="left_Link6" />
+    <axis
+      xyz="0 0 -1" />
+    <!-- <limit
+      lower="-3.14"
+      upper="3.14"
+      effort="10000"
+      velocity="2.5" /> -->
+  </joint>
+  <link
+    name="left_Link7">
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="file://$(find xl_ipads_fixed_desc)/meshes/convex/left_link7.stl" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.501960784313725 0.501960784313725 0.501960784313725 1" />
+      </material>
+    </visual>
+  </link>
+  <joint
+    name="leftjoint7"
+    type="fixed">
+    <!-- type="revolute"> -->
+    <origin
+      xyz="-0.15109 0.025761 0.046713"
+      rpy="1.6636 -1.1407 -1.6729" />
+    <parent
+      link="left_Link6" />
+    <child
+      link="left_Link7" />
+    <axis
+      xyz="-0.027837 0.15291 0.98785" />
+    <!-- <limit
+      lower="-3.14"
+      upper="3.14"
+      effort="10000"
+      velocity="2.5" /> -->
+  </joint>
+</xacro:macro>
+</robot>

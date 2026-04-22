@@ -1,0 +1,52 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="robot_voxelsky">
+    <xacro:macro name="link_base" params="length radius">
+        <!-- robot body -->
+        <link name="link_base">
+            <!-- Appearance -->
+            <visual>
+                <!-- offsets to its own geometry center -->
+                <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
+                <!-- geometry definition -->
+                <geometry>
+                    <cylinder radius="${radius}" length="${length}"/>
+                </geometry>
+                <!-- material, texture & color -->
+                <material name="ap_white">
+                    <color rgba="1.0 1.0 1.0 0.5"/>
+                </material>
+            </visual>
+        </link>
+    </xacro:macro>
+    <xacro:macro name="link_imu" params="imu_name joint_xyz">
+        <!-- Robot IMU (惯性测量传感器) -->
+        <link name="link_imu_${imu_name}">
+            <visual>
+                <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
+                <geometry>
+                    <box size="0.02 0.02 0.02"/>
+                </geometry>
+                <material name="ap_black">
+                    <color rgba="0.0 0.0 0.0 0.5"/>
+                </material>
+            </visual>
+        </link>
+
+        <!-- Robot Joint: Combine the different links -->
+        <!-- use fixed instead of revolute to represent fixed object -->
+        <joint name="joint_imu_${imu_name}" type="fixed">
+            <!-- joint position -->
+            <origin xyz="${joint_xyz}" rpy="0.0 0.0 0.0"/>
+            <parent link="link_base"/>
+            <child link="link_imu_${imu_name}"/>
+            <!-- rotation axis -->
+            <!-- <axis xyz="0.0 0.0 0.0"/> -->
+            <!-- other limits -->
+            <!-- <limit lower="0.0" upper="0.0" effort="0.0" velocity="0.0"/> -->
+        </joint>
+    </xacro:macro>
+    <!-- 这里传递参数调用宏，来生成 <link> 块 -->
+    <xacro:link_base length="0.12" radius="0.1"/>
+    <xacro:link_imu imu_name="up" joint_xyz="0.0 0.0 0.03"/>
+    <xacro:link_imu imu_name="down" joint_xyz="0.0 0.0 -0.03"/>
+</robot>

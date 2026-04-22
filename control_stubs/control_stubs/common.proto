@@ -1,0 +1,81 @@
+syntax = "proto3";
+
+package robot_sim.common;
+
+message Empty {}
+
+// Standard header for synchronization
+message Header {
+  // Sequence ID
+  uint64 seq = 1;
+  // Time in seconds/nanoseconds (compatible with ROS2/Google Timestamp)
+  double timestamp = 2;
+  // Coordinate frame (e.g., "map", "base_link", "camera_optical_frame")
+  string frame_id = 3;
+}
+
+// 3D Geometry
+message Point {
+  double x = 1;
+  double y = 2;
+  double z = 3;
+}
+
+message Quaternion {
+  double x = 1;
+  double y = 2;
+  double z = 3;
+  double w = 4;
+}
+
+message Pose {
+  Point position = 1;
+  Quaternion orientation = 2;
+}
+
+message PoseStamped {
+  Header header = 1;
+  Pose pose = 2;
+}
+
+message Twist {
+  Point linear = 1;
+  Point angular = 2;
+}
+
+message TwistStamped {
+  Header header = 1;
+  Twist twist = 2;
+}
+
+// same def as ROS2 sensor_msgs/JointState
+message JointState {
+  Header header = 1;
+  repeated string name = 2;
+  repeated double position = 3;
+  repeated double velocity = 4;
+  repeated double effort = 5;
+  // useless?
+  // Status status = 6;
+}
+
+// Generic Tensor for raw AI data
+message Tensor {
+  repeated int64 shape = 1;
+  string dtype = 2; // "float32", "int8", etc.
+  bytes data = 3;   // Raw byte buffer
+}
+
+// Status codes for operations
+enum StatusCode {
+  STATUS_UNKNOWN = 0;
+  STATUS_SUCCESS = 1;
+  STATUS_RUNNING = 2;
+  STATUS_FAILURE = 3;
+  STATUS_PREEMPTED = 4;
+}
+
+message Status {
+  StatusCode code = 1;
+  string message = 2;
+}

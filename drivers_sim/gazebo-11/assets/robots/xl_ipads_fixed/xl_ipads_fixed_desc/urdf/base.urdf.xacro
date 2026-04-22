@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+    <xacro:include filename="$(find xl_ipads_fixed_desc)/urdf/common_inertia.xacro" />
+
+    <xacro:property name="z_offset" default="0.25" />
+
+    <xacro:macro name="base_xacro" params="length radius">
+
+    <!-- 虚拟部件：让轮胎落地 -->
+    <link name="base_footprint" />
+
+    <!-- 虚拟部件：主体转为面向 x 轴，并保持底座 z 坐标大于 0 -->
+    <link name="base_link" />
+
+    <joint name="base_body_joint" type="fixed">
+        <parent link="base_link" />
+        <child link="base_body" />
+        <origin xyz="0 0 ${z_offset}" rpy="0 0 -${pi/2}" />
+    </joint>
+
+    <!-- 虚拟部件与主体紧耦合 -->
+    <joint name="base_joint" type="fixed">
+        <parent link="base_footprint" />
+        <child link="base_link" />
+        <!-- 轮子半径 0.064，另外 0.001 确保紧贴 -->
+        <origin xyz="0.0 0.0 ${length/2.0+0.064-0.001}" />
+    </joint>
+
+    <xacro:include filename="$(find xl_ipads_fixed_desc)/urdf/body.urdf.xacro" />
+    <xacro:body_xacro />
+
+    </xacro:macro>
+
+</robot>

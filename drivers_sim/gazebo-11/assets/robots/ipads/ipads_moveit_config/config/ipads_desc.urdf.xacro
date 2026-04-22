@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="ipads_desc">
+    <xacro:arg name="initial_positions_file" default="initial_positions.yaml" />
+    <xacro:arg name="ros2_control_hardware_type" default="mock_components" />
+
+    <!-- Import ipads_desc urdf file -->
+    <xacro:include filename="$(find ipads_desc)/urdf/ipads_desc.urdf" />
+
+    <!-- Import control_xacro -->
+    <xacro:include filename="ipads_desc.ros2_control.xacro" />
+
+
+    <xacro:ipads_desc_ros2_control name="FakeSystem" initial_positions_file="$(arg initial_positions_file)" ros2_control_hardware_type="$(arg ros2_control_hardware_type)"/>
+
+</robot>

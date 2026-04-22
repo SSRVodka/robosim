@@ -1,0 +1,35 @@
+name: robosim
+channels:
+  - robostack-humble
+  - conda-forge
+
+dependencies:
+  - python=3.12
+  - grpcio=1.78.1
+  - protobuf
+  - grpcio-tools
+
+  # Gazebo-ROS stack
+  - ros-dev-tools
+  - ros-humble-desktop
+  - ros-humble-ros2-control
+  - ros-humble-ros2-controllers
+  - ros-humble-gazebo-ros
+  - ros-humble-gazebo-ros-pkgs
+  - ros-humble-gazebo-ros2-control
+  - ros-humble-navigation2
+  - ros-humble-nav2-bringup
+  - ros-humble-twist-stamper
+  - ros-humble-tf-transformations
+  - ros-humble-rqt-tf-tree
+  - ros-humble-moveit
+  - xacro
+
+  # MuJoCo stack
+  - mujoco
+
+  # Dev tools
+  - pip
+  - ruff
+  - mypy
+      

@@ -1,0 +1,17 @@
+# Default initial positions for ipads_desc's ros2_control fake system
+
+initial_positions:
+  lefthjoint4: 0
+  leftjoint1: 0
+  leftjoint2: 0
+  leftjoint3: 0
+  leftjoint5: 0
+  leftjoint6: 0
+  leftjoint7: 0
+  rightjoint1: 0
+  rightjoint2: 0
+  rightjoint3: 0
+  rightjoint4: 0
+  rightjoint5: 0
+  rightjoint6: 0
+  rightjoint7: 0

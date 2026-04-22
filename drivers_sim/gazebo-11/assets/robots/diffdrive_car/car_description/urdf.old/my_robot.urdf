@@ -1,0 +1,46 @@
+<?xml version="1.0"?>
+<robot name="robot_voxelsky">
+    <!-- robot body -->
+    <link name="link_base">
+        <!-- Appearance -->
+        <visual>
+            <!-- offsets to its own geometry center -->
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
+            <!-- geometry definition -->
+            <geometry>
+                <cylinder radius="0.10" length="0.12"/>
+            </geometry>
+            <!-- material, texture & color -->
+            <material name="ap_white">
+                <color rgba="1.0 1.0 1.0 0.5"/>
+            </material>
+        </visual>
+    </link>
+
+    <!-- Robot IMU (惯性测量传感器) -->
+    <link name="link_imu">
+        <visual>
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
+            <geometry>
+                <box size="0.02 0.02 0.02"/>
+            </geometry>
+            <material name="ap_black">
+                <color rgba="0.0 0.0 0.0 0.5"/>
+            </material>
+        </visual>
+    </link>
+
+    <!-- Robot Joint: Combine the different links -->
+    <!-- use fixed instead of revolute to represent fixed object -->
+    <joint name="imu_joint" type="fixed">
+        <!-- joint position -->
+        <origin xyz="0.0 0.0 0.03" rpy="0.0 0.0 0.0"/>
+        <parent link="link_base"/>
+        <child link="link_imu"/>
+        <!-- rotation axis -->
+        <!-- <axis xyz="0.0 0.0 0.0"/> -->
+        <!-- other limits -->
+        <!-- <limit lower="0.0" upper="0.0" effort="0.0" velocity="0.0"/> -->
+    </joint>
+</robot>
+

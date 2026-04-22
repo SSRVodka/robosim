@@ -1,0 +1,171 @@
+<mujoco model="ipads_desc">
+  <compiler angle="radian" meshdir="assets" autolimits="true"/>
+
+  <option integrator="implicitfast"/>
+
+  <default>
+    <default class="ipads_desc">
+      <!-- <actuator>
+        <general gaintype="fixed" biastype="affine"
+                ctrlrange="-6.2831 6.2831"
+                gainprm="800"
+                biasprm="0 -300 -50"
+                forcerange="-200 200"/>
+      </actuator> -->
+      <material specular="0.5" shininess="0.25"/>
+      <joint armature="0.1" damping="100" axis="0 0 1" range="-2.8973 2.8973"/>
+      <general dyntype="none" biastype="affine" ctrlrange="-2.8973 2.8973" forcerange="-87 87"/>
+      <!-- <default class="finger">
+        <joint axis="0 1 0" type="slide" range="0 0.04"/>
+      </default> -->
+
+      <default class="visual">
+        <geom type="mesh" contype="0" conaffinity="0" group="1" density="0"/>
+      </default>
+      <!-- <default class="collision">
+        <geom type="mesh" group="3"/>
+        <default class="fingertip_pad_collision_1">
+          <geom type="box" size="0.0085 0.004 0.0085" pos="0 0.0055 0.0445"/>
+        </default>
+        <default class="fingertip_pad_collision_2">
+          <geom type="box" size="0.003 0.002 0.003" pos="0.0055 0.002 0.05"/>
+        </default>
+        <default class="fingertip_pad_collision_3">
+          <geom type="box" size="0.003 0.002 0.003" pos="-0.0055 0.002 0.05"/>
+        </default>
+        <default class="fingertip_pad_collision_4">
+          <geom type="box" size="0.003 0.002 0.0035" pos="0.0055 0.002 0.0395"/>
+        </default>
+        <default class="fingertip_pad_collision_5">
+          <geom type="box" size="0.003 0.002 0.0035" pos="-0.0055 0.002 0.0395"/>
+        </default>
+      </default> -->
+    </default>
+  </default>
+
+  <asset>
+    <material class="ipads_desc" name="white" rgba="0.501961 0.501961 0.501961 1" />
+    <material class="ipads_desc" name="light_white" rgba="0.752941 0.752941 0.752941 1" />
+    <material class="ipads_desc" name="black" rgba="0.25098 0.25098 0.25098 1" />
+    <material class="ipads_desc" name="dark" rgba="0 0 0 1" />
+
+    <mesh name="base_link" content_type="model/stl" file="base_link.stl"/>
+    <mesh name="link0" content_type="model/stl" file="link0.stl"/>
+    <mesh name="right_link1" content_type="model/stl" file="right_link1.stl"/>
+    <mesh name="right_link2" content_type="model/stl" file="right_link2.stl"/>
+    <mesh name="right_link3" content_type="model/stl" file="right_link3.stl"/>
+    <mesh name="right_link4" content_type="model/stl" file="right_link4.stl"/>
+    <mesh name="right_link5" content_type="model/stl" file="right_link5.stl"/>
+    <mesh name="right_link6" content_type="model/stl" file="right_link6.stl"/>
+    <mesh name="right_link7" content_type="model/stl" file="right_link7.stl"/>
+    <mesh name="left_link1" content_type="model/stl" file="left_link1.stl"/>
+    <mesh name="left_link2" content_type="model/stl" file="left_link2.stl"/>
+    <mesh name="left_link3" content_type="model/stl" file="left_link3.stl"/>
+    <mesh name="left_link4" content_type="model/stl" file="left_link4.stl"/>
+    <mesh name="left_link5" content_type="model/stl" file="left_link5.stl"/>
+    <mesh name="left_link6" content_type="model/stl" file="left_link6.stl"/>
+    <mesh name="left_link7" content_type="model/stl" file="left_link7.stl"/>
+  </asset>
+
+  <worldbody>
+    <geom material="light_white" mesh="base_link" class="visual" />
+    <geom type="mesh" material="light_white" mesh="base_link"/>
+    <geom pos="5.7543e-05 0.04397 0.1934" quat="1 0 0 0" material="dark" mesh="link0" class="visual"/>
+    <geom pos="5.7543e-05 0.04397 0.1934" quat="1 0 0 0" type="mesh" material="dark" mesh="link0"/>
+    <body name="right_Link1" pos="0.159998 0.13047 0.8631" quat="0.707105 0 0.707108 0" gravcomp="1" >
+      <inertial pos="-0.190264 0.429818 0.378845" quat="0.966406 -0.0479361 -0.0511641 -0.247273" mass="375.348" diaginertia="115.554 109.301 22.9949"/>
+      <joint name="rightjoint1" pos="0 0 0" axis="0 0 -1" range="-3.14 3.14" />
+      <geom material="white" mesh="right_link1" class="visual"/>
+      <geom type="mesh" material="white" mesh="right_link1"/>
+      <body name="right_Link2" pos="-0.011481 0.056751 0.0995" quat="0.547327 -0.447697 -0.547329 -0.447695" gravcomp="1">
+        <inertial pos="-0.190264 0.429818 0.378845" quat="0.966406 -0.0479361 -0.0511641 -0.247273" mass="375.348" diaginertia="115.554 109.301 22.9949"/>
+        <joint name="rightjoint2" pos="0 0 0" axis="0 0 -1" range="-3.14 3.14" />
+        <geom material="white" mesh="right_link2" class="visual"/>
+        <geom type="mesh" material="white" mesh="right_link2"/>
+        <body name="right_Link3" pos="0.011996 0.13907 -0.0579" quat="0.774039 0.633138 0 0" gravcomp="1">
+          <inertial pos="-0.190264 0.429818 0.378845" quat="0.966406 -0.0479361 -0.0511641 -0.247273" mass="375.348" diaginertia="115.554 109.301 22.9949"/>
+          <joint name="rightjoint3" pos="0 0 0" axis="0.0830843 0.197611 -0.976753" range="-3.14 3.14" />
+          <geom material="white" mesh="right_link3" class="visual"/>
+          <geom type="mesh" material="white" mesh="right_link3"/>
+          <body name="right_Link4" pos="-0.038388 0.037967 -0.18849" quat="-0.677478 0.00456786 0.735512 0.00495959" gravcomp="1">
+            <inertial pos="-0.190264 0.429818 0.378845" quat="0.966406 -0.0479361 -0.0511641 -0.247273" mass="375.348" diaginertia="115.554 109.301 22.9949"/>
+            <joint name="rightjoint4" pos="0 0 0" axis="0 0 -1" range="-3.14 3.14" />
+            <geom material="white" mesh="right_link4" class="visual"/>
+            <geom type="mesh" material="white" mesh="right_link4"/>
+            <body name="right_Link5" pos="-0.0059377 0.10727 -0.054229" quat="0.451896 -0.42109 -0.568052 -0.543866" gravcomp="1">
+              <inertial pos="-0.190264 0.429818 0.378845" quat="0.966406 -0.0479361 -0.0511641 -0.247273" mass="375.348" diaginertia="115.554 109.301 22.9949"/>
+              <joint name="rightjoint5" pos="0 0 0" axis="0 0 1" range="-3.14 3.14" />
+              <geom material="white" mesh="right_link5" class="visual"/>
+              <geom type="mesh" material="white" mesh="right_link5"/>
+              <body name="right_Link6" pos="-0.004371 0.044756 0.127" quat="0.116316 0.109865 -0.71761 -0.677817" gravcomp="1">
+                <inertial pos="-0.190264 0.429818 0.378845" quat="0.966406 -0.0479361 -0.0511641 -0.247273" mass="375.348" diaginertia="115.554 109.301 22.9949"/>
+                <joint name="rightjoint6" pos="0 0 0" axis="-0.221661 0.0567222 0.973473" range="-3.14 3.14" />
+                <geom material="white" mesh="right_link6" class="visual"/>
+                <geom type="mesh" material="white" mesh="right_link6"/>
+                <body name="right_Link7" pos="0.018548 0.15024 -0.052517" quat="0.664896 0.619539 -0.305257 0.284434" gravcomp="1">
+                  <inertial pos="-0.190264 0.429818 0.378845" quat="0.966406 -0.0479361 -0.0511641 -0.247273" mass="375.348" diaginertia="115.554 109.301 22.9949"/>
+                  <joint name="rightjoint7" pos="0 0 0" axis="0 0 -1" range="-3.14 3.14" />
+                  <geom material="black" mesh="right_link7" class="visual"/>
+                  <geom type="mesh" material="black" mesh="right_link7"/>
+                  <site name="left_ft_sensor_site" pos="0 0 0"/>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+    <body name="left_Link1" pos="-0.189002 0.13047 0.8631" quat="0.707105 0 -0.707108 0" gravcomp="1">
+      <inertial pos="-0.190264 0.429818 0.378845" quat="0.966406 -0.0479361 -0.0511641 -0.247273" mass="375.348" diaginertia="115.554 109.301 22.9949"/>
+      <joint name="leftjoint1" pos="0 0 0" axis="0 0 -1" range="-3.14 3.14" />
+      <geom material="white" mesh="left_link1" class="visual"/>
+      <geom type="mesh" material="white" mesh="left_link1"/>
+      <body name="left_Link2" pos="0 -0.057901 0.0705" quat="0.52239 0.522392 0.476558 -0.476559" gravcomp="1">
+        <inertial pos="-0.190264 0.429818 0.378845" quat="0.966406 -0.0479361 -0.0511641 -0.247273" mass="375.348" diaginertia="115.554 109.301 22.9949"/>
+        <joint name="leftjoint2" pos="0 0 0" axis="0 0 -1" range="-3.14 3.14" />
+        <geom material="white" mesh="left_link2" class="visual"/>
+        <geom type="mesh" material="white" mesh="left_link2"/>
+        <body name="left_Link3" pos="0.00040028 0.1135 -0.0579" quat="0.707105 -0.707108 0 0" gravcomp="1">
+          <inertial pos="-0.190264 0.429818 0.378845" quat="0.966406 -0.0479361 -0.0511641 -0.247273" mass="375.348" diaginertia="115.554 109.301 22.9949"/>
+          <joint name="leftjoint3" pos="0 0 0" axis="0 0 1" range="-3.14 3.14" />
+          <geom material="white" mesh="left_link3" class="visual"/>
+          <geom type="mesh" material="white" mesh="left_link3"/>
+          <body name="left_Link4" pos="-0.044955 0.030331 0.2145" quat="0.676201 -0.206769 -0.6762 -0.206767" gravcomp="1">
+            <inertial pos="-0.190264 0.429818 0.378845" quat="0.966406 -0.0479361 -0.0511641 -0.247273" mass="375.348" diaginertia="115.554 109.301 22.9949"/>
+            <joint name="lefthjoint4" pos="0 0 0" axis="0 0 -1" range="-3.14 3.14" />
+            <geom material="white" mesh="left_link4" class="visual"/>
+            <geom type="mesh" material="white" mesh="left_link4"/>
+            <body name="left_Link5" pos="0.087044 0.012485 -0.054231" quat="0.64451 0.197071 0.706463 0.216053" gravcomp="1">
+              <inertial pos="-0.190264 0.429818 0.378845" quat="0.966406 -0.0479361 -0.0511641 -0.247273" mass="375.348" diaginertia="115.554 109.301 22.9949"/>
+              <joint name="leftjoint5" pos="0 0 0" axis="0.011536 -0.1177 -0.992982" range="-3.14 3.14" />
+              <geom material="white" mesh="left_link5" class="visual"/>
+              <geom type="mesh" material="white" mesh="left_link5"/>
+              <body name="left_Link6" pos="-0.042573 -0.0014327 0.14721" quat="0.676133 -0.146978 0.705494 0.15336" gravcomp="1">
+                <inertial pos="-0.190264 0.429818 0.378845" quat="0.966406 -0.0479361 -0.0511641 -0.247273" mass="375.348" diaginertia="115.554 109.301 22.9949"/>
+                <joint name="leftjoint6" pos="0 0 0" axis="0 0 -1" range="-3.14 3.14" />
+                <geom material="white" mesh="left_link6" class="visual"/>
+                <geom type="mesh" material="white" mesh="left_link6"/>
+                <body name="left_Link7" pos="-0.15109 0.025761 0.046713" quat="0.67613 0.146964 -0.705494 -0.153389" gravcomp="1">
+                  <inertial pos="-0.190264 0.429818 0.378845" quat="0.966406 -0.0479361 -0.0511641 -0.247273" mass="375.348" diaginertia="115.554 109.301 22.9949"/>
+                  <joint name="leftjoint7" pos="0 0 0" axis="-0.0278369 0.15291 0.987848" range="-3.14 3.14" />
+                  <geom material="white" mesh="left_link7" class="visual"/>
+                  <geom type="mesh" material="white" mesh="left_link7"/>
+                  <site name="right_ft_sensor_site" pos="0 0 0"/>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+
+  <sensor>
+    <force name="left_ft_sensor_force" site="left_ft_sensor_site"/>
+    <torque name="left_ft_sensor_torque" site="left_ft_sensor_site"/>
+  </sensor>
+  <sensor>
+    <force name="right_ft_sensor_force" site="right_ft_sensor_site"/>
+    <torque name="right_ft_sensor_torque" site="right_ft_sensor_site"/>
+  </sensor>
+</mujoco>

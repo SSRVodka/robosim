@@ -1,0 +1,273 @@
+# This config file is used by ros2_control
+controller_manager:
+  ros__parameters:
+    update_rate: 100  # Hz
+
+    left_arm_group_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+    right_arm_group_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    left_force_torque_broadcaster:
+      type: force_torque_sensor_broadcaster/ForceTorqueSensorBroadcaster
+
+    right_force_torque_broadcaster:
+      type: force_torque_sensor_broadcaster/ForceTorqueSensorBroadcaster
+
+    left_admittance_controller:
+      type: admittance_controller/AdmittanceController
+
+    right_admittance_controller:
+      type: admittance_controller/AdmittanceController
+
+left_arm_group_controller:
+  ros__parameters:
+    joints:
+      - leftjoint1
+      - leftjoint2
+      - leftjoint3
+      - lefthjoint4
+      - leftjoint5
+      - leftjoint6
+      - leftjoint7
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    command_joints:
+      - left_admittance_controller/leftjoint1
+      - left_admittance_controller/leftjoint2
+      - left_admittance_controller/leftjoint3
+      - left_admittance_controller/lefthjoint4
+      - left_admittance_controller/leftjoint5
+      - left_admittance_controller/leftjoint6
+      - left_admittance_controller/leftjoint7
+    constraints:
+      leftjoint1:
+        goal: 0.03
+        trajectory: 0.5
+      leftjoint2:
+        goal: 0.03
+        trajectory: 0.5
+      leftjoint3:
+        goal: 0.03
+        trajectory: 0.5
+      lefthjoint4:
+        goal: 0.03
+        trajectory: 0.5
+      leftjoint5:
+        goal: 0.03
+        trajectory: 0.5
+      leftjoint6:
+        goal: 0.03
+        trajectory: 0.5
+      leftjoint7:
+        goal: 0.03
+        trajectory: 0.5
+right_arm_group_controller:
+  ros__parameters:
+    joints:
+      - rightjoint1
+      - rightjoint2
+      - rightjoint3
+      - rightjoint4
+      - rightjoint5
+      - rightjoint6
+      - rightjoint7
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    command_joints:
+      - right_admittance_controller/rightjoint1
+      - right_admittance_controller/rightjoint2
+      - right_admittance_controller/rightjoint3
+      - right_admittance_controller/rightjoint4
+      - right_admittance_controller/rightjoint5
+      - right_admittance_controller/rightjoint6
+      - right_admittance_controller/rightjoint7
+    constraints:
+      rightjoint1:
+        goal: 0.03
+        trajectory: 0.5
+      rightjoint2:
+        goal: 0.03
+        trajectory: 0.5
+      rightjoint3:
+        goal: 0.03
+        trajectory: 0.5
+      rightjoint4:
+        goal: 0.03
+        trajectory: 0.5
+      rightjoint5:
+        goal: 0.03
+        trajectory: 0.5
+      rightjoint6:
+        goal: 0.03
+        trajectory: 0.5
+      rightjoint7:
+        goal: 0.03
+        trajectory: 0.5
+
+left_force_torque_broadcaster:
+  ros__parameters:
+    frame_id: left_ft_sensor
+    sensor_name: left_ft_sensor
+
+right_force_torque_broadcaster:
+  ros__parameters:
+    frame_id: right_ft_sensor
+    sensor_name: right_ft_sensor
+
+left_admittance_controller:
+  ros__parameters:
+    joints:
+      - leftjoint1
+      - leftjoint2
+      - leftjoint3
+      - lefthjoint4
+      - leftjoint5
+      - leftjoint6
+      - leftjoint7
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    chainable_command_interfaces:
+      - position
+      - velocity
+    kinematics:
+      plugin_name: kinematics_interface_kdl/KinematicsInterfaceKDL
+      plugin_package: kinematics_interface
+      base: link0  # Assumed to be stationary
+      tip: left_Link7  # The end effector frame
+      alpha: 0.05
+    control:
+      frame:
+        id: left_Link7  # Admittance calcs (displacement etc) are done in this frame. Usually the tool or end-effector
+    fixed_world_frame:
+      frame:            # Gravity points down (neg. Z) in this frame (Usually: world or base_link)
+        id: base_link
+    gravity_compensation:
+      frame:
+        id: left_Link7
+      CoG:  # specifies the center of gravity of the end effector
+        pos:
+          - 0.0  # x
+          - 0.0  # y
+          - 0.0  # z
+        force: 15.  # mass * 9.81
+    admittance:
+      selected_axes:
+        - false  # x
+        - false  # y
+        - false  # z
+        - false  # rx
+        - false  # ry
+        - false  # rz
+      # Having ".0" at the end is MUST, otherwise there is a loading error
+      # F = M*a + D*v + S*(x - x_d)
+      mass:
+        - 8.0  # x
+        - 8.0  # y
+        - 8.0  # z
+        - 8.0  # rx
+        - 8.0  # ry
+        - 8.0  # rz
+      damping_ratio:  # damping can be used instead: zeta = D / (2 * sqrt( M * S ))
+        - 30.  # x
+        - 30.  # y
+        - 30.  # z
+        - 30.  # rx
+        - 30.  # ry
+        - 30.  # rz
+      stiffness:
+        - 60.  # x
+        - 60.  # y
+        - 60.  # z
+        - 60.  # rx
+        - 60.  # ry
+        - 60.  # rz
+    # general settings
+    enable_parameter_update_without_reactivation: true
+
+right_admittance_controller:
+  ros__parameters:
+    joints:
+      - rightjoint1
+      - rightjoint2
+      - rightjoint3
+      - rightjoint4
+      - rightjoint5
+      - rightjoint6
+      - rightjoint7
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    chainable_command_interfaces:
+      - position
+      - velocity
+    kinematics:
+      plugin_name: kinematics_interface_kdl/KinematicsInterfaceKDL
+      plugin_package: kinematics_interface
+      base: link0  # Assumed to be stationary
+      tip: right_Link7  # The end effector frame
+      alpha: 0.05
+    control:
+      frame:
+        id: right_Link7  # Admittance calcs (displacement etc) are done in this frame. Usually the tool or end-effector
+    fixed_world_frame:
+      frame:            # Gravity points down (neg. Z) in this frame (Usually: world or base_link)
+        id: base_link
+    gravity_compensation:
+      frame:
+        id: right_Link7
+      CoG:  # specifies the center of gravity of the end effector
+        pos:
+          - 0.0  # x
+          - 0.0  # y
+          - 0.0  # z
+        force: 15.  # mass * 9.81
+    admittance:
+      selected_axes:
+        - false  # x
+        - false  # y
+        - false  # z
+        - false  # rx
+        - false  # ry
+        - false  # rz
+      # Having ".0" at the end is MUST, otherwise there is a loading error
+      # F = M*a + D*v + S*(x - x_d)
+      mass:
+        - 8.0  # x
+        - 8.0  # y
+        - 8.0  # z
+        - 8.0  # rx
+        - 8.0  # ry
+        - 8.0  # rz
+      damping_ratio:  # damping can be used instead: zeta = D / (2 * sqrt( M * S ))
+        - 30.  # x
+        - 30.  # y
+        - 30.  # z
+        - 30.  # rx
+        - 30.  # ry
+        - 30.  # rz
+      stiffness:
+        - 60.  # x
+        - 60.  # y
+        - 60.  # z
+        - 60.  # rx
+        - 60.  # ry
+        - 60.  # rz
+    # general settings
+    enable_parameter_update_without_reactivation: true
+

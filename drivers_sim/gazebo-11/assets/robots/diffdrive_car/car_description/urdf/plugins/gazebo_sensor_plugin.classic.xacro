@@ -1,0 +1,169 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+    <xacro:macro name="gazebo_sensor_plugin">
+        <gazebo reference="laser_link">
+            <sensor name="laserscan" type="ray">
+                <plugin name="laserscan" filename="libgazebo_ros_ray_sensor.so">
+                    <ros>
+                        <namespace>/</namespace>
+                        <remapping>~/out:=scan</remapping>
+                    </ros>
+                    <output_type>sensor_msgs/LaserScan</output_type>
+                    <frame_name>laser_link</frame_name>
+                </plugin>
+                <always_on>true</always_on>
+                <visualize>false</visualize>
+                <update_rate>20</update_rate>
+                <pose>0 0 0 0 0 0</pose>
+								<!-- 激光传感器配置 -->
+                <ray>
+                    <!-- 设置扫描范围 -->
+                    <scan>
+                        <horizontal>
+                            <samples>360</samples>
+                            <resolution>1.000000</resolution>
+                            <min_angle>0.000000</min_angle>
+                            <max_angle>6.280000</max_angle>
+                        </horizontal>
+                    </scan>
+                    <!-- 设置扫描距离 -->
+                    <range>
+                        <min>0.120000</min>
+                        <max>20.0</max>
+                        <resolution>0.015000</resolution>
+                    </range>
+                    <!-- 设置噪声 -->
+                    <noise>
+                        <type>gaussian</type>
+                        <mean>0.0</mean>
+                        <stddev>0.01</stddev>
+                    </noise>
+                </ray>
+            </sensor>
+        </gazebo>
+
+        
+
+        <gazebo reference="imu_link">
+            <sensor name="imu_sensor" type="imu">
+                <plugin name="imu_plugin" filename="libgazebo_ros_imu_sensor.so">
+                    <ros>
+                        <namespace>/</namespace>
+                        <remapping>~/out:=imu</remapping>
+                    </ros>
+                    <initial_orientation_as_reference>false</initial_orientation_as_reference>
+                </plugin>
+                <update_rate>100</update_rate>
+                <always_on>true</always_on>
+                <!-- 六轴噪声设置 -->
+                <imu>
+                    <angular_velocity>
+                        <x>
+                            <noise type="gaussian">
+                                <mean>0.0</mean>
+                                <stddev>2e-4</stddev>
+                                <bias_mean>0.0000075</bias_mean>
+                                <bias_stddev>0.0000008</bias_stddev>
+                            </noise>
+                        </x>
+                        <y>
+                            <noise type="gaussian">
+                                <mean>0.0</mean>
+                                <stddev>2e-4</stddev>
+                                <bias_mean>0.0000075</bias_mean>
+                                <bias_stddev>0.0000008</bias_stddev>
+                            </noise>
+                        </y>
+                        <z>
+                            <noise type="gaussian">
+                                <mean>0.0</mean>
+                                <stddev>2e-4</stddev>
+                                <bias_mean>0.0000075</bias_mean>
+                                <bias_stddev>0.0000008</bias_stddev>
+                            </noise>
+                        </z>
+                    </angular_velocity>
+                    <linear_acceleration>
+                        <x>
+                            <noise type="gaussian">
+                                <mean>0.0</mean>
+                                <stddev>1.7e-2</stddev>
+                                <bias_mean>0.1</bias_mean>
+                                <bias_stddev>0.001</bias_stddev>
+                            </noise>
+                        </x>
+                        <y>
+                            <noise type="gaussian">
+                                <mean>0.0</mean>
+                                <stddev>1.7e-2</stddev>
+                                <bias_mean>0.1</bias_mean>
+                                <bias_stddev>0.001</bias_stddev>
+                            </noise>
+                        </y>
+                        <z>
+                            <noise type="gaussian">
+                                <mean>0.0</mean>
+                                <stddev>1.7e-2</stddev>
+                                <bias_mean>0.1</bias_mean>
+                                <bias_stddev>0.001</bias_stddev>
+                            </noise>
+                        </z>
+                    </linear_acceleration>
+                </imu>
+            </sensor>
+        </gazebo>
+
+        <gazebo reference="camera_link">
+            <sensor type="depth" name="camera_sensor">
+                <!-- use camera name as prefix originally (see https://github.com/ros-simulation/gazebo_ros_pkgs/blob/ros2/gazebo_plugins/src/gazebo_ros_camera.cpp#L187) -->
+                <!-- e.g., ${namespace}/camera_sensor(${camera_name})/image_raw -->
+                <!-- But we can edit it by cameraName -->
+                <plugin name="depth_camera" filename="libgazebo_ros_camera.so">
+                    <camera_name>camera</camera_name>
+                    <frame_name>camera_optical_link</frame_name>
+                    <ros>
+                        <namespace>/</namespace>
+                        <remapping>camera/image_raw:=camera/image</remapping>
+                        <remapping>camera/camera_info:=camera/camera_info</remapping>
+                        <remapping>camera/depth/image_raw:=camera/depth_image</remapping>
+                        <remapping>camera/depth/camera_info:=camera/depth_camera_info</remapping>
+                        <remapping>camera/points:=camera/points</remapping>
+                    </ros>
+                    <!-- default 0.4 will cause -inf data in image. See `diagnostic/` -->
+                    <min_depth>0.0</min_depth>
+                    <max_depth>50.0</max_depth>
+                </plugin>
+                <always_on>true</always_on>
+                <update_rate>20</update_rate>
+
+                <camera name="camera">
+                    <horizontal_fov>1.5009831567</horizontal_fov>
+                    <image>
+                        <width>800</width>
+                        <height>600</height>
+                        <format>R8G8B8</format>
+                    </image>
+                    
+                    <clip>
+                        <near>0.1</near>
+                        <far>20.0</far>
+                    </clip>
+                    <noise>
+                        <type>gaussian</type>
+                        <mean>0.0</mean>
+                        <stddev>0.0</stddev>
+                    </noise>
+                    <distortion>
+                        <k1>0.0</k1>
+                        <k2>0.0</k2>
+                        <k3>0.0</k3>
+                        <p1>0.0</p1>
+                        <p2>0.0</p2>
+                        <center>0.5 0.5</center>
+                    </distortion>
+                </camera>
+            </sensor>
+        </gazebo>
+
+    </xacro:macro>
+</robot>

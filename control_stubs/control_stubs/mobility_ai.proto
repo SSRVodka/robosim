@@ -1,0 +1,55 @@
+syntax = "proto3";
+
+package robot_sim.ai;
+
+import "control_stubs/common.proto";
+
+service MobilityService {
+  // --- Meta Operations: Map & Navigation ---
+
+  // Get the current pose of the robot in the map.
+  rpc GetRobotPoseInMap (robot_sim.common.Empty) returns (robot_sim.common.PoseStamped);
+  
+  // Move from A to B using SLAM 2D. Server streams feedback (progress) until done.
+  rpc NavigateTo (NavGoal) returns (stream TaskFeedback);
+
+  // --- Meta Operations: VLA/VLN ---
+  
+  // Natural Language Interface. 
+  // Send a prompt, receive a stream of thoughts, actions, or status updates.
+  // rpc ExecuteNaturalCommand (NaturalLanguageRequest) returns (stream TaskFeedback);
+  
+  // TODO (uncomment): Query the status of the framework's internal AI agent
+  // rpc GetAgentStatus (robot_sim.common.Empty) returns (AgentStatus);
+}
+
+message NavGoal {
+  robot_sim.common.Pose target_pose = 1;
+  string target_frame = 2; // e.g., "map" (default)
+  // Optional: override planner settings
+  float max_velocity = 3;
+}
+
+message NaturalLanguageRequest {
+  string prompt = 1; // e.g., "Pick up the red apple"
+  // Context allows passing previous history or specific object IDs
+  map<string, string> context = 2; 
+  
+  enum ModelType {
+    AUTO = 0;
+    VLA_MANIPULATION = 1;
+    VLN_NAVIGATION = 2;
+  }
+  ModelType model_selector = 3;
+}
+
+message TaskFeedback {
+  string task_id = 1;
+  robot_sim.common.Status status = 2;
+  // Optional
+  uint32 eta = 3; // unit: second(s)
+  // Optional
+  string feedback_text = 4; // "Planning path...", "Grasping object"
+  // Optional: Return debugging visualization (e.g., current VLA attention map)
+  bytes debug_image = 5;
+}

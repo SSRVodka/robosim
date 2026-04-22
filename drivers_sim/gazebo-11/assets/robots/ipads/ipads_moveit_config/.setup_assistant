@@ -1,0 +1,25 @@
+moveit_setup_assistant_config:
+  urdf:
+    package: ipads_desc
+    relative_path: urdf/ipads_desc.urdf
+  srdf:
+    relative_path: config/ipads_desc.srdf
+  package_settings:
+    author_name: SSRVodka
+    author_email: sjtuxhw12345@sjtu.edu.cn
+    generated_timestamp: 1760951898
+  control_xacro:
+    command:
+      - position
+    state:
+      - position
+      - velocity
+  modified_urdf:
+    xacros:
+      - control_xacro
+  control_xacro:
+    command:
+      - position
+    state:
+      - position
+      - velocity

@@ -1,0 +1,88 @@
+syntax = "proto3";
+
+package robot_sim.sensing;
+
+import "control_stubs/common.proto";
+
+service SensingService {
+
+  rpc ListSensors(robot_sim.common.Empty) returns (SensorMetaList);
+
+  // Unary call to get a snapshot of specific sensors
+  rpc GetSensors (SensorRequest) returns (SensorData);
+  
+  // Stream high-bandwidth data (e.g., Video feed)
+  rpc StreamSensors (SensorRequest) returns (stream SensorData);
+}
+
+enum SensorType {
+  UNKNOWN = 0;
+  CAMERA = 1;
+  LIDAR = 2;
+  IMU = 3;
+  JOINT = 4;
+  ODOM = 5;
+}
+
+message SensorMetaList {
+  message SensorMeta {
+    string name = 1;  // e.g., "camera_xxx", "lidar_xxx", "imu_xxx"
+    SensorType type = 2;
+  }
+  
+  repeated SensorMeta entries = 1;
+}
+
+message SensorRequest {
+  repeated string sensor_names = 1;
+}
+
+message SensorData {
+  repeated CameraImage images = 1;
+  repeated LidarScan lidars = 2;
+  repeated ImuData imus = 3;
+  repeated JointData joints = 4;
+  repeated OdometryData odometries = 5;
+}
+
+message CameraImage {
+  robot_sim.common.Header header = 1;
+  string name = 2;  // name of the camera
+  uint32 height = 3;
+  uint32 width = 4;
+  string encoding = 5; // "rgb8", "bgr8", "mono8", "32FC1", ...
+  bool is_bigendian = 6;
+  uint32 step = 7;
+  bytes data = 8;
+  // Camera intrinsics could be added here
+}
+
+message LidarScan {
+  robot_sim.common.Header header = 1;
+  string name = 2;
+  float angle_min = 3;
+  float angle_max = 4;
+  float angle_increment = 5;
+  repeated float ranges = 6;
+  repeated float intensities = 7;
+}
+
+message ImuData {
+  robot_sim.common.Header header = 1;
+  string name = 2;
+  robot_sim.common.Quaternion orientation = 3;
+  robot_sim.common.Point angular_velocity = 4;
+  robot_sim.common.Point linear_acceleration = 5;
+}
+
+message JointData {
+  string name = 1;
+  robot_sim.common.JointState joint_states = 2;
+}
+
+message OdometryData {
+  robot_sim.common.Header header = 1;
+  string name = 2;
+  robot_sim.common.Pose pose = 3;
+  robot_sim.common.Twist twist = 4;
+}

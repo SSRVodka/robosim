@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "robosim"
+version = "0.1.0"
+description = "Meta Simulator Framework"
+requires-python = ">=3.12"
+dependencies = [
+    "grpcio==1.78.1",
+    "protobuf==6.33.5",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["robosim*", "control_stubs*"]
+
+# -------------------
+# Ruff configuration
+# -------------------
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+exclude = [
+    "./drivers_sim/gazebo-11/assets/**",
+    "./build/**",
+    "./install/**",
+    "./control_stubs/*.py",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]
+
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+# -------------------
+# MyPy configuration
+# -------------------
+[tool.mypy]
+python_version = "3.12"
+strict = false
+warn_unused_configs = true
+warn_return_any = true
+warn_unused_ignores = true
+mypy_path = ["./install/**/lib/python3.12/site-packages"]
+exclude = ["drivers_sim/gazebo-11/", "build", "install", "log", "control_stubs/"]
+ignore_missing_imports = true
