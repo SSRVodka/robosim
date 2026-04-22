@@ -37,5 +37,5 @@ python3 -m robosim.server --port 50051
 
 ## 资产规约
 
-精简版简化了资源目录的放置方法。按照模拟器类型区分存放目录，`drivers_sim/gazebo-11` 存放 Gazebo Classic 的资源，`drivers_sim/mujoco` 存放 MuJoCo 的资源。
+精简版简化了资源目录的放置方法。按照模拟器类型区分存放目录，`drivers_sim/gazebo-11/assets` 存放 Gazebo Classic 的资源，`drivers_sim/mujoco/assets` 存放 MuJoCo 的资源。
 
