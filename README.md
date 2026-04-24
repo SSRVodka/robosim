@@ -8,29 +8,33 @@ mamba env create -f environment.yml
 mamba activate robosim
 ```
 
-启动 GazeboBackend 需要额外启动 ROS2 节点（后续会集成进 `server.py`）。在新的窗口中使用 robosim 虚拟环境：
-
-```bash
-mamba activate robosim
-pushd drivers_sim/gazebo-11/
-# 解压 gazbo 预设模型
-tar -zxpvf assets-model.tar.gz
-# 构建 Gazebo 项目
-colcon build
-source ./install/setup.bash
-popd
-mamba activate robosim
-ros2 launch demos gzsim.nav2.launch.py
-```
-
 再编译 proto 接口、启动 gRPC server：
 
 ```bash
 mamba activate robosim
 ./scripts/gen_protos.sh --clean
 ./scripts/gen_protos.sh
-python3 -m robosim.server --port 50051 [--backend <gazebo|mujoco>]
+python3 -m robosim.server --port 50051 [ --backend <gazebo|mujoco> ] [ --headless | --no-headless ]
 ```
+
+> [!WARNING]
+>
+> 如果选择的后端是 gazebo，那么需要额外启动 ROS2 节点（后续会集成进 `server.py`）。需要先在新的窗口中使用 robosim 虚拟环境：
+>
+> ```bash
+> mamba activate robosim
+> pushd drivers_sim/gazebo-11/
+> # 解压 gazbo 预设模型
+> tar -zxpvf assets-model.tar.gz
+> # 构建 Gazebo 项目
+> colcon build
+> source ./install/setup.bash
+> popd
+> mamba activate robosim
+> ros2 launch demos gzsim.nav2.launch.py
+> ```
+>
+> 然后再启动 gRPC server。
 
 > [!TIP]
 >
