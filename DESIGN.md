@@ -99,6 +99,7 @@
 - MuJoCoBackend 默认启动后台线程自动步进，不依赖 `StepPhysics`；
 - 步进循环采用 `mj_step1 -> 写入控制 -> mj_step2`，让控制计算落在 MuJoCo pipeline 允许的位置；
 - 对于没有原生 actuator 的关节，使用 `qfrc_applied` 做关节级控制；
+- 默认空闲态会先落到 SRDF 默认姿态，再做 position hold 并持续叠加抗重力项；
 - 位置/速度模式在关节空间内转成简洁的 PD 力矩控制，并叠加重力补偿；
 - 扭矩模式直接写目标力矩，并叠加重力补偿。
 
@@ -108,6 +109,7 @@
 - group 支持 `chain`、`joint`、`passive_joint`、`link`、子 group 展开；
 - 若没有 SRDF，则把同一 MuJoCo kinematic tree 的全部非 free/ball 关节收为一个 jmg；
 - end effector 优先绑定同名 body/site，否则回落到 group tip body。
+- 若 SRDF 中存在 `home/ready/default` 这类命名状态，启动和 reset 时优先应用。
 
 ### 4. 传感器管理
 - MuJoCo 传感器不是 topic，因此后端在初始化时建立静态 registry；

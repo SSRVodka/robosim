@@ -54,6 +54,23 @@ def test_robot_spec_uses_srdf_groups(backend: MuJoCoBackend) -> None:
     assert [ee.name for ee in groups["panda_arm"].end_effectors] == ["hand"]
 
 
+def test_backend_starts_from_srdf_ready_state(backend: MuJoCoBackend) -> None:
+    state = backend.get_robot_state()
+    positions = dict(zip(state.name, state.position, strict=True))
+
+    expected = {
+        "panda_joint1": 0.0,
+        "panda_joint2": -0.785,
+        "panda_joint3": 0.0,
+        "panda_joint4": -2.356,
+        "panda_joint5": 0.0,
+        "panda_joint6": 1.571,
+        "panda_joint7": 0.785,
+    }
+    for joint_name, joint_value in expected.items():
+        assert positions[joint_name] == pytest.approx(joint_value, abs=1e-3)
+
+
 def test_list_and_get_sensors(backend: MuJoCoBackend) -> None:
     sensors = {entry.name: entry.type for entry in backend.list_sensors().entries}
 
@@ -98,6 +115,18 @@ def test_set_joint_target_and_reset_world(backend: MuJoCoBackend) -> None:
         timeout=1.0,
     )
     assert reset
+
+
+def test_idle_loop_holds_initial_configuration(backend: MuJoCoBackend) -> None:
+    initial = backend.get_robot_state().position[:7]
+    time.sleep(0.3)
+    later = backend.get_robot_state().position[:7]
+
+    max_drift = max(
+        abs(current - reference)
+        for reference, current in zip(initial, later, strict=True)
+    )
+    assert max_drift < 0.01
 
 
 def test_servo_control_stream_accepts_twist(backend: MuJoCoBackend) -> None:

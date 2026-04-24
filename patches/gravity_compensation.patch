@@ -1,0 +1,137 @@
+diff --git a/robosim/backends/mujoco/backend.py b/robosim/backends/mujoco/backend.py
+index c0a4b10..5bf5f3f 100644
+--- a/robosim/backends/mujoco/backend.py
++++ b/robosim/backends/mujoco/backend.py
+@@ -113,7 +113,9 @@ class MuJoCoBackend(SimulatorBackend):
+         if not self._headless_mode:
+             self._viewer = self._launch_viewer()
+ 
++        self._apply_default_configuration_locked()
+         mujoco.mj_forward(self._model, self._data)
++        self._set_idle_hold_targets_locked()
+         self._step_thread = threading.Thread(
+             target=self._simulation_loop,
+             name="mujoco_backend_step",
+@@ -500,7 +502,7 @@ class MuJoCoBackend(SimulatorBackend):
+                 parent_group = twist_cmd.target_ee.parent_jmg_name or twist_cmd.target_ee.group_name
+                 if not parent_group:
+                     raise ValueError("Twist command must specify an end-effector parent group")
+-                # convert velocities in world coordinate system (Cartesian) to velocities in joint coordinate system.
++                # Convert Cartesian world-frame velocities into joint-space velocities.
+                 joint_names, joint_velocities = self._solve_end_effector_twist(
+                     parent_group=parent_group,
+                     linear=np.array(
+@@ -600,9 +602,11 @@ class MuJoCoBackend(SimulatorBackend):
+         del seed, randomization_params
+         with self._state_lock:
+             mujoco.mj_resetData(self._model, self._data)
+-            self._control_targets.clear()
++            # No compensation: self._control_targets.clear()
+             self._paused = False
++            self._apply_default_configuration_locked()
+             mujoco.mj_forward(self._model, self._data)
++            self._set_idle_hold_targets_locked()
+             self._sync_viewer_locked()
+ 
+     def emergency_stop(self) -> None:
+@@ -624,8 +628,6 @@ class MuJoCoBackend(SimulatorBackend):
+                 renderer.close()
+             self._renderers.clear()
+ 
+-    ########## methods (below) that do NOT need to be implemented for now ##########
+-
+     def get_robot_pose_in_map(self) -> common_pb2.PoseStamped:
+         raise NotImplementedError("Navigation not supported for MuJoCo")
+ 
+@@ -639,21 +641,20 @@ class MuJoCoBackend(SimulatorBackend):
+         for info in self._joint_infos:
+             if not info.controllable:
+                 continue
++            torque = float(gravity[info.qvel_adr])
+             mode_target = self._control_targets.get(info.name)
+-            if mode_target is None:
+-                continue
+-            mode, target = mode_target
+-            qpos = float(self._data.qpos[info.qpos_adr])
+-            qvel = float(self._data.qvel[info.qvel_adr])
+-            torque = gravity[info.qvel_adr]
+-            if mode == core_pb2.JointCommand.ControlMode.POSITION:
+-                torque += POSITION_KP * (target - qpos) - POSITION_KD * qvel
+-            elif mode == core_pb2.JointCommand.ControlMode.VELOCITY:
+-                torque += VELOCITY_KP * (target - qvel)
+-            elif mode == core_pb2.JointCommand.ControlMode.TORQUE:
+-                torque += target
+-            else:
+-                raise ValueError(f"Unsupported control mode: {mode}")
++            if mode_target is not None:
++                mode, target = mode_target
++                qpos = float(self._data.qpos[info.qpos_adr])
++                qvel = float(self._data.qvel[info.qvel_adr])
++                if mode == core_pb2.JointCommand.ControlMode.POSITION:
++                    torque += POSITION_KP * (target - qpos) - POSITION_KD * qvel
++                elif mode == core_pb2.JointCommand.ControlMode.VELOCITY:
++                    torque += VELOCITY_KP * (target - qvel)
++                elif mode == core_pb2.JointCommand.ControlMode.TORQUE:
++                    torque += target
++                else:
++                    raise ValueError(f"Unsupported control mode: {mode}")
+             self._data.qfrc_applied[info.qvel_adr] = torque
+ 
+     def _gravity_compensation_locked(self) -> np.ndarray:
+@@ -681,6 +682,38 @@ class MuJoCoBackend(SimulatorBackend):
+             raise ValueError("Joint group must be specified when the target names are ambiguous")
+         return candidates[0]
+ 
++    def _set_idle_hold_targets_locked(self) -> None:
++        self._control_targets = {
++            info.name: (
++                core_pb2.JointCommand.ControlMode.POSITION,
++                float(self._data.qpos[info.qpos_adr]),
++            )
++            for info in self._joint_infos
++            if info.controllable
++        }
++
++    def _apply_default_configuration_locked(self) -> None:
++        preferred_states = ("home", "ready", "default")
++        applied = False
++        for group_name in sorted(self._joint_groups):
++            group = self._joint_groups[group_name]
++            values = next(
++                (
++                    group.named_states[name]
++                    for name in preferred_states
++                    if name in group.named_states
++                ),
++                None,
++            )
++            if values is None:
++                continue
++            for joint_name, value in zip(group.joint_names, values, strict=True):
++                info = self._joint_infos_by_name[joint_name]
++                self._data.qpos[info.qpos_adr] = value
++            applied = True
++        if applied:
++            self._data.qvel[:] = 0
++
+     def _solve_end_effector_twist(
+         self, parent_group: str, linear: np.ndarray, angular: np.ndarray
+     ) -> tuple[list[str], list[float]]:
+@@ -711,11 +744,12 @@ class MuJoCoBackend(SimulatorBackend):
+         jacobian = np.vstack((jacp[:, dof_indices], jacr[:, dof_indices]))
+         # combine the linear and angular velocity components into a single target twist
+         target_twist = np.concatenate((linear, angular))
+-        # to avoid numerical issues caused by singular Jacobian matrices (such as singular configurations),
+-        # the DLS (Damped Least Squares) method is used.
+-        # NOTE: A fixed damping value of {@code EE_DLS_DAMPING} introduces unnecessary tracking errors in non-singular configurations.
+-        # TODO: The damping coefficient can be adaptively adjusted based on the singular values of the Jacobian matrix (e.g., `np.linalg.svd(jacobian)`),
+-        # increasing damping near singular configurations and decreasing it far from them.
++        # Use DLS to reduce numerical issues near singular Jacobians.
++        # NOTE: A fixed damping value of EE_DLS_DAMPING adds tracking error away from
++        # singular configurations.
++        # TODO: Adapt damping from the Jacobian singular values, for example via
++        # `np.linalg.svd(jacobian)`, so it rises near singularities and falls away
++        # from them.
+         # But SSRVodka is lazy, so we use a fixed damping value for now. ;)
+         # $J^T J + \lambda I$
+         lhs = jacobian.T @ jacobian + EE_DLS_DAMPING * np.eye(len(dof_indices))
