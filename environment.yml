@@ -28,6 +28,23 @@ dependencies:
   # MuJoCo stack
   - mujoco
 
+  # Agent stack (optional)
+  - openai
+  - pyyaml
+  # Agent Memory
+  - aiosqlite
+  # Agent MCP
+  - mcp
+  # Agent Web API
+  - requests
+  - fastapi
+  - httpx[socks]
+  - uvicorn[standard]
+  # Agent CLI
+  - click
+  - rich
+  - aiofiles
+
   # Dev tools
   - pip
   - ruff

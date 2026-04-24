@@ -27,7 +27,7 @@ class SensingServicer(sensing_pb2_grpc.SensingServiceServicer):
         _logger.info("ListSensors called")
         try:
             result = self._backend.list_sensors()
-            _logger.info("ListSensors succeeded: %d sensors", len(result.sensors))
+            _logger.info("ListSensors succeeded: %d sensors", len(result.entries))
             return result
         except Exception as e:
             _logger.error("ListSensors failed: %s", e, exc_info=True)
@@ -41,7 +41,7 @@ class SensingServicer(sensing_pb2_grpc.SensingServiceServicer):
         _logger.info("GetSensors called: sensor_names=%s", sensor_names)
         try:
             result = self._backend.get_sensors(sensor_names)
-            _logger.info("GetSensors succeeded: %d sensor readings", len(result.data))
+            # _logger.info("GetSensors succeeded: %d sensor readings", len(result))
             return result
         except NotImplementedError:
             _logger.warning("GetSensors not implemented")

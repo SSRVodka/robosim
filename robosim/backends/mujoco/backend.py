@@ -602,7 +602,6 @@ class MuJoCoBackend(SimulatorBackend):
         del seed, randomization_params
         with self._state_lock:
             mujoco.mj_resetData(self._model, self._data)
-            # No compensation: self._control_targets.clear()
             self._paused = False
             self._apply_default_configuration_locked()
             mujoco.mj_forward(self._model, self._data)

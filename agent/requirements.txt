@@ -1,0 +1,29 @@
+# NOTE: all the requirements are OpenHarmony supported
+# (except for pydantic-core and python3-rpds: re-compilation is needed)
+
+# Core
+openai>=1.40.0
+pyyaml>=6.0
+
+# Memory
+aiosqlite>=0.20.0
+
+# MCP
+mcp>=1.3.0
+
+# Web API
+requests
+fastapi>=0.111.0
+httpx[socks]
+uvicorn[standard]>=0.30.0
+
+# Entry
+click>=8.1.0
+rich>=13.7.0
+
+# Utilities
+aiofiles>=23.2.0
+
+# Testing
+pytest>=8.2.0
+pytest-asyncio>=0.23.0

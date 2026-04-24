@@ -3,7 +3,8 @@
 # VERSION v0.0.4
 
 ## New Features
-- [ ] 引入 Agent 模块控制
+- [x] 以 function tools 和 MCP tools 的形式暴露 gRPC 接口
+- [x] 引入 Agent 模块控制
 - [ ] 支持基于非 ROS2 包、基于 ROS2 包的数据采集
 - [ ] 支持稳定版本的 LeRobot Dataset
 - [ ] 支持常见模型的 VLA 推理（对接 LeRobot 接口）

@@ -29,8 +29,23 @@ ros2 launch demos gzsim.nav2.launch.py
 mamba activate robosim
 ./scripts/gen_protos.sh --clean
 ./scripts/gen_protos.sh
-python3 -m robosim.server --port 50051
+python3 -m robosim.server --port 50051 [--backend <gazebo|mujoco>]
 ```
+
+> [!TIP]
+>
+> (optional) 使用 Agent：
+>
+> `control_stubs/tools/` 给出了 gRPC 的 client 定义、function tools 和 MCP tools 定义，你可以用它们接入任何主流的 Agent 框架中作为 Agent Tools 使用。
+>
+> 当然本项目提供了一个最小化的示例 Agent 实现，实现细节参见 [`agent/README.md`](./agent/README.md)。您可以按照 `agent/config/default.yaml` 中写一份配置，然后使用 `agent_orchestrator.py` 来尝试。
+>
+> 在启动 robosim gRPC server 后执行下面的指令进入 Agent REPL（使用 `--help` 查看帮助）：
+>
+> ```bash
+> python3 agent_orchestrator.py --config <你的配置文件> --grpc-host 127.0.0.1 --grpc-port <你之前robosim启动设置的端口> chat
+> ```
+
 
 ## 开发规约与环境说明
 

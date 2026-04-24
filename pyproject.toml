@@ -20,7 +20,7 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["robosim*", "control_stubs*"]
+include = ["robosim*", "control_stubs*", "drivers_sim*", "drivers_real*"]
 
 # -------------------
 # Ruff configuration
@@ -33,6 +33,8 @@ exclude = [
     "./build/**",
     "./install/**",
     "./control_stubs/*.py",
+    "./agent/**",
+    "./refs/**",
 ]
 
 [tool.ruff.lint]
@@ -53,7 +55,14 @@ warn_unused_configs = true
 warn_return_any = false
 warn_unused_ignores = true
 mypy_path = ["./install/**/lib/python3.12/site-packages"]
-exclude = ["drivers_sim/gazebo-11/", "build", "install", "log", "control_stubs/"]
+exclude = [
+    "drivers_sim/gazebo-11/",
+    "build", "install", "log",
+    "control_stubs/",
+    "agent/",
+    "refs/",
+    "agent_orchestrator.py"
+]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

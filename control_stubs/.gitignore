@@ -3,3 +3,4 @@
 *.pyi
 *.h
 *.cc
+!tools/*.py
