@@ -13,6 +13,9 @@ mamba activate robosim
 ```bash
 mamba activate robosim
 pushd drivers_sim/gazebo-11/
+# 解压 gazbo 预设模型
+tar -zxpvf assets-model.tar.gz
+# 构建 Gazebo 项目
 colcon build
 source ./install/setup.bash
 popd

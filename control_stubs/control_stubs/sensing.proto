@@ -22,6 +22,8 @@ enum SensorType {
   IMU = 3;
   JOINT = 4;
   ODOM = 5;
+  FORCE = 6;
+  TORQUE = 7;
 }
 
 message SensorMetaList {
@@ -43,6 +45,8 @@ message SensorData {
   repeated ImuData imus = 3;
   repeated JointData joints = 4;
   repeated OdometryData odometries = 5;
+  repeated WrenchData forces = 6;
+  repeated WrenchData torques = 7;
 }
 
 message CameraImage {
@@ -85,4 +89,10 @@ message OdometryData {
   string name = 2;
   robot_sim.common.Pose pose = 3;
   robot_sim.common.Twist twist = 4;
+}
+
+message WrenchData {
+  robot_sim.common.Header header = 1;
+  string name = 2;
+  robot_sim.common.Point vector = 3;
 }

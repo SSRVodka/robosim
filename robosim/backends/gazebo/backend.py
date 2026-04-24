@@ -344,6 +344,14 @@ class GazeboBackend(SimulatorBackend, Node):
     def robot_name(self) -> str:
         return self._robot_name
 
+    @property
+    def headless_mode(self) -> bool:
+        return False
+
+    def set_headless_mode(self, enabled: bool) -> None:
+        if enabled:
+            raise NotImplementedError("Headless mode not supported for Gazebo")
+
     def get_robot_state(self) -> common_pb2.JointState:
         """Get joint state - get the first JointState topic."""
         with self._state_lock:
@@ -374,6 +382,10 @@ class GazeboBackend(SimulatorBackend, Node):
             raise NotImplementedError("Joint write not supported")
 
         raise NotImplementedError("Joint target setting not implemented")
+
+    def servo_control_stream(
+        self, request_iterator: Iterator[core_pb2.ServoCommand]) -> Iterator[common_pb2.JointState]:
+        raise NotImplementedError("Servo control stream not implemented")
 
     def get_end_effector_state(self, group: str) -> core_pb2.EndEffectorState:
         raise NotImplementedError("End effector state not implemented")

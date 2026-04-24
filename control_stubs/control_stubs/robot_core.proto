@@ -42,7 +42,7 @@ message RobotSpecification {
 message JointLimit {
   string name = 1;
   string type = 2;
-  string jmg_name = 3;
+  repeated string jmg_names = 3;
   double lower_limit = 4;
   double upper_limit = 5;
   double velocity_limit = 6;
@@ -52,9 +52,10 @@ message JointLimit {
 
 message JointModelGroupSpec {
   string name = 1;
-  repeated JointModelGroupNamedState named_states = 2;
+  repeated string joint_names = 2;
+  repeated JointModelGroupNamedState named_states = 3;
   // attached end effectors
-  repeated EESpec end_effectors = 3;
+  repeated EESpec end_effectors = 4;
 }
 
 message JointModelGroupNamedState {
@@ -65,7 +66,9 @@ message JointModelGroupNamedState {
 message EESpec {
   string name = 1;
   // parent JointModelGroup that it attached to
-  string jmg_name = 2;
+  string parent_jmg_name = 2;
+  string group_name = 3;
+  string parent_link = 4;
 }
 
 message MoveGroupRequest {
@@ -78,15 +81,9 @@ message EndEffectorState {
   // robot_sim.common.Status status = 2;
 }
 
-enum TwistCmdType {
-  CMD_VEL = 0;
-  MOVEIT = 1;
-}
-
 message TwistCommand {
   robot_sim.common.TwistStamped twist = 1;
-  TwistCmdType cmd_type = 2;
-  MoveGroupRequest group = 3; // only valid when cmd_type == MOVEIT
+  EESpec target_ee = 2;
 }
 
 message JointCommand {
@@ -107,21 +104,5 @@ message ServoCommand {
     JointCommand joint_cmd = 1;
     // Cartesian Twist (Linear/Angular velocity) for the End Effector
     TwistCommand twist_cmd = 2;
-    // TODO: Pose target for immediate servoing
-    robot_sim.common.PoseStamped pose_cmd = 3;
   }
 }
-
-// message ServoCommand {
-//   robot_sim.common.Header header = 1;
-//   
-//   oneof command_type {
-//     // Drive joints directly (e.g. gripper)
-//     JointCommand joint_cmd = 2;
-//     // Cartesian Twist (Linear/Angular velocity) for the End Effector
-//     TwistCommand twist_cmd = 3;
-//     // Pose target for immediate servoing
-//     robot_sim.common.Pose pose_cmd = 4;
-//   }
-// }
-

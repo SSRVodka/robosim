@@ -67,7 +67,8 @@ async def serve_async(
     backend_type: str,
     robot_name: str = "robot",
     port: int = 50051,
-    scene_path: str | None = None,
+    scene: str | None = None,
+    headless: bool = True,
 ) -> None:
     """Run the gRPC server asynchronously."""
     import rclpy
@@ -105,7 +106,10 @@ async def serve_async(
             rclpy.init()
             backend = GazeboBackend(robot_name=robot_name)
         elif backend_type == "mujoco":
-            backend = MuJoCoBackend(robot_name=robot_name, scene_path=scene_path)
+            backend = MuJoCoBackend(
+                scene_path=scene or "drivers_sim/mujoco/assets/robots/franka_panda/scene.xml",
+                headless=headless,
+            )
         else:
             raise ValueError(f"Unknown backend type: {backend_type}")
 
@@ -158,13 +162,20 @@ def main() -> None:
         default=None,
         help="Path to MuJoCo scene XML file (for mujoco backend)",
     )
+    parser.add_argument(
+        "--headless",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Run MuJoCo without viewer",
+    )
     args = parser.parse_args()
 
     asyncio.run(serve_async(
         backend_type=args.backend,
         robot_name=args.robot_name,
         port=args.port,
-        scene_path=args.scene,
+        scene=args.scene,
+        headless=args.headless,
     ))
 
 

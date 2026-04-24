@@ -1,21 +1,28 @@
-# TODO - RoboSim 项目精简版重构短期里程碑
+# TODO - 短期里程碑
+
+# VERSION v0.0.3
+
+## New Features
+- [x] 实现 MuJoCoBackend；
+- [x] 接入 MuJoCo 场景自动步进、headless/server 启动路径；
+- [x] 实现 MuJoCo 的 jmg / ee / 传感器管理与基础重力补偿；
+- [x] 补充 MuJoCo 单元测试与 pytest 收集范围配置；
+
+## Bug Fixes
+- [ ] 重力补偿未生效：表现为 `--no-headless` 启动时机械臂直接倒下来了；
+
+---
 
 # VERSION v0.0.2
 
 ## New Features
-- [x] 实现 GazeboBackend 的 navigate_to 能力。
-- [x] 实现 MuJoCoBackend；
-- [x] Agent 实现接入；
-- [ ] Agent 集成测试；
-- [ ] 接入 LeRobot 数采；
+- [x] 实现 GazeboBackend 的 navigate_to 能力；
 
 ## Bug Fixes
 
-- [ ] MuJoCo 关节无法正确使用 ServoControl，数据时间戳错误、 joint values 恒为 0；
-- [ ] LeRobot 数采接口和推理相关接口变更，需要适配；
 - [x] GazeboBackend 所有接口均无法正确读取数据（修复了名称匹配逻辑、添加了 Camera 格式化等）；
-- [x] 在 GazeboBackend 中，所谓“动态传感器发现”只在第一次启动发现。实际上需要定期更新传感器列表，**注意并发问题（比如外界传感器信息更新后如果接口还在被读取的情况、能否确保 gRPC 接口始终读取到最新的数据等，需要加入测试进行检查）**；
-- [x] Ctrl-C 无法停止 gRPC 服务器（使用 `python3 -m robosim.server --port 50052` 启动）。以实际检查这个现象不再出现为验收标准。
+- [x] 在 GazeboBackend 中，所谓“动态传感器发现”只在第一次启动发现。框架应该能够定期更新传感器列表，**注意并发问题（比如外界传感器信息更新后如果接口还在被读取的情况、能否确保 gRPC 接口始终读取到最新的数据等，计划加入测试进行检查）！**
+- [x] Ctrl-C 无法停止 gRPC 服务器（使用 `python3 -m robosim.server --port 50052` 启动）；
 
 ---
 
@@ -53,7 +60,7 @@
 ## Phase 7: 文档
 - [x] 更新 DESIGN.md
 
-## Bug Fixes
+## 架构改进 (v2)
 - [x] 移除对 `robot_sim_common` 模块的依赖
 - [x] 动态发现传感器（按 ROS2 topic 数据类型）
 - [x] 通用能力检测（通过运行时检查）

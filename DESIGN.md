@@ -38,11 +38,13 @@
           │
 ┌─────────▼───────────────────────────────────────────────────┐
 │              MuJoCoBackend (Concrete)                          │
-│  - 使用 MuJoCo Python bindings 直接访问物理引擎               │
-│  - 通过传感器系统获取 IMU、力/力矩、速度等数据               │
-│  - 直接读写关节位置/速度进行伺服控制                         │
-│  - 通过正向运动学获取末端执行器位姿                           │
-│  - 无导航支持（纯伺服控制）                                  │
+│  - 使用 MuJoCo Python Bindings 进行仿真                       │
+│  - 从 XML 模型文件加载机器人配置                               │
+│  - 支持关节位置/速度/扭矩控制                                  │
+│  - 通过 forward kinematics 获取末端执行器位姿                    │
+│  - 支持力/扭矩传感器、IMU 等                                  │
+│  - 默认启用重力补偿                                           │
+│  - 非 headless 模式支持被动 viewer                           │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -73,17 +75,48 @@
 | LaserScan | `*/scan*`, `*/laser*` | 激光雷达 |
 | Image | `*/image_raw`, `*/compressed_image` | 相机 |
 
-### 5. MuJoCo 后端设计
-| 特性 | 实现方式 |
-|-----|---------|
-| 关节控制 | 直接修改 `data.qpos`/`data.qvel` |
-| 传感器 | 通过 `model.sensor_*` 和 `mj_sensorPos` 获取 |
-| 末端执行器 | 通过 `xpos`/`xquat` 进行正向运动学 |
-| 能力 | 关节读写、传感器读取、紧急停止 |
+### 5. MuJoCo 后端能力检测
+| 能力 | 检测方式 | 说明 |
+|------|----------|------|
+| JOINT_READ | 始终可用 | 从 qpos/qvel 读取关节状态 |
+| JOINT_WRITE | 始终可用 | 支持位置/速度/扭矩控制 |
+| NAVIGATION | 不可用 | MuJoCo 不直接支持导航 |
+| SENSOR_* | 检查模型中的传感器/相机 | `<sensor>` + model camera 一起注册 |
 
 ### 6. 错误处理
 - 不支持的操作用 `NotImplementedError` 标识
 - gRPC 层将其映射为 `UNIMPLEMENTED` 状态码
+
+## MuJoCo 设计补充
+
+### 1. 运行时结构
+- `mjModel` 只加载一次并保持只读；
+- `mjData` 作为主仿真状态，由后端步进线程独占推进；
+- 额外维护一个 `mjData` scratch 实例，用当前 `qpos` 和零速度重新 `mj_forward`，用于求控制环里的重力补偿项；
+- 非 headless 模式使用 `viewer.launch_passive`，由后端在每次步进后主动 `sync(state_only=True)`。
+
+### 2. 自动步进与控制
+- MuJoCoBackend 默认启动后台线程自动步进，不依赖 `StepPhysics`；
+- 步进循环采用 `mj_step1 -> 写入控制 -> mj_step2`，让控制计算落在 MuJoCo pipeline 允许的位置；
+- 对于没有原生 actuator 的关节，使用 `qfrc_applied` 做关节级控制；
+- 位置/速度模式在关节空间内转成简洁的 PD 力矩控制，并叠加重力补偿；
+- 扭矩模式直接写目标力矩，并叠加重力补偿。
+
+### 3. jmg / ee 语义
+- 优先读取 `.srdf`；
+- 由于当前环境中的 `srdfdom` 对 `passive_joint` 支持不完整，实际实现使用 XML 解析保留完整语义；
+- group 支持 `chain`、`joint`、`passive_joint`、`link`、子 group 展开；
+- 若没有 SRDF，则把同一 MuJoCo kinematic tree 的全部非 free/ball 关节收为一个 jmg；
+- end effector 优先绑定同名 body/site，否则回落到 group tip body。
+
+### 4. 传感器管理
+- MuJoCo 传感器不是 topic，因此后端在初始化时建立静态 registry；
+- registry 同时包含：
+  - `joint_states` 伪传感器；
+  - MJCF `<sensor>` 中可直接映射的传感器；
+  - model cameras；
+- camera 通过 `mujoco.Renderer` 做 offscreen rendering；
+- 当前 gRPC 扩充了力/力矩传感器类型与数据结构，以避免 MuJoCo 现有传感器语义丢失。
 
 ## 模块结构
 ```
@@ -91,12 +124,12 @@ robosim/
 ├── core/                    # 核心抽象（后端无关）
 │   ├── backend.py          # SimulatorBackend 基类
 │   └── capabilities.py     # 能力枚举
-├── backends/               # 后端实现
+├── backends/
 │   ├── gazebo/            # Gazebo 后端实现
-│   │   └── backend.py
-│   └── mujoco/           # MuJoCo 后端实现
-│       └── backend.py
-├── grpc_server/            # gRPC 服务实现
+│   │   └── backend.py     # 主后端类
+│   └── mujoco/            # MuJoCo 后端实现
+│       └── backend.py      # 主后端类
+├── grpc_server/           # gRPC 服务实现
 │   ├── simulation.py
 │   ├── sensing.py
 │   ├── robot_core.py

@@ -26,7 +26,7 @@ class TestCapability:
         expected = (
             Capability.SENSOR_CAMERA | Capability.SENSOR_LIDAR |
             Capability.SENSOR_IMU | Capability.SENSOR_JOINT |
-            Capability.SENSOR_ODOMETRY
+            Capability.SENSOR_ODOMETRY | Capability.SENSOR_FORCE_TORQUE
         )
         assert Capability.SENSOR_ALL == expected
 

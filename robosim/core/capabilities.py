@@ -16,7 +16,15 @@ class Capability(Flag):
     SENSOR_IMU = auto()
     SENSOR_JOINT = auto()
     SENSOR_ODOMETRY = auto()
-    SENSOR_ALL = SENSOR_CAMERA | SENSOR_LIDAR | SENSOR_IMU | SENSOR_JOINT | SENSOR_ODOMETRY
+    SENSOR_FORCE_TORQUE = auto()
+    SENSOR_ALL = (
+        SENSOR_CAMERA
+        | SENSOR_LIDAR
+        | SENSOR_IMU
+        | SENSOR_JOINT
+        | SENSOR_ODOMETRY
+        | SENSOR_FORCE_TORQUE
+    )
     SIMULATION_CONTROL = auto()
     EMERGENCY_STOP = auto()
 

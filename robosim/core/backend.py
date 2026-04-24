@@ -1,11 +1,16 @@
 """Abstract base class for simulator backends."""
 
 from abc import ABC, abstractmethod
-from typing import Any, Iterator
+from typing import Iterator
 
 from control_stubs.common_pb2 import JointState, PoseStamped
 from control_stubs.mobility_ai_pb2 import NavGoal, TaskFeedback
-from control_stubs.robot_core_pb2 import EndEffectorState, JointCommand, RobotSpecification
+from control_stubs.robot_core_pb2 import (
+    EndEffectorState,
+    JointCommand,
+    RobotSpecification,
+    ServoCommand,
+)
 from control_stubs.sensing_pb2 import SensorData, SensorMetaList
 from robosim.core.capabilities import Capability
 
@@ -29,6 +34,17 @@ class SimulatorBackend(ABC):
         """Return the name of the robot being simulated."""
         raise NotImplementedError
 
+    @property
+    @abstractmethod
+    def headless_mode(self) -> bool:
+        """Return whether the backend is in headless mode"""
+        raise NotImplementedError
+
+    @abstractmethod
+    def set_headless_mode(self, enabled: bool) -> None:
+        """Set headless mode"""
+        raise NotImplementedError
+
     @abstractmethod
     def get_robot_state(self) -> JointState:
         """Get current joint state (name, position, velocity, effort)."""
@@ -48,6 +64,14 @@ class SimulatorBackend(ABC):
         group: str | None = None,
     ) -> None:
         """Set joint targets (position/velocity/torque)."""
+        raise NotImplementedError
+    
+    @abstractmethod
+    def servo_control_stream(
+        self,
+        request_iterator: Iterator[ServoCommand],
+    ) -> Iterator[JointState]:
+        """Servo control stream."""
         raise NotImplementedError
 
     @abstractmethod
@@ -89,6 +113,18 @@ class SimulatorBackend(ABC):
     def emergency_stop(self) -> None:
         """Trigger emergency stop."""
         raise NotImplementedError
+
+    # def pause(self) -> None:
+    #     """Pause simulation. You can use step / resume to continue simulation"""
+    #     raise NotImplementedError
+    
+    # def step(self) -> None:
+    #     """Step one simulation step"""
+    #     raise NotImplementedError
+    
+    # def resume(self) -> None:
+    #     """Resume simulation"""
+    #     raise NotImplementedError
 
     @abstractmethod
     def shutdown(self) -> None:
