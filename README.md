@@ -15,7 +15,7 @@
 
 - [ ] (WIP) 对真实机器人本体（如曦胧本体）的适配 `drivers_real`；
 
-- [ ] (WIP) 对常见具身模型（如 $\pi_0$、openvla-oft 等）推理支持；
+- [ ] (WIP) 支持基于 IL/RL 训练的 Policy 的推理过程；
 
 
 ### Quick Start
@@ -69,7 +69,7 @@ python3 -m robosim.server [--help] [--host <gRPC-listen-host>] [--port <gRPC-lis
 > ros2 launch demos gzsim.nav2.launch.py
 > ```
 >
-> 然后再启动 gRPC server。
+> 然后再启动 robosim。
 
 现在，你的环境已经准备好了！
 
@@ -133,7 +133,7 @@ python3 -m control_stubs.tools.servo_keyboard --jmg panda_arm --ee hand
 python3 -m control_stubs.tools.servo_keyboard --help
 ```
 
-#### C. 简单的测试 LeRobot 数据采集 demo
+#### C. 简单的测试 LeRobot 数据采集 & 重放 demo（命令行）
 
 确保您的 shell 在仓库根目录下。
 
@@ -159,10 +159,18 @@ python3 -m control_stubs.tools.data_recorder start --repo-name demo1 --task-text
 python3 -m control_stubs.tools.data_recorder end
 ```
 
+现在您的数据存放在 `data/lerobot/demo1` 下。如需重放该数据，请继续往下看。
+
 > [!TIP]
 >
 > 默认存放在项目根目录下的 `data/lerobot` 中，您可以通过更改 `robosim/server.py` 中的 `DATA_REPO_ROOT` 变量来决定以何目录为数据根目录；
 
+
+如需重放数据，需确保您采集的数据放在 `data/lerobot` 下，这样我们给定数据集的 `repoName` 以及 eposide ID 即可重放该数据集：
+
+```bash
+python3 -m control_stubs.tools.data_recorder replay --repo-name demo1 --episode-id 0
+```
 
 ---
 

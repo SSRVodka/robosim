@@ -9,11 +9,12 @@ from pathlib import Path
 import numpy as np
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.datasets.utils import DEFAULT_FEATURES
+from lerobot.utils.robot_utils import precise_sleep
 
-from control_stubs import common_pb2, sensing_pb2
+from control_stubs import common_pb2, robot_core_pb2, sensing_pb2
 from control_stubs.common_pb2 import JointState, Status
-from control_stubs.robot_core_pb2 import EndEffectorState, RobotSpecification
-from control_stubs.robot_data_pb2 import RecordJobInfo, RecordOptions
+from control_stubs.robot_core_pb2 import EndEffectorState, JointModelGroupSpec, RobotSpecification
+from control_stubs.robot_data_pb2 import RecordInfo, RecordJobInfo, RecordOptions
 from control_stubs.sensing_pb2 import (
     CameraImage,
     ImuData,
@@ -35,7 +36,6 @@ QUAT_NAMES = ["x", "y", "z", "w"]
 @dataclass(slots=True)
 class CaptureSnapshot:
     robot_state: JointState
-    joint_command_state: JointState
     end_effector_states: dict[str, EndEffectorState]
     sensor_data: SensorData
 
@@ -47,7 +47,6 @@ class CapturePlan:
     task_text: str
     fps: int
     joint_names: list[str]
-    action_joint_names: list[str]
     end_effector_groups: list[str]
     sensor_names: list[str]
     features: dict[str, dict]
@@ -72,11 +71,14 @@ class LerobotDataRecorder(DataRecorder):
         self._datasets_root = repo_root / "data" / "lerobot"
         self._lock = threading.RLock()
         self._session: RecordingSession | None = None
+        self._replay_active = False
 
-    def record_episode_start(self, options: RecordOptions) -> RecordJobInfo:
+    def episode_start(self, options: RecordOptions) -> RecordJobInfo:
         with self._lock:
             if self._session is not None:
                 raise RuntimeError("recording is already in progress")
+            if self._replay_active:
+                raise RuntimeError("replay is already in progress")
 
             plan, snapshot = self._build_plan(options)
             dataset = self._open_dataset(plan)
@@ -103,7 +105,7 @@ class LerobotDataRecorder(DataRecorder):
             episode_id=plan.episode_id,
         )
 
-    def record_episode_end(self) -> Status:
+    def episode_end(self) -> Status:
         with self._lock:
             if self._session is None:
                 raise RuntimeError("recording is not in progress")
@@ -128,6 +130,60 @@ class LerobotDataRecorder(DataRecorder):
                 if self._session is session:
                     self._session = None
 
+    def episode_replay(self, info: RecordInfo) -> Status:
+        with self._lock:
+            if self._session is not None:
+                raise RuntimeError("recording is already in progress")
+            if self._replay_active:
+                raise RuntimeError("replay is already in progress")
+            self._replay_active = True
+
+        try:
+            repo_name = self._normalize_repo_name(info.repo_name)
+            episode_id = int(info.episode_id)
+            dataset_root = self._datasets_root / repo_name
+            if episode_id < 0:
+                raise ValueError("episode_id must be non-negative")
+            if not dataset_root.exists():
+                raise ValueError(f"dataset '{repo_name}' does not exist")
+
+            dataset = LeRobotDataset(
+                repo_id=repo_name,
+                root=dataset_root,
+                episodes=[episode_id],
+                download_videos=False,
+            )
+            if dataset.num_frames == 0:
+                raise ValueError(f"episode {episode_id} does not exist")
+
+            action_feature = dataset.features.get("action")
+            if action_feature is None:
+                raise ValueError("dataset does not contain replayable 'action' data")
+            action_joint_names = list(action_feature.get("names") or [])
+            if not action_joint_names:
+                raise ValueError("dataset action feature is missing joint names")
+
+            replay_group = self._resolve_replay_group(
+                action_joint_names,
+                self._backend.get_robot_spec(),
+            )
+            deadline = time.monotonic()
+            for action in dataset.hf_dataset["action"]:
+                action_vector = np.asarray(action, dtype=np.float64).reshape(-1)
+                self._backend.set_joint_target(
+                    action_joint_names,
+                    action_vector.tolist(),
+                    robot_core_pb2.JointCommand.ControlMode.POSITION,
+                    replay_group,
+                )
+                deadline += 1.0 / dataset.fps
+                precise_sleep(deadline - time.monotonic())
+
+            return Status(code=common_pb2.STATUS_SUCCESS, message="replay finished")
+        finally:
+            with self._lock:
+                self._replay_active = False
+
     def _build_plan(self, options: RecordOptions) -> tuple[CapturePlan, CaptureSnapshot]:
         repo_name = self._normalize_repo_name(options.repo_name)
         dataset_root = self._datasets_root / repo_name
@@ -143,13 +199,8 @@ class LerobotDataRecorder(DataRecorder):
         )
         sensor_names = self._select_sensor_names(options, self._backend.list_sensors())
         snapshot = self._capture_snapshot(robot_state, end_effector_groups, sensor_names)
-        action_joint_names = self._select_action_joint_names(
-            joint_names,
-            snapshot.joint_command_state,
-        )
         features = self._build_features(
             joint_names,
-            action_joint_names,
             end_effector_groups,
             snapshot,
         )
@@ -161,7 +212,6 @@ class LerobotDataRecorder(DataRecorder):
                 task_text=task_text,
                 fps=fps,
                 joint_names=joint_names,
-                action_joint_names=action_joint_names,
                 end_effector_groups=end_effector_groups,
                 sensor_names=sensor_names,
                 features=features,
@@ -294,7 +344,6 @@ class LerobotDataRecorder(DataRecorder):
     ) -> CaptureSnapshot:
         return CaptureSnapshot(
             robot_state=robot_state or self._backend.get_robot_state(),
-            joint_command_state=self._backend.get_joint_command_state(),
             end_effector_states={
                 group_name: self._backend.get_end_effector_state(group_name)
                 for group_name in end_effector_groups
@@ -302,18 +351,9 @@ class LerobotDataRecorder(DataRecorder):
             sensor_data=self._backend.get_sensors(sensor_names) if sensor_names else SensorData(),
         )
 
-    def _select_action_joint_names(
-        self,
-        joint_names: list[str],
-        joint_command_state: JointState,
-    ) -> list[str]:
-        command_names = set(joint_command_state.name)
-        return [joint_name for joint_name in joint_names if joint_name in command_names]
-
     def _build_features(
         self,
         joint_names: list[str],
-        action_joint_names: list[str],
         end_effector_groups: list[str],
         snapshot: CaptureSnapshot,
     ) -> dict[str, dict]:
@@ -324,10 +364,8 @@ class LerobotDataRecorder(DataRecorder):
             features["observation.velocity"] = self._vector_feature(joint_names)
             features["observation.effort"] = self._vector_feature(joint_names)
 
-        if action_joint_names:
-            features["action.position"] = self._vector_feature(action_joint_names)
-            features["action.velocity"] = self._vector_feature(action_joint_names)
-            features["action.effort"] = self._vector_feature(action_joint_names)
+        if joint_names:
+            features["action"] = self._vector_feature(joint_names)
 
         for group_name in end_effector_groups:
             self._require_end_effector(snapshot, group_name)
@@ -403,16 +441,8 @@ class LerobotDataRecorder(DataRecorder):
             frame["observation.effort"] = self._joint_vector(
                 snapshot.robot_state, plan.joint_names, "effort"
             )
-
-        if plan.action_joint_names:
-            frame["action.position"] = self._joint_vector(
-                snapshot.joint_command_state, plan.action_joint_names, "position"
-            )
-            frame["action.velocity"] = self._joint_vector(
-                snapshot.joint_command_state, plan.action_joint_names, "velocity"
-            )
-            frame["action.effort"] = self._joint_vector(
-                snapshot.joint_command_state, plan.action_joint_names, "effort"
+            frame["action"] = self._joint_vector(
+                snapshot.robot_state, plan.joint_names, "position"
             )
 
         for group_name in plan.end_effector_groups:
@@ -606,6 +636,41 @@ class LerobotDataRecorder(DataRecorder):
                 normalized_value["names"] = list(normalized_value["names"])
             normalized[key] = normalized_value
         return normalized
+
+    def _resolve_replay_group(
+        self,
+        joint_names: list[str],
+        robot_spec: RobotSpecification,
+    ) -> str | None:
+        exact_matches = [
+            group
+            for group in robot_spec.joint_model_groups
+            if list(group.joint_names) == joint_names
+        ]
+        if len(exact_matches) == 1:
+            return exact_matches[0].name
+        if len(exact_matches) > 1:
+            raise ValueError("replay joint group is ambiguous")
+
+        containing_groups = [
+            group
+            for group in robot_spec.joint_model_groups
+            if all(joint_name in group.joint_names for joint_name in joint_names)
+        ]
+        if not containing_groups:
+            return None
+
+        shortest_groups = self._shortest_groups(containing_groups)
+        if len(shortest_groups) == 1:
+            return shortest_groups[0].name
+        raise ValueError("replay joint group is ambiguous")
+
+    def _shortest_groups(
+        self,
+        groups: list[JointModelGroupSpec],
+    ) -> list[JointModelGroupSpec]:
+        min_width = min(len(group.joint_names) for group in groups)
+        return [group for group in groups if len(group.joint_names) == min_width]
 
     def _prune_empty_image_dirs(self, dataset_root: Path) -> None:
         images_root = dataset_root / "images"

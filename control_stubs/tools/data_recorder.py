@@ -22,6 +22,9 @@ def main() -> None:
     start.add_argument("--fps", type=int, default=30, help="Recording fps")
 
     subparsers.add_parser("end", help="End the current recording")
+    replay = subparsers.add_parser("replay", help="Replay a recorded episode")
+    replay.add_argument("--repo-name", required=True, help="Dataset repo name")
+    replay.add_argument("--episode-id", required=True, type=int, help="Episode ID to replay")
 
     args = parser.parse_args()
 
@@ -35,7 +38,7 @@ def main() -> None:
                 task_text=args.task_text,
                 fps=args.fps,
             )
-            resp = stub.RecordEpisodeStart(req)
+            resp = stub.EpisodeStart(req)
             if resp.status.code == common_pb2.STATUS_SUCCESS:
                 print(f"Recording started. Episode ID: {resp.episode_id}")
                 sys.exit(0)
@@ -43,11 +46,23 @@ def main() -> None:
             sys.exit(1)
 
         if args.action == "end":
-            resp = stub.RecordEpisodeEnd(common_pb2.Empty())
+            resp = stub.EpisodeEnd(common_pb2.Empty())
             if resp.code == common_pb2.STATUS_SUCCESS:
                 print("Recording ended successfully.")
                 sys.exit(0)
             print(f"Ending recording failed: {resp.message}", file=sys.stderr)
+            sys.exit(1)
+
+        if args.action == "replay":
+            req = robot_data_pb2.RecordInfo(
+                repo_name=args.repo_name,
+                episode_id=args.episode_id,
+            )
+            resp = stub.EpisodeReplay(req)
+            if resp.code == common_pb2.STATUS_SUCCESS:
+                print("Replay finished successfully.")
+                sys.exit(0)
+            print(f"Replay failed: {resp.message}", file=sys.stderr)
             sys.exit(1)
     finally:
         channel.close()

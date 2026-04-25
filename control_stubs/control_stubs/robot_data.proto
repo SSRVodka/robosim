@@ -23,10 +23,18 @@ message RecordJobInfo {
     uint64 episode_id = 2;
 }
 
+
+message RecordInfo {
+    string repo_name = 1;
+    uint64 episode_id = 2;
+}
+
 // Currently, only serial data collection is supported for the same instance at the same time.
 service RobotDataService {
 
-    rpc RecordEpisodeStart(RecordOptions) returns (RecordJobInfo);
+    rpc EpisodeStart(RecordOptions) returns (RecordJobInfo);
 
-    rpc RecordEpisodeEnd(robot_sim.common.Empty) returns (robot_sim.common.Status);
+    rpc EpisodeEnd(robot_sim.common.Empty) returns (robot_sim.common.Status);
+
+    rpc EpisodeReplay(RecordInfo) returns (robot_sim.common.Status);
 }

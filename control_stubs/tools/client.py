@@ -158,7 +158,7 @@ class RobotDataStub:
     def __init__(self, channel: grpc.Channel) -> None:
         self._stub = robot_data_pb2_grpc.RobotDataServiceStub(channel)
 
-    def record_episode_start(
+    def episode_start(
         self,
         repo_name: str,
         task_text: str = "",
@@ -177,7 +177,12 @@ class RobotDataStub:
             sensor_name_included=sensor_name_included or [],
             sensor_name_excluded=sensor_name_excluded or [],
         )
-        return self._stub.RecordEpisodeStart(req)
+        return self._stub.EpisodeStart(req)
 
-    def record_episode_end(self) -> common_pb2.Status:
-        return self._stub.RecordEpisodeEnd(common_pb2.Empty())
+    def episode_end(self) -> common_pb2.Status:
+        return self._stub.EpisodeEnd(common_pb2.Empty())
+
+    def episode_replay(self, repo_name: str, episode_id: int) -> common_pb2.Status:
+        return self._stub.EpisodeReplay(
+            robot_data_pb2.RecordInfo(repo_name=repo_name, episode_id=episode_id)
+        )

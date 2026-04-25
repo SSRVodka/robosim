@@ -1,5 +1,13 @@
 # TODO - 短期里程碑
 
+# VERSION v0.0.5
+
+## New Features
+- [x] 支持数据集（基于给定的 repo、episode）重放；
+- [ ] 基于 IL Policy（如 ACT）的推理支持（Action Chunking，或许可以借助 lerobot 的能力）；
+- [ ] 基于 RL Policy 的推理支持；
+- [ ] 支持常见模型的 VLA 推理（对接 LeRobot 接口）；
+
 
 # VERSION v0.0.4
 
@@ -12,7 +20,6 @@
 - [x] 为 Gazebo 补充最小 `GetRobotSpec`（实际功能例如真正解析 Gazebo 模型语义数据，有待后续补充），使 `jmg` 过滤能够工作；
 - [x] 新增 `control_stubs/tools/servo_keyboard.py`，用终端键盘向 `ServoControlStream` 发送 ee twist / joint servo 调试命令；
 - [x] 为 control tools / MCP tools 暴露录制接口；
-- [ ] 支持常见模型的 VLA 推理（对接 LeRobot 接口）；
 
 ## Bug Fixes
 - [x] LeRobot image 模式下图片实际写入 parquet 后，清理 `images/` 下残留空目录，避免误判为 MuJoCo 相机采集失败；

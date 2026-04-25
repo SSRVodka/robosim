@@ -175,7 +175,7 @@ TOOL_DEFINITIONS = [
         },
     },
     {
-        "name": "record_episode_start",
+        "name": "episode_start",
         "description": "Start recording a dataset episode into a managed local LeRobotDataset repository.",
         "parameters": {
             "type": "object",
@@ -208,9 +208,21 @@ TOOL_DEFINITIONS = [
         },
     },
     {
-        "name": "record_episode_end",
+        "name": "episode_end",
         "description": "Stop the current recording episode and flush it to the local LeRobotDataset.",
         "parameters": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "episode_replay",
+        "description": "Replay a recorded episode from the local LeRobotDataset.",
+        "parameters": {
+            "type": "object",
+            "required": ["repo_name", "episode_id"],
+            "properties": {
+                "repo_name": {"type": "string", "description": "Dataset repository directory name"},
+                "episode_id": {"type": "integer", "description": "Episode ID"},
+            },
+        },
     },
     {
         "name": "emergency_stop",
@@ -301,8 +313,8 @@ def create_tool_implementations(client: RobosimClient) -> dict[str, Callable[...
         resp = client.robot_core.get_end_effector_state(a["jmg_name"])
         return json.dumps(json_format.MessageToDict(resp.pose_stamped))
 
-    async def record_episode_start(a: dict[str, Any]) -> str:
-        resp = client.robot_data.record_episode_start(
+    async def episode_start(a: dict[str, Any]) -> str:
+        resp = client.robot_data.episode_start(
             repo_name=a["repo_name"],
             task_text=a.get("task_text", ""),
             fps=a.get("fps", 0),
@@ -313,8 +325,8 @@ def create_tool_implementations(client: RobosimClient) -> dict[str, Callable[...
         )
         return json.dumps(_serialize_record_job_info(resp))
 
-    async def record_episode_end(_: dict[str, Any]) -> str:
-        return json.dumps(_serialize_status(client.robot_data.record_episode_end()))
+    async def episode_end(_: dict[str, Any]) -> str:
+        return json.dumps(_serialize_status(client.robot_data.episode_end()))
 
     async def emergency_stop(_: dict[str, Any]) -> str:
         return json.dumps(_serialize_status(client.robot_core.emergency_stop()))
@@ -344,8 +356,8 @@ def create_tool_implementations(client: RobosimClient) -> dict[str, Callable[...
         "get_robot_spec": get_robot_spec,
         "set_joint_target": set_joint_target,
         "get_end_effector_state": get_end_effector_state,
-        "record_episode_start": record_episode_start,
-        "record_episode_end": record_episode_end,
+        "episode_start": episode_start,
+        "episode_end": episode_end,
         "emergency_stop": emergency_stop,
         "get_robot_pose_in_map": get_robot_pose_in_map,
         "navigate_to": navigate_to,

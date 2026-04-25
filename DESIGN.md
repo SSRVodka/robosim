@@ -124,24 +124,21 @@
 ## LeRobot 录制设计
 
 ### 1. 录制入口
-- 新增 `RobotDataService`，仅暴露 `RecordEpisodeStart` / `RecordEpisodeEnd`；
+- 新增 `RobotDataService`，仅暴露 `EpisodeStart` / `EpisodeEnd`；
 - gRPC server 启动时构造一个 `LerobotDataRecorder`，数据根目录固定为仓库下 `data/lerobot/<repo_name>`；
 - 同一 backend 实例同一时刻只允许一个录制 session。
 
 ### 2. 采样模型
-- `RecordEpisodeStart` 读取一次 backend 的 `robot_state`、`robot_spec`、`end_effector_state`、`sensor snapshot`，先推导数据集 schema，再立即写入第一帧；
+- `EpisodeStart` 读取一次 backend 的 `robot_state`、`robot_spec`、`end_effector_state`、`sensor snapshot`，先推导数据集 schema，再立即写入第一帧；
 - 后续由后台线程按 `fps` 继续采样；
-- `RecordEpisodeEnd` 停止采样线程、保存 episode，并立即 `finalize()`，保证每次结束后磁盘上的数据集都是可加载状态。
+- `EpisodeEnd` 停止采样线程、保存 episode，并立即 `finalize()`，保证每次结束后磁盘上的数据集都是可加载状态。
 
 ### 3. 字段映射
 - 关节状态统一映射为：
   - `observation.state`
   - `observation.velocity`
   - `observation.effort`
-- MuJoCo 额外暴露当前 joint target，映射为：
-  - `action.position`
-  - `action.velocity`
-  - `action.effort`
+- `action` 固定定义为 joint coordinate system 下的绝对关节位置目标，当前直接采用采样时刻的关节位置向量，保证 LeRobot 数据集只暴露一个标准动作向量；
 - 末端位姿映射为 `observation.end_effectors.<group>.{position,orientation}`；
 - 视觉数据映射为 `observation.images.<sensor>`；
 - IMU / LiDAR / Odom / Force / Torque 各自映射到对应 `observation.*` 数值向量。
@@ -157,6 +154,13 @@
 - 当前相机帧使用 `image` 特征直接写盘，不走 mp4 编码，先保证 v3 数据结构稳定和测试确定性；
 - `lerobot` 会在写 parquet 时把图片字节嵌入 parquet，再删除 `images/<camera>/episode-*` 下的临时 PNG；recorder 在 episode 结束后继续清理残留空目录，避免留下误导性的空相机目录；
 - 已存在 repo 继续录制时使用 `resume()`，并校验 `fps` 与 feature schema 必须完全一致。
+
+### 6. 数据集重放
+- `RobotDataService` 额外暴露 `EpisodeReplay(repo_name, episode_id)`，语义是阻塞式单 episode 回放；
+- 回放时从本地 `data/lerobot/<repo_name>` 打开 LeRobotDataset，并通过 `episodes=[episode_id]` 只读取目标 episode；
+- 回放只消费 dataset 的 `action` 向量，固定以 `JointCommand.POSITION` 下发到 backend，因此 replay 语义与 LeRobot 常见 joint-space absolute action 一致；
+- 为避免 `all` / 子 group 同时包含相同 joint 集合导致 MuJoCo `set_joint_target()` 组选择歧义，回放前先读取当前 `RobotSpecification`，优先选择 joint 列表精确匹配的最小 joint model group；
+- Gazebo 当前不实现回放写入路径，相关方法允许直接 `NotImplementedError`。
 
 ## ServoControlStream 调试客户端
 

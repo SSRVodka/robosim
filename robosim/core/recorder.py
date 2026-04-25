@@ -1,14 +1,18 @@
 from abc import ABC, abstractmethod
 
 from control_stubs.common_pb2 import Status
-from control_stubs.robot_data_pb2 import RecordJobInfo, RecordOptions
+from control_stubs.robot_data_pb2 import RecordInfo, RecordJobInfo, RecordOptions
 
 
 class DataRecorder(ABC):
     @abstractmethod
-    def record_episode_start(self, options: RecordOptions) -> RecordJobInfo:
+    def episode_start(self, options: RecordOptions) -> RecordJobInfo:
         raise NotImplementedError
 
     @abstractmethod
-    def record_episode_end(self) -> Status:
+    def episode_end(self) -> Status:
+        raise NotImplementedError
+
+    @abstractmethod
+    def episode_replay(self, info: RecordInfo) -> Status:
         raise NotImplementedError
