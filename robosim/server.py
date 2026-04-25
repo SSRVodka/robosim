@@ -15,6 +15,9 @@ from control_stubs import (
     mobility_ai_pb2_grpc as mobility_grpc,
 )
 from control_stubs import (
+    policy_pb2_grpc as policy_grpc,
+)
+from control_stubs import (
     robot_core_pb2_grpc as core_grpc,
 )
 from control_stubs import (
@@ -27,10 +30,13 @@ from control_stubs import (
     simulation_pb2_grpc as sim_grpc,
 )
 from robosim.backends import GazeboBackend, MuJoCoBackend
+from robosim.core.activity import ActivityCoordinator
 from robosim.core.backend import SimulatorBackend
+from robosim.core.impl.policy_lerobot import LerobotPolicyRunner
 from robosim.core.impl.recorder_lerobot import LerobotDataRecorder
 from robosim.grpc_server import (
     MobilityServicer,
+    PolicyInferenceServicer,
     RobotCoreServicer,
     RobotDataServicer,
     SensingServicer,
@@ -43,6 +49,7 @@ DATA_REPO_ROOT = Path(__file__).resolve().parent.parent
 def create_server(
     backend: SimulatorBackend,
     recorder: LerobotDataRecorder,
+    policy_runner: LerobotPolicyRunner,
     port: int = 50051,
     max_workers: int = 10,
 ) -> grpc_aio.Server:
@@ -56,7 +63,7 @@ def create_server(
     )
 
     sim_grpc.add_SimulationServiceServicer_to_server(
-        SimulationServicer(backend), server
+        SimulationServicer(backend, policy_runner=policy_runner), server
     )
     sensing_grpc.add_SensingServiceServicer_to_server(
         SensingServicer(backend), server
@@ -66,6 +73,9 @@ def create_server(
     )
     data_grpc.add_RobotDataServiceServicer_to_server(
         RobotDataServicer(recorder), server
+    )
+    policy_grpc.add_PolicyInferenceServiceServicer_to_server(
+        PolicyInferenceServicer(policy_runner), server
     )
     mobility_grpc.add_MobilityServiceServicer_to_server(
         MobilityServicer(backend), server
@@ -87,14 +97,17 @@ async def serve_async(
 
     backend: SimulatorBackend | None = None
     recorder: LerobotDataRecorder | None = None
+    policy_runner: LerobotPolicyRunner | None = None
     server: grpc_aio.Server | None = None
 
     async def shutdown_handler_async() -> None:
         """Async shutdown handler for gRPC server."""
-        nonlocal server, backend
+        nonlocal server, backend, policy_runner
         print("\nReceived shutdown signal, stopping server...")
         if server is not None:
             await server.stop(grace=1.0)
+        if policy_runner is not None:
+            policy_runner.shutdown()
         if backend is not None:
             backend.shutdown()
         try:
@@ -115,6 +128,7 @@ async def serve_async(
         signal.signal(signal.SIGINT, shutdown_handler)
         signal.signal(signal.SIGTERM, shutdown_handler)
 
+        activity = ActivityCoordinator()
         if backend_type == "gazebo":
             rclpy.init()
             backend = GazeboBackend(robot_name=robot_name)
@@ -126,8 +140,13 @@ async def serve_async(
         else:
             raise ValueError(f"Unknown backend type: {backend_type}")
 
-        recorder = LerobotDataRecorder(DATA_REPO_ROOT, backend)
-        server = create_server(backend, recorder, port)
+        recorder = LerobotDataRecorder(DATA_REPO_ROOT, backend, activity_coordinator=activity)
+        policy_runner = LerobotPolicyRunner(
+            DATA_REPO_ROOT,
+            backend,
+            activity_coordinator=activity,
+        )
+        server = create_server(backend, recorder, policy_runner, port)
 
         await server.start()
         print(f"gRPC server started on port {port}")
@@ -140,6 +159,8 @@ async def serve_async(
             await asyncio.sleep(0.1)
     except Exception as e:
         print(f"Server error: {e}")
+        if policy_runner is not None:
+            policy_runner.shutdown()
         if backend is not None:
             backend.shutdown()
         try:

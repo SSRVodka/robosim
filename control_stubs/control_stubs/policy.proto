@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package robot_sim.policy;
+
+import "control_stubs/common.proto";
+
+
+message PolicyLoadRequest {
+    string policy_path = 1;
+    string dataset_repo_name = 2;
+    string device = 3;
+    string task_text = 4;
+    string jmg_name = 5;
+    uint32 control_fps = 6;
+}
+
+
+message PolicyStartRequest {
+    string task_text = 1;
+    uint32 control_fps = 2;
+}
+
+
+message PolicyStatus {
+    robot_sim.common.Status status = 1;
+    bool loaded = 2;
+    bool running = 3;
+    string policy_type = 4;
+    string policy_path = 5;
+    string dataset_repo_name = 6;
+    string device = 7;
+    string jmg_name = 8;
+    uint32 control_fps = 9;
+    string task_text = 10;
+    string active_mode = 11;
+}
+
+
+service PolicyInferenceService {
+    rpc LoadPolicy(PolicyLoadRequest) returns (robot_sim.common.Status);
+
+    rpc StartPolicy(PolicyStartRequest) returns (robot_sim.common.Status);
+
+    rpc StopPolicy(robot_sim.common.Empty) returns (robot_sim.common.Status);
+
+    rpc GetPolicyStatus(robot_sim.common.Empty) returns (PolicyStatus);
+}

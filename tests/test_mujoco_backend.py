@@ -147,6 +147,38 @@ def test_set_joint_target_and_reset_world(backend: MuJoCoBackend) -> None:
     assert reset
 
 
+def test_joint_command_state_stays_replayable_during_velocity_control(
+    backend: MuJoCoBackend,
+) -> None:
+    initial_command_state = backend.get_joint_command_state()
+    initial_position_map = dict(
+        zip(initial_command_state.name, initial_command_state.position, strict=True)
+    )
+    backend.set_joint_target(
+        names=["panda_joint2"],
+        data=[0.2],
+        mode=core_pb2.JointCommand.ControlMode.VELOCITY,
+        group="panda_arm",
+    )
+    time.sleep(0.05)
+
+    robot_state = backend.get_robot_state()
+    command_state = backend.get_joint_command_state()
+    position_map = dict(zip(command_state.name, command_state.position, strict=True))
+    velocity_map = dict(zip(command_state.name, command_state.velocity, strict=True))
+    robot_position_map = dict(zip(robot_state.name, robot_state.position, strict=True))
+
+    assert position_map["panda_joint2"] == pytest.approx(
+        robot_position_map["panda_joint2"],
+        abs=1e-3,
+    )
+    assert velocity_map["panda_joint2"] == pytest.approx(0.2)
+    assert position_map["panda_joint6"] == pytest.approx(
+        initial_position_map["panda_joint6"],
+        abs=1e-6,
+    )
+
+
 def test_idle_loop_holds_initial_configuration(backend: MuJoCoBackend) -> None:
     initial = backend.get_robot_state().position[:7]
     time.sleep(0.3)

@@ -11,44 +11,66 @@
 │  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌────────┐ │
 │  │SimulationSvc│ │ SensingSvc  │ │RobotCoreSvc │ │Mobility│ │
 │  └──────┬──────┘ └──────┬──────┘ └──────┬──────┘ └───┬────┘ │
-└─────────┼──────────────┼──────────────┼─────────────┼──────┘
-          │              │              │             │
-┌─────────▼──────────────▼──────────────▼─────────────▼──────┐
-│                   Backend Manager                            │
+└─────────┼───────────────┼───────────────┼────────────┼──────┘
+          │               │               │            │
+┌─────────▼───────────────▼───────────────▼────────────▼──────┐
+│                   Backend Manager                           │
 │  ┌──────────────────────────────────────────────────────┐   │
-│  │           SimulatorBackend (Abstract Base)             │   │
-│  │  + get_robot_state()                                  │   │
+│  │           SimulatorBackend (Abstract Base)           │   │
+│  │  + get_robot_state()                                 │   │
 │  │  + get_robot_spec()                                  │   │
 │  │  + set_joint_target()                                │   │
 │  │  + get_end_effector_state()                          │   │
 │  │  + list_sensors() / get_sensors() / stream_sensors() │   │
-│  │  + navigate_to() / get_robot_pose_in_map()          │   │
+│  │  + navigate_to() / get_robot_pose_in_map()           │   │
 │  │  + reset_world() / step_physics()                    │   │
 │  │  + emergency_stop()                                  │   │
 │  └──────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
           │
 ┌─────────▼───────────────────────────────────────────────────┐
-│              GazeboBackend (Concrete)                          │
-│  - 使用 ROS2 topic 动态发现传感器                             │
+│              GazeboBackend (Concrete)                       │
+│  - 使用 ROS2 topic 动态发现传感器                              │
 │  - 订阅 JointState, Imu, LaserScan, Image 等                 │
-│  - 发布 /cmd_vel 控制                                       │
-│  - 使用 actionlib 调用 Nav2                                  │
+│  - 发布 /cmd_vel 控制                                         │
+│  - 使用 actionlib 调用 Nav2                                   │
 └─────────────────────────────────────────────────────────────┘
           │
 ┌─────────▼───────────────────────────────────────────────────┐
-│              MuJoCoBackend (Concrete)                          │
+│              MuJoCoBackend (Concrete)                       │
 │  - 使用 MuJoCo Python Bindings 进行仿真                       │
-│  - 从 XML 模型文件加载机器人配置                               │
-│  - 支持关节位置/速度/扭矩控制                                  │
-│  - 通过 forward kinematics 获取末端执行器位姿                    │
-│  - 支持力/扭矩传感器、IMU 等                                  │
-│  - 默认启用重力补偿                                           │
-│  - 非 headless 模式支持被动 viewer                           │
+│  - 从 XML 模型文件加载机器人配置                                │
+│  - 支持关节位置/速度/扭矩控制                                   │
+│  - 通过 forward kinematics 获取末端执行器位姿                   │
+│  - 支持力/扭矩传感器、IMU 等                                    │
+│  - 默认启用重力补偿                                            │
+│  - 非 headless 模式支持被动 viewer                             │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-## 关键设计决策
+## 模块结构
+
+包含部分文件，仅作示意。
+
+```
+robosim/
+├── core/                    # 核心抽象（后端无关）
+│   ├── backend.py          # SimulatorBackend 基类
+│   └── capabilities.py     # 能力枚举
+├── backends/
+│   ├── gazebo/            # Gazebo 后端实现
+│   │   └── backend.py     # 主后端类
+│   └── mujoco/            # MuJoCo 后端实现
+│       └── backend.py      # 主后端类
+├── grpc_server/           # gRPC 服务实现
+│   ├── simulation.py
+│   ├── sensing.py
+│   ├── robot_core.py
+│   └── mobility.py
+└── server.py              # 主入口
+```
+
+## 设计细节
 
 ### 1. 后端无关的设计
 - **不应依赖特定模拟器的配置模块**（如 `robot_sim_common.config`）
@@ -87,7 +109,7 @@
 - 不支持的操作用 `NotImplementedError` 标识
 - gRPC 层将其映射为 `UNIMPLEMENTED` 状态码
 
-## MuJoCo 设计补充
+## 关于 MuJoCoBackend
 
 ### 1. 运行时结构
 - `mjModel` 只加载一次并保持只读；
@@ -121,10 +143,10 @@
 - MuJoCo 的 offscreen renderer 绑定创建它的线程；后端按“线程 + 分辨率”缓存 renderer，避免录制线程和 gRPC 请求线程跨线程复用 EGL/OpenGL 上下文导致黑帧/花屏；
 - 当前 gRPC 扩充了力/力矩传感器类型与数据结构，以避免 MuJoCo 现有传感器语义丢失。
 
-## LeRobot 录制设计
+## 关于 LeRobot 数据录制
 
 ### 1. 录制入口
-- 新增 `RobotDataService`，仅暴露 `EpisodeStart` / `EpisodeEnd`；
+- `RobotDataService`，仅暴露 `EpisodeStart` / `EpisodeEnd`；
 - gRPC server 启动时构造一个 `LerobotDataRecorder`，数据根目录固定为仓库下 `data/lerobot/<repo_name>`；
 - 同一 backend 实例同一时刻只允许一个录制 session。
 
@@ -138,7 +160,7 @@
   - `observation.state`
   - `observation.velocity`
   - `observation.effort`
-- `action` 固定定义为 joint coordinate system 下的绝对关节位置目标，当前直接采用采样时刻的关节位置向量，保证 LeRobot 数据集只暴露一个标准动作向量；
+- `action` 固定定义为 joint coordinate system 下的绝对关节位置目标，记录 backend 最近一次 joint command 的 position target，保证 replay 与 policy runtime 共享同一动作语义；
 - 末端位姿映射为 `observation.end_effectors.<group>.{position,orientation}`；
 - 视觉数据映射为 `observation.images.<sensor>`；
 - IMU / LiDAR / Odom / Force / Torque 各自映射到对应 `observation.*` 数值向量。
@@ -162,28 +184,44 @@
 - 为避免 `all` / 子 group 同时包含相同 joint 集合导致 MuJoCo `set_joint_target()` 组选择歧义，回放前先读取当前 `RobotSpecification`，优先选择 joint 列表精确匹配的最小 joint model group；
 - Gazebo 当前不实现回放写入路径，相关方法允许直接 `NotImplementedError`。
 
-## ServoControlStream 调试客户端
+## 关于 LeRobot IL 推理支持
+
+### 1. 当前范围
+- 当前阶段只支持 MuJoCo 后端上的 LeRobot IL policy 推理；
+- 不实现训练支持；
+- 首个目标是兼容 ACT 这类标准 joint-space chunking policy，但运行时适配层应尽量保持对其他 LeRobot IL policy 通用。
+
+### 2. 录制 / 回放 / 推理
+- replay 继续消费 dataset 中的 `action`，并按 joint-space absolute position target 下发；
+- 推理期的 observation 不直接复用 recorder 的“全量 feature schema”作为 policy 输入；
+- 推理期只暴露最小必需 observation：`observation.state`、`observation.images.*`、`task`；
+- recorder 允许继续记录更丰富的 feature，但这不应反向决定 policy runtime 的输入结构。
+
+### 3. action 语义
+- 框架内 LeRobot policy runtime 的标准 action 语义固定为 joint-space absolute position target；
+- recorder 的 `action` 应记录“可 replay 的绝对关节目标”；
+- backend 若内部直接运行 POSITION 控制，则 `action` 可直接取最近一次 joint command；
+- backend 若当前控制源是 VELOCITY / TORQUE / twist 等非绝对位置命令，则必须先归一化成绝对关节位置目标再暴露给 recorder；至少不能把这类原始命令直接写进 `action`，否则 replay 按 POSITION 下发时会失真。
+
+### 4. 运行时结构
+- server 内独立的 policy runner，职责仅限于：
+  - 加载 checkpoint / preprocessor / postprocessor / policy；
+  - 维护推理线程与 stop/reset 状态；
+  - 在固定控制频率下执行 observation -> preprocess -> `select_action()` -> postprocess -> `set_joint_target()`；
+  - 在开始新一轮推理或 world reset 后调用 `policy.reset()`，清理 LeRobot policy 内部的 action queue / history。
+- policy runner 与 recorder / replay 必须互斥，同一 backend 实例任一时刻只能存在一种主动控制源。
+
+### 5. Observation 适配
+- backend snapshot -> LeRobot observation 的转换逻辑应从 recorder 中抽离成共享组件；
+- 该适配层负责：
+  - 选择推理需要的 joints / cameras；
+  - 生成与 policy checkpoint 对齐的 observation keys；
+  - 维持 joint names 与 `JointModelGroup` 的稳定映射；
+  - 在 postprocess 后把 action 向量重新映射为 backend 可执行的 joint target。
+
+## 关于 ServoControlStream 调试客户端
 
 - 调试客户端位于 `control_stubs/tools/servo_keyboard.py`，职责仅限于把终端键盘事件转成 `ServoCommand` 流，不引入新的控制抽象；
 - 客户端启动时先读取 `RobotSpecification`，默认自动选择一个带 end effector 的 `jmg` 作为 twist 控制目标；若存在较小的非 ee `jmg`，则同时把它作为 joint 调试目标；
 - 终端 raw mode 只能稳定拿到 key-down，不能可靠拿到 key-up，因此客户端采用“按键生效一小段保持时间，超时后自动补发零速度”的语义，避免后端持续保持旧 velocity target；
 - `ServoCommand` 是 `oneof`，因此 twist 和 joint 调试命令始终分开发送，客户端每个周期最多发一条 twist 命令和一条 joint 命令。
-
-## 模块结构
-```
-robosim/
-├── core/                    # 核心抽象（后端无关）
-│   ├── backend.py          # SimulatorBackend 基类
-│   └── capabilities.py     # 能力枚举
-├── backends/
-│   ├── gazebo/            # Gazebo 后端实现
-│   │   └── backend.py     # 主后端类
-│   └── mujoco/            # MuJoCo 后端实现
-│       └── backend.py      # 主后端类
-├── grpc_server/           # gRPC 服务实现
-│   ├── simulation.py
-│   ├── sensing.py
-│   ├── robot_core.py
-│   └── mobility.py
-└── server.py              # 主入口
-```

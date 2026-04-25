@@ -10,6 +10,8 @@ from control_stubs import (
     common_pb2,
     mobility_ai_pb2,
     mobility_ai_pb2_grpc,
+    policy_pb2,
+    policy_pb2_grpc,
     robot_core_pb2,
     robot_core_pb2_grpc,
     robot_data_pb2,
@@ -31,6 +33,7 @@ class RobosimClient:
         self.robot_core = RobotCoreStub(self._channel)
         self.robot_data = RobotDataStub(self._channel)
         self.mobility = MobilityStub(self._channel)
+        self.policy = PolicyInferenceStub(self._channel)
 
     def close(self) -> None:
         self._channel.close()
@@ -186,3 +189,48 @@ class RobotDataStub:
         return self._stub.EpisodeReplay(
             robot_data_pb2.RecordInfo(repo_name=repo_name, episode_id=episode_id)
         )
+
+
+class PolicyInferenceStub:
+    """PolicyInferenceService client stub."""
+
+    def __init__(self, channel: grpc.Channel) -> None:
+        self._stub = policy_pb2_grpc.PolicyInferenceServiceStub(channel)
+
+    def load_policy(
+        self,
+        policy_path: str,
+        dataset_repo_name: str,
+        device: str = "",
+        task_text: str = "",
+        jmg_name: str = "",
+        control_fps: int = 0,
+    ) -> common_pb2.Status:
+        return self._stub.LoadPolicy(
+            policy_pb2.PolicyLoadRequest(
+                policy_path=policy_path,
+                dataset_repo_name=dataset_repo_name,
+                device=device,
+                task_text=task_text,
+                jmg_name=jmg_name,
+                control_fps=control_fps,
+            )
+        )
+
+    def start_policy(
+        self,
+        task_text: str = "",
+        control_fps: int = 0,
+    ) -> common_pb2.Status:
+        return self._stub.StartPolicy(
+            policy_pb2.PolicyStartRequest(
+                task_text=task_text,
+                control_fps=control_fps,
+            )
+        )
+
+    def stop_policy(self) -> common_pb2.Status:
+        return self._stub.StopPolicy(common_pb2.Empty())
+
+    def get_policy_status(self) -> policy_pb2.PolicyStatus:
+        return self._stub.GetPolicyStatus(common_pb2.Empty())

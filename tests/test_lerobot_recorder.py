@@ -140,6 +140,106 @@ class ReplaySpyBackend(SimulatorBackend):
         return None
 
 
+class RecorderActionSpyBackend(SimulatorBackend):
+    @property
+    def capabilities(self) -> Capability:
+        return Capability.SERVO_CAPABLE
+
+    @property
+    def robot_name(self) -> str:
+        return "action_spy_robot"
+
+    @property
+    def headless_mode(self) -> bool:
+        return True
+
+    def set_headless_mode(self, enabled: bool) -> None:
+        del enabled
+
+    def get_robot_state(self) -> JointState:
+        return JointState(
+            name=["joint_a", "joint_b"],
+            position=[1.0, 2.0],
+            velocity=[0.0, 0.0],
+            effort=[0.0, 0.0],
+        )
+
+    def get_robot_spec(self) -> RobotSpecification:
+        return RobotSpecification(
+            robot_name=self.robot_name,
+            joints=[
+                JointLimit(name="joint_a", type="hinge", jmg_names=["arm"]),
+                JointLimit(name="joint_b", type="hinge", jmg_names=["arm"]),
+            ],
+            joint_model_groups=[
+                JointModelGroupSpec(
+                    name="arm",
+                    joint_names=["joint_a", "joint_b"],
+                    end_effectors=[EESpec(name="tool", parent_jmg_name="arm", group_name="tool")],
+                ),
+            ],
+        )
+
+    def set_joint_target(
+        self,
+        names: list[str],
+        data: list[float],
+        mode: JointCommand.ControlMode,
+        group: str | None = None,
+    ) -> None:
+        del names, data, mode, group
+
+    def servo_control_stream(
+        self,
+        request_iterator: Iterator[ServoCommand],
+    ) -> Iterator[JointState]:
+        del request_iterator
+        raise NotImplementedError
+
+    def get_end_effector_state(self, group: str) -> EndEffectorState:
+        del group
+        return EndEffectorState(
+            pose_stamped=PoseStamped(
+                pose=Pose(orientation=Quaternion(w=1.0)),
+            )
+        )
+
+    def get_joint_command_state(self) -> JointState:
+        return JointState(
+            name=["joint_a", "joint_b"],
+            position=[0.25, 0.75],
+            velocity=[0.0, 0.0],
+            effort=[0.0, 0.0],
+        )
+
+    def list_sensors(self) -> SensorMetaList:
+        return SensorMetaList()
+
+    def get_sensors(self, names: list[str]) -> SensorData:
+        del names
+        return SensorData()
+
+    def stream_sensors(self, names: list[str]) -> Iterator[SensorData]:
+        del names
+        return iter(())
+
+    def get_robot_pose_in_map(self) -> PoseStamped:
+        return PoseStamped(pose=Pose(orientation=Quaternion(w=1.0)))
+
+    def navigate_to(self, goal: NavGoal) -> Iterator[TaskFeedback]:
+        del goal
+        return iter(())
+
+    def reset_world(self, seed: int, randomization_params: dict[str, float]) -> None:
+        del seed, randomization_params
+
+    def emergency_stop(self) -> None:
+        return None
+
+    def shutdown(self) -> None:
+        return None
+
+
 @pytest.fixture
 def backend() -> Generator[MuJoCoBackend, None, None]:
     instance = MuJoCoBackend(str(SCENE_PATH), headless=True)
@@ -214,6 +314,30 @@ def test_robot_data_servicer_records_episode(tmp_path: Path, backend: MuJoCoBack
     assert job.status.code == 1
     assert job.episode_id == 0
     assert status.code == 1
+
+
+def test_lerobot_recorder_records_joint_command_as_action(tmp_path: Path) -> None:
+    recorder = LerobotDataRecorder(tmp_path, RecorderActionSpyBackend())
+    options = RecordOptions(
+        repo_name="command_dataset",
+        task_text="hold pose",
+        fps=5,
+        jmg_included=["arm"],
+    )
+
+    recorder.episode_start(options)
+    status = recorder.episode_end()
+
+    assert status.code == 1
+
+    dataset = LeRobotDataset(
+        repo_id="command_dataset",
+        root=tmp_path / "data" / "lerobot" / "command_dataset",
+    )
+    sample = dataset[0]
+
+    assert sample["observation.state"].tolist() == pytest.approx([1.0, 2.0])
+    assert sample["action"].tolist() == pytest.approx([0.25, 0.75])
 
 
 def _create_replay_dataset(tmp_path: Path, repo_name: str) -> None:

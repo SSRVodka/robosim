@@ -81,7 +81,7 @@ class SimulatorBackend(ABC):
     
     @abstractmethod
     def get_joint_command_state(self) -> JointState:
-        """Get latest joint command state. Used as action field in the dataset."""
+        """Get replayable joint action state used as dataset action."""
         raise NotImplementedError
 
     @abstractmethod

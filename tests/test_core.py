@@ -1,5 +1,8 @@
 """Tests for RoboSim core module."""
 
+import pytest
+
+from robosim.core.activity import ActivityCoordinator
 from robosim.core.capabilities import Capability
 
 
@@ -43,3 +46,17 @@ class TestSimulatorBackend:
         assert hasattr(SimulatorBackend, "list_sensors")
         assert hasattr(SimulatorBackend, "navigate_to")
         assert hasattr(SimulatorBackend, "emergency_stop")
+
+
+class TestActivityCoordinator:
+    def test_activity_is_mutually_exclusive(self) -> None:
+        coordinator = ActivityCoordinator()
+
+        coordinator.acquire("record")
+        assert coordinator.active_mode == "record"
+
+        with pytest.raises(RuntimeError, match="record"):
+            coordinator.acquire("policy")
+
+        coordinator.release("record")
+        assert coordinator.active_mode is None

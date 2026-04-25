@@ -426,7 +426,15 @@ class MuJoCoBackend(SimulatorBackend):
     def get_joint_command_state(self) -> common_pb2.JointState:
         with self._state_lock:
             names = list(self._controllable_joint_names)
-            positions = [0.0] * len(names)
+            # NOTE: DataRecorder will always use position.
+            # So if the current control mode is not POSITION,
+            # we need to convert the target to position.
+            position_by_name = {
+                info.name: float(self._data.qpos[info.qpos_adr])
+                for info in self._joint_infos
+                if info.controllable
+            }
+            positions = [position_by_name[name] for name in names]
             velocities = [0.0] * len(names)
             efforts = [0.0] * len(names)
             for index, joint_name in enumerate(names):

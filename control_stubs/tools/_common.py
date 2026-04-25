@@ -12,7 +12,9 @@ from control_stubs import common_pb2, robot_core_pb2
 from .client import RobosimClient
 
 
-def _parse_pose(pose: dict[str, Any]) -> tuple[tuple[float, float, float], tuple[float, float, float, float]]:
+def _parse_pose(
+    pose: dict[str, Any],
+) -> tuple[tuple[float, float, float], tuple[float, float, float, float]]:
     """Parse pose dict to (position, orientation) tuples."""
     pos = pose.get("position", {"x": 0, "y": 0, "z": 0})
     ori = pose.get("orientation", {"x": 0, "y": 0, "z": 0, "w": 1})
@@ -59,6 +61,22 @@ def _serialize_record_job_info(info: Any) -> dict[str, Any]:
     }
 
 
+def _serialize_policy_status(status: Any) -> dict[str, Any]:
+    return {
+        "status": _serialize_status(status.status),
+        "loaded": status.loaded,
+        "running": status.running,
+        "policy_type": status.policy_type,
+        "policy_path": status.policy_path,
+        "dataset_repo_name": status.dataset_repo_name,
+        "device": status.device,
+        "jmg_name": status.jmg_name,
+        "control_fps": status.control_fps,
+        "task_text": status.task_text,
+        "active_mode": status.active_mode,
+    }
+
+
 
 
 
@@ -73,7 +91,12 @@ POS_ORI_SCHEMA = {
     },
     "orientation": {
         "type": "object",
-        "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}, "w": {"type": "number"}},
+        "properties": {
+            "x": {"type": "number"},
+            "y": {"type": "number"},
+            "z": {"type": "number"},
+            "w": {"type": "number"},
+        },
     },
 }
 
@@ -86,7 +109,10 @@ POSE_SCHEMA = {
 TOOL_DEFINITIONS = [
     {
         "name": "reset_world",
-        "description": "Reset the simulation world to its initial state. Essential for starting new RL episodes.",
+        "description": (
+            "Reset the simulation world to its initial state. "
+            "Essential for starting new RL episodes."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
@@ -116,7 +142,10 @@ TOOL_DEFINITIONS = [
             "type": "object",
             "required": ["object_name", "pose"],
             "properties": {
-                "object_name": {"type": "string", "description": "Name of the object to manipulate"},
+                "object_name": {
+                    "type": "string",
+                    "description": "Name of the object to manipulate",
+                },
                 "pose": POSE_SCHEMA,
             },
         },
@@ -148,7 +177,10 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "get_robot_spec",
-        "description": "Get robot specifications including all joints, move groups, named states, and end effectors.",
+        "description": (
+            "Get robot specifications including all joints, move groups, "
+            "named states, and end effectors."
+        ),
         "parameters": {"type": "object", "properties": {}},
     },
     {
@@ -158,16 +190,30 @@ TOOL_DEFINITIONS = [
             "type": "object",
             "required": ["names", "data", "mode"],
             "properties": {
-                "names": {"type": "array", "items": {"type": "string"}, "description": "Joint names to control"},
-                "data": {"type": "array", "items": {"type": "number"}, "description": "Target values"},
-                "mode": {"type": "string", "enum": ["POSITION", "VELOCITY", "TORQUE"], "description": "Control mode"},
+                "names": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Joint names to control",
+                },
+                "data": {
+                    "type": "array",
+                    "items": {"type": "number"},
+                    "description": "Target values",
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["POSITION", "VELOCITY", "TORQUE"],
+                    "description": "Control mode",
+                },
                 "jmg_name": {"type": "string", "description": "Optional move group name"},
             },
         },
     },
     {
         "name": "get_end_effector_state",
-        "description": "Get the end-effector pose (forward kinematics result) for a specific move group.",
+        "description": (
+            "Get the end-effector pose (forward kinematics result) for a specific move group."
+        ),
         "parameters": {
             "type": "object",
             "required": ["jmg_name"],
@@ -176,13 +222,18 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "episode_start",
-        "description": "Start recording a dataset episode into a managed local LeRobotDataset repository.",
+        "description": (
+            "Start recording a dataset episode into a managed local LeRobotDataset repository."
+        ),
         "parameters": {
             "type": "object",
             "required": ["repo_name"],
             "properties": {
                 "repo_name": {"type": "string", "description": "Dataset repository directory name"},
-                "task_text": {"type": "string", "description": "Per-frame natural language task label"},
+                "task_text": {
+                    "type": "string",
+                    "description": "Per-frame natural language task label",
+                },
                 "fps": {"type": "integer", "description": "Sampling frame rate"},
                 "jmg_included": {
                     "type": "array",
@@ -209,7 +260,9 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "episode_end",
-        "description": "Stop the current recording episode and flush it to the local LeRobotDataset.",
+        "description": (
+            "Stop the current recording episode and flush it to the local LeRobotDataset."
+        ),
         "parameters": {"type": "object", "properties": {}},
     },
     {
@@ -225,6 +278,57 @@ TOOL_DEFINITIONS = [
         },
     },
     {
+        "name": "policy_load",
+        "description": "Load a LeRobot policy checkpoint for inference.",
+        "parameters": {
+            "type": "object",
+            "required": ["policy_path", "dataset_repo_name"],
+            "properties": {
+                "policy_path": {
+                    "type": "string",
+                    "description": "Local path or Hub id of the policy checkpoint",
+                },
+                "dataset_repo_name": {
+                    "type": "string",
+                    "description": (
+                        "Local LeRobot dataset repo name used to recover action joint names"
+                    ),
+                },
+                "device": {"type": "string", "description": "Optional torch device override"},
+                "task_text": {"type": "string", "description": "Default task string for inference"},
+                "jmg_name": {
+                    "type": "string",
+                    "description": "Optional joint model group override",
+                },
+                "control_fps": {"type": "integer", "description": "Default control loop rate"},
+            },
+        },
+    },
+    {
+        "name": "policy_start",
+        "description": "Start the loaded LeRobot policy control loop.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "task_text": {"type": "string", "description": "Optional task string override"},
+                "control_fps": {
+                    "type": "integer",
+                    "description": "Optional control loop rate override",
+                },
+            },
+        },
+    },
+    {
+        "name": "policy_stop",
+        "description": "Stop the running LeRobot policy control loop.",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "get_policy_status",
+        "description": "Get the current LeRobot policy runtime status.",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    {
         "name": "emergency_stop",
         "description": "Trigger emergency stop to halt all robot motion immediately.",
         "parameters": {"type": "object", "properties": {}},
@@ -236,13 +340,19 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "navigate_to",
-        "description": "Navigate the robot to a target pose using SLAM-based navigation. Streams progress feedback.",
+        "description": (
+            "Navigate the robot to a target pose using SLAM-based navigation. "
+            "Streams progress feedback."
+        ),
         "parameters": {
             "type": "object",
             "required": ["target_pose"],
             "properties": {
                 "target_pose": POSE_SCHEMA,
-                "target_frame": {"type": "string", "description": "Coordinate frame (default: 'map')"},
+                "target_frame": {
+                    "type": "string",
+                    "description": "Coordinate frame (default: 'map')",
+                },
                 "max_velocity": {"type": "number", "description": "Override max velocity"},
             },
         },
@@ -262,7 +372,9 @@ def _to_mcp_tool(defn: dict[str, Any]) -> dict[str, Any]:
 MCP_TOOLS = [_to_mcp_tool(d) for d in TOOL_DEFINITIONS]
 
 
-def create_tool_implementations(client: RobosimClient) -> dict[str, Callable[..., Coroutine[Any, Any, str]]]:
+def create_tool_implementations(
+    client: RobosimClient,
+) -> dict[str, Callable[..., Coroutine[Any, Any, str]]]:
     """Create async tool implementations bound to a gRPC client."""
 
     async def reset_world(a: dict[str, Any]) -> str:
@@ -328,6 +440,37 @@ def create_tool_implementations(client: RobosimClient) -> dict[str, Callable[...
     async def episode_end(_: dict[str, Any]) -> str:
         return json.dumps(_serialize_status(client.robot_data.episode_end()))
 
+    async def episode_replay(a: dict[str, Any]) -> str:
+        return json.dumps(_serialize_status(
+            client.robot_data.episode_replay(a["repo_name"], a["episode_id"])
+        ))
+
+    async def policy_load(a: dict[str, Any]) -> str:
+        return json.dumps(_serialize_status(
+            client.policy.load_policy(
+                policy_path=a["policy_path"],
+                dataset_repo_name=a["dataset_repo_name"],
+                device=a.get("device", ""),
+                task_text=a.get("task_text", ""),
+                jmg_name=a.get("jmg_name", ""),
+                control_fps=a.get("control_fps", 0),
+            )
+        ))
+
+    async def policy_start(a: dict[str, Any]) -> str:
+        return json.dumps(_serialize_status(
+            client.policy.start_policy(
+                task_text=a.get("task_text", ""),
+                control_fps=a.get("control_fps", 0),
+            )
+        ))
+
+    async def policy_stop(_: dict[str, Any]) -> str:
+        return json.dumps(_serialize_status(client.policy.stop_policy()))
+
+    async def get_policy_status(_: dict[str, Any]) -> str:
+        return json.dumps(_serialize_policy_status(client.policy.get_policy_status()))
+
     async def emergency_stop(_: dict[str, Any]) -> str:
         return json.dumps(_serialize_status(client.robot_core.emergency_stop()))
 
@@ -358,6 +501,11 @@ def create_tool_implementations(client: RobosimClient) -> dict[str, Callable[...
         "get_end_effector_state": get_end_effector_state,
         "episode_start": episode_start,
         "episode_end": episode_end,
+        "episode_replay": episode_replay,
+        "policy_load": policy_load,
+        "policy_start": policy_start,
+        "policy_stop": policy_stop,
+        "get_policy_status": get_policy_status,
         "emergency_stop": emergency_stop,
         "get_robot_pose_in_map": get_robot_pose_in_map,
         "navigate_to": navigate_to,

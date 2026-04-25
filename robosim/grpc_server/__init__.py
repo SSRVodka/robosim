@@ -1,6 +1,7 @@
 """gRPC server module."""
 
 from robosim.grpc_server.mobility import MobilityServicer
+from robosim.grpc_server.policy_inference import PolicyInferenceServicer
 from robosim.grpc_server.robot_core import RobotCoreServicer
 from robosim.grpc_server.robot_data import RobotDataServicer
 from robosim.grpc_server.sensing import SensingServicer
@@ -12,4 +13,5 @@ __all__ = [
     "RobotCoreServicer",
     "RobotDataServicer",
     "MobilityServicer",
+    "PolicyInferenceServicer",
 ]

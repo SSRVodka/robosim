@@ -2,11 +2,43 @@
 
 # VERSION v0.0.5
 
-## New Features
+## New Features & Details
 - [x] 支持数据集（基于给定的 repo、episode）重放；
-- [ ] 基于 IL Policy（如 ACT）的推理支持（Action Chunking，或许可以借助 lerobot 的能力）；
+- [ ] (**<u>WIP</u>**) 基于 IL Policy（如 ACT）的推理支持（Action Chunking，或许可以借助 lerobot 的能力）；
 - [ ] 基于 RL Policy 的推理支持；
 - [ ] 支持常见模型的 VLA 推理（对接 LeRobot 接口）；
+
+## Bug Fixes
+
+- [x] 修复 MuJoCo recorder 在 velocity/twist servo 下把不可 replay 的原始 joint command 写入 `action`，导致 EpisodeReplay 将关节拉回 0；
+- [ ] （优先级低）像 EpisodeReplay 这样的 gRPC 接口报错无法传递详细的错误信息，只能从服务端的 console 看到。比如故意输入不存在的 repoName，服务端报错正常，但是客户端只能收到模糊的错误信息 "UNKNOWN:Error received from peer ipv6:%5B::1%5D:50051 {grpc_status:13, grpc_message:""}"；
+
+## Details
+
+关于 IL Policy（如 ACT）的推理支持：
+- [x] 解决一些很乱的规约、抽象 recorder 和 policy runner 共用代码：
+    - [x] 重构 observation 定义，只保留 `observation.state`、`observation.images.*`、`task`；
+    - [x] 修正 recorder 的 `action` 语义，改为记录可 replay 的绝对 joint target；对于 POSITION 控制直接记录 joint command，对于 velocity/twist 这类控制则先归一化，避免把不可 replay 的原始命令写入数据集；
+    - [x] 将 LeRobot dataset 的“录制/回放 schema”和“推理输入 schema”解耦；
+    - [x] `recorder_lerobot.py` 提取 backend snapshot -> LeRobot frame / observation 的公共转换逻辑；
+    - [x] 为 MuJoCo backend 增加最小推理期 observation 构造路径，避免推理时重复走 recorder 的全量 feature 枚举；
+    - [x] 明确 joint names 与 `JointModelGroup` 的映射规则，保证 action 能稳定下发到唯一 JMG；
+- [x] IL policy runtime：
+    - [x] 增加本地 policy runner，负责加载 checkpoint、preprocessor、postprocessor、policy；
+    - [x] runner 支持 episode/reset 语义，在开始推理和 reset 后调用 `policy.reset()`；
+    - [x] runner 支持固定 control loop，按给定频率执行 observation -> preprocess -> `select_action()` -> postprocess -> `set_joint_target()`；
+- [x] 框架层布线：
+    - [x] 新增独立的 policy inference service；
+    - [x] 最小接口覆盖：加载 policy、开始推理、停止推理、查询当前状态；
+    - [x] 服务层保证与 recorder / replay 互斥，避免同一 backend 实例上出现控制冲突；
+
+## Tests
+- [x] 为 observation / action 适配层补单元测试，覆盖 joint names、camera names、group 选择；
+- [x] 为 runner 补单元测试，覆盖 queue reset、chunked action 消费、stop/start 状态切换；
+- [x] 增加一条 MuJoCo Backend 的集成测试：加载本地 LeRobot policy stub 后至少能完成一次推理循环；
+- [ ] 测试是否支持 ACT 这类标准 IL chunking policy；测试是否保持对其他 LeRobot IL policy 兼容；
+
+
 
 
 # VERSION v0.0.4

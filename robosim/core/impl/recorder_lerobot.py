@@ -24,7 +24,13 @@ from control_stubs.sensing_pb2 import (
     SensorMetaList,
     WrenchData,
 )
+from robosim.core.activity import ActivityCoordinator
 from robosim.core.backend import SimulatorBackend
+from robosim.core.impl.lerobot_io import (
+    decode_camera_image,
+    joint_state_vector,
+    resolve_joint_group,
+)
 from robosim.core.recorder import DataRecorder
 
 DEFAULT_RECORD_FPS = 30
@@ -36,6 +42,7 @@ QUAT_NAMES = ["x", "y", "z", "w"]
 @dataclass(slots=True)
 class CaptureSnapshot:
     robot_state: JointState
+    joint_command_state: JointState
     end_effector_states: dict[str, EndEffectorState]
     sensor_data: SensorData
 
@@ -65,10 +72,16 @@ class RecordingSession:
 class LerobotDataRecorder(DataRecorder):
     """Persist sampled backend state as a LeRobotDataset v3 dataset."""
 
-    def __init__(self, repo_root: Path, backend: SimulatorBackend) -> None:
+    def __init__(
+        self,
+        repo_root: Path,
+        backend: SimulatorBackend,
+        activity_coordinator: ActivityCoordinator | None = None,
+    ) -> None:
         self._repo_root = repo_root
         self._backend = backend
         self._datasets_root = repo_root / "data" / "lerobot"
+        self._activity = activity_coordinator
         self._lock = threading.RLock()
         self._session: RecordingSession | None = None
         self._replay_active = False
@@ -79,6 +92,8 @@ class LerobotDataRecorder(DataRecorder):
                 raise RuntimeError("recording is already in progress")
             if self._replay_active:
                 raise RuntimeError("replay is already in progress")
+            if self._activity is not None:
+                self._activity.acquire("record")
 
             plan, snapshot = self._build_plan(options)
             dataset = self._open_dataset(plan)
@@ -129,6 +144,8 @@ class LerobotDataRecorder(DataRecorder):
             with self._lock:
                 if self._session is session:
                     self._session = None
+            if self._activity is not None:
+                self._activity.release("record")
 
     def episode_replay(self, info: RecordInfo) -> Status:
         with self._lock:
@@ -136,6 +153,8 @@ class LerobotDataRecorder(DataRecorder):
                 raise RuntimeError("recording is already in progress")
             if self._replay_active:
                 raise RuntimeError("replay is already in progress")
+            if self._activity is not None:
+                self._activity.acquire("replay")
             self._replay_active = True
 
         try:
@@ -183,6 +202,8 @@ class LerobotDataRecorder(DataRecorder):
         finally:
             with self._lock:
                 self._replay_active = False
+            if self._activity is not None:
+                self._activity.release("replay")
 
     def _build_plan(self, options: RecordOptions) -> tuple[CapturePlan, CaptureSnapshot]:
         repo_name = self._normalize_repo_name(options.repo_name)
@@ -344,6 +365,7 @@ class LerobotDataRecorder(DataRecorder):
     ) -> CaptureSnapshot:
         return CaptureSnapshot(
             robot_state=robot_state or self._backend.get_robot_state(),
+            joint_command_state=self._backend.get_joint_command_state(),
             end_effector_states={
                 group_name: self._backend.get_end_effector_state(group_name)
                 for group_name in end_effector_groups
@@ -442,7 +464,7 @@ class LerobotDataRecorder(DataRecorder):
                 snapshot.robot_state, plan.joint_names, "effort"
             )
             frame["action"] = self._joint_vector(
-                snapshot.robot_state, plan.joint_names, "position"
+                snapshot.joint_command_state, plan.joint_names, "position"
             )
 
         for group_name in plan.end_effector_groups:
@@ -545,15 +567,7 @@ class LerobotDataRecorder(DataRecorder):
         joint_names: list[str],
         field_name: str,
     ) -> np.ndarray:
-        values = getattr(joint_state, field_name)
-        value_by_name = {
-            name: float(values[index]) if index < len(values) else 0.0
-            for index, name in enumerate(joint_state.name)
-        }
-        return np.asarray(
-            [value_by_name.get(joint_name, 0.0) for joint_name in joint_names],
-            dtype=np.float32,
-        )
+        return joint_state_vector(joint_state, joint_names, field_name)
 
     def _image_arrays(self, sensor_data: SensorData) -> dict[str, np.ndarray]:
         return {image.name: self._decode_image(image) for image in sensor_data.images}
@@ -577,32 +591,11 @@ class LerobotDataRecorder(DataRecorder):
         return ee_state
 
     def _decode_image(self, image: CameraImage) -> np.ndarray:
-        channel_count = self._channel_count(image.encoding)
-        raw = np.frombuffer(image.data, dtype=np.uint8)
-        row_width = int(image.step) if image.step else int(image.width) * channel_count
-        array: np.ndarray = raw.reshape(int(image.height), row_width)
-        array = array[:, : int(image.width) * channel_count]
-        array = array.reshape(int(image.height), int(image.width), channel_count)
-
-        if image.encoding == "bgr8":
-            array = array[:, :, ::-1]
-        elif image.encoding == "bgra8":
-            array = array[:, :, [2, 1, 0, 3]]
-
-        if array.shape[2] == 4:
-            array = array[:, :, :3]
-        if array.shape[2] == 1:
-            array = np.repeat(array, 3, axis=2)
-        return np.ascontiguousarray(array)
+        return decode_camera_image(image)
 
     def _channel_count(self, encoding: str) -> int:
-        if encoding in {"rgb8", "bgr8"}:
-            return 3
-        if encoding in {"rgba8", "bgra8"}:
-            return 4
-        if encoding == "mono8":
-            return 1
-        raise ValueError(f"unsupported image encoding '{encoding}'")
+        del encoding
+        raise AssertionError("unused helper")
 
     def _normalize_repo_name(self, repo_name: str) -> str:
         normalized = repo_name.strip()
@@ -642,28 +635,7 @@ class LerobotDataRecorder(DataRecorder):
         joint_names: list[str],
         robot_spec: RobotSpecification,
     ) -> str | None:
-        exact_matches = [
-            group
-            for group in robot_spec.joint_model_groups
-            if list(group.joint_names) == joint_names
-        ]
-        if len(exact_matches) == 1:
-            return exact_matches[0].name
-        if len(exact_matches) > 1:
-            raise ValueError("replay joint group is ambiguous")
-
-        containing_groups = [
-            group
-            for group in robot_spec.joint_model_groups
-            if all(joint_name in group.joint_names for joint_name in joint_names)
-        ]
-        if not containing_groups:
-            return None
-
-        shortest_groups = self._shortest_groups(containing_groups)
-        if len(shortest_groups) == 1:
-            return shortest_groups[0].name
-        raise ValueError("replay joint group is ambiguous")
+        return resolve_joint_group(joint_names, robot_spec)
 
     def _shortest_groups(
         self,

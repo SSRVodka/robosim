@@ -10,6 +10,7 @@ from control_stubs import common_pb2 as common_pb2
 from control_stubs import simulation_pb2 as sim_pb2
 from control_stubs import simulation_pb2_grpc as sim_pb2_grpc
 from robosim.core.backend import SimulatorBackend
+from robosim.core.impl.policy_lerobot import LerobotPolicyRunner
 
 _logger = logging.getLogger(__name__)
 
@@ -17,8 +18,13 @@ _logger = logging.getLogger(__name__)
 class SimulationServicer(sim_pb2_grpc.SimulationServiceServicer):
     """gRPC servicer for simulation control."""
 
-    def __init__(self, backend: SimulatorBackend) -> None:
+    def __init__(
+        self,
+        backend: SimulatorBackend,
+        policy_runner: LerobotPolicyRunner | None = None,
+    ) -> None:
         self._backend = backend
+        self._policy_runner = policy_runner
 
     def ResetWorld(
         self, request: sim_pb2.ResetRequest, context: grpc.ServicerContext
@@ -30,6 +36,8 @@ class SimulationServicer(sim_pb2_grpc.SimulationServiceServicer):
         )
         try:
             self._backend.reset_world(request.seed, dict(request.randomization_params))
+            if self._policy_runner is not None:
+                self._policy_runner.notify_world_reset()
             _logger.info("ResetWorld succeeded")
             return common_pb2.Status(code=common_pb2.STATUS_SUCCESS)
         except NotImplementedError:
