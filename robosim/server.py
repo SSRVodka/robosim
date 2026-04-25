@@ -7,6 +7,7 @@ import argparse
 import asyncio
 import signal
 from concurrent import futures
+from pathlib import Path
 
 from grpc import aio as grpc_aio
 
@@ -17,6 +18,9 @@ from control_stubs import (
     robot_core_pb2_grpc as core_grpc,
 )
 from control_stubs import (
+    robot_data_pb2_grpc as data_grpc,
+)
+from control_stubs import (
     sensing_pb2_grpc as sensing_grpc,
 )
 from control_stubs import (
@@ -24,16 +28,21 @@ from control_stubs import (
 )
 from robosim.backends import GazeboBackend, MuJoCoBackend
 from robosim.core.backend import SimulatorBackend
+from robosim.core.impl.recorder_lerobot import LerobotDataRecorder
 from robosim.grpc_server import (
     MobilityServicer,
     RobotCoreServicer,
+    RobotDataServicer,
     SensingServicer,
     SimulationServicer,
 )
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
 
 def create_server(
     backend: SimulatorBackend,
+    recorder: LerobotDataRecorder,
     port: int = 50051,
     max_workers: int = 10,
 ) -> grpc_aio.Server:
@@ -55,6 +64,9 @@ def create_server(
     core_grpc.add_RobotCoreServiceServicer_to_server(
         RobotCoreServicer(backend), server
     )
+    data_grpc.add_RobotDataServiceServicer_to_server(
+        RobotDataServicer(recorder), server
+    )
     mobility_grpc.add_MobilityServiceServicer_to_server(
         MobilityServicer(backend), server
     )
@@ -74,6 +86,7 @@ async def serve_async(
     import rclpy
 
     backend: SimulatorBackend | None = None
+    recorder: LerobotDataRecorder | None = None
     server: grpc_aio.Server | None = None
 
     async def shutdown_handler_async() -> None:
@@ -113,7 +126,8 @@ async def serve_async(
         else:
             raise ValueError(f"Unknown backend type: {backend_type}")
 
-        server = create_server(backend, port)
+        recorder = LerobotDataRecorder(REPO_ROOT, backend)
+        server = create_server(backend, recorder, port)
 
         await server.start()
         print(f"gRPC server started on port {port}")

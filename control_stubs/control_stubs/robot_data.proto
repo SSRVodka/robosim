@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package robot_sim.robot_data;
+
+import "control_stubs/common.proto";
+
+
+message RecordOptions {
+    // data will be saved in a fixed root directory (managed by robosim)
+    string repo_name = 1;
+    string task_text = 2;
+    uint32 fps = 3;
+    // white list for joint model group
+    repeated string jmg_included = 4;
+    // black list for joint model group (prior to the white list)
+    repeated string jmg_excluded = 5;
+    repeated string sensor_name_included = 6;
+    repeated string sensor_name_excluded = 7;
+}
+
+message RecordJobInfo {
+    robot_sim.common.Status status = 1;
+    uint64 episode_id = 2;
+}
+
+// Currently, only serial data collection is supported for the same instance at the same time.
+service RobotDataService {
+
+    rpc RecordEpisodeStart(RecordOptions) returns (RecordJobInfo);
+
+    rpc RecordEpisodeEnd(robot_sim.common.Empty) returns (robot_sim.common.Status);
+}

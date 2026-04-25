@@ -6,27 +6,33 @@ import "control_stubs/common.proto";
 
 service RobotCoreService {
 
-  // Retrieve the status of all movable (active) joints on the current robot (including name, position, velocity, and effort).
-  // It is relative to the joint local coordinate system defined in the URDF and is independent of the global coordinate system.
+  // Retrieve information about all joints of the current robot (including fixed joints).
+  // This includes joint names, current positions, velocities, and force data. Use the joint coordinate system.
   rpc GetRobotState (robot_sim.common.Empty) returns (robot_sim.common.JointState);
 
   // --- Meta Operations (servo-capable robot): Joint Getting & Setting ---
 
-  // Get specifications (names, limits, types) of **ALL** joints,
-  // along with all JointMoveGroup (JMG) names, named group states and EndEffector (EE) names.
-  // Tips: Use this method to check your robot is servo-capable or not
+  // Retrieves the specifications for the current robot joints and joint model groups (JointModelGroup). This includes:
+  // 1. joints specification: the names, constraint parameters, and types of all joints; 
+  // 2. joint_model_groups specification: the names of joint model groups, predefined fixed poses for specific groups, and the names of end-effectors for specific groups;
+  // Note: A JointModelGroup is a user-defined grouping of joints (specified in the user’s SRDF file).
+  // Each JointModelGroup can contain >= 0 end-effectors and >= 0 fixed poses (group states).
+  // Using the JointModelGroup abstraction makes it very convenient to select a series of joints and end-effectors for actuation.
+  // Its definition is based on the concept of the Moveit2 JointModelGroup.
   rpc GetRobotSpec (robot_sim.common.Empty) returns (RobotSpecification);
   
-  // Set joint targets (Position/Velocity) for non-realtime trajectory execution
+  // Set the position / velocity / torque of one or more movable joints in a specific joint model group of the robot.
   rpc SetJointTarget (JointCommand) returns (robot_sim.common.Status);
 
   // --- Meta Operations (servo-capable robot): Servo Control ---
   
-  // Get End-effector pose (FK result) of the specific move group
-  rpc GetEndEffectorState(MoveGroupRequest) returns (EndEffectorState);
+  // Get End-effector pose (FK result) of the specific joint model group
+  rpc GetEndEffectorState(JointModelGroupRequest) returns (EndEffectorState);
   
-  // Bidirectional streaming for real-time servoing (MoveIt Servo style)
-  // Client sends generic twist/joint commands, Server sends current state
+  // Bidirectional streaming for real-time servoing
+  // Servo control support:
+  // A. Directly set the position and velocity of a series of joints in the joint coordinate system (JointCommand),
+  // B. or set the velocity of a specified end-effector in the world Cartesian coordinate system (TwistCommand), i.e., displacement increments;
   rpc ServoControlStream (stream ServoCommand) returns (stream robot_sim.common.JointState);
 
   // --- Meta Operations: Safety ---
@@ -71,7 +77,7 @@ message EESpec {
   string parent_link = 4;
 }
 
-message MoveGroupRequest {
+message JointModelGroupRequest {
   string jmg_name = 1;
 }
 
@@ -95,7 +101,7 @@ message JointCommand {
     TORQUE = 2;
   }
   ControlMode mode = 3;
-  MoveGroupRequest group = 4;
+  JointModelGroupRequest group = 4;
 }
 
 message ServoCommand {

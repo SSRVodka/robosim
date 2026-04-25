@@ -423,6 +423,31 @@ class MuJoCoBackend(SimulatorBackend):
                 effort=efforts,
             )
 
+    def get_joint_command_state(self) -> common_pb2.JointState:
+        with self._state_lock:
+            names = list(self._controllable_joint_names)
+            positions = [0.0] * len(names)
+            velocities = [0.0] * len(names)
+            efforts = [0.0] * len(names)
+            for index, joint_name in enumerate(names):
+                mode_target = self._control_targets.get(joint_name)
+                if mode_target is None:
+                    continue
+                mode, target = mode_target
+                if mode == core_pb2.JointCommand.ControlMode.POSITION:
+                    positions[index] = target
+                elif mode == core_pb2.JointCommand.ControlMode.VELOCITY:
+                    velocities[index] = target
+                elif mode == core_pb2.JointCommand.ControlMode.TORQUE:
+                    efforts[index] = target
+            return common_pb2.JointState(
+                header=self._build_header(frame_id=self._model.body(self._robot_root_body_id).name),
+                name=names,
+                position=positions,
+                velocity=velocities,
+                effort=efforts,
+            )
+
     def get_robot_spec(self) -> core_pb2.RobotSpecification:
         joints = [
             core_pb2.JointLimit(
@@ -494,7 +519,7 @@ class MuJoCoBackend(SimulatorBackend):
                 self.set_joint_target(
                     list(joint_cmd.name),
                     list(joint_cmd.data),
-                    core_pb2.JointCommand.ControlMode(joint_cmd.mode),
+                    joint_cmd.mode,
                     joint_cmd.group.jmg_name if joint_cmd.HasField("group") else None,
                 )
             elif request.HasField("twist_cmd"):

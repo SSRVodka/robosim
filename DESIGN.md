@@ -120,6 +120,49 @@
 - camera 通过 `mujoco.Renderer` 做 offscreen rendering；
 - 当前 gRPC 扩充了力/力矩传感器类型与数据结构，以避免 MuJoCo 现有传感器语义丢失。
 
+## LeRobot 录制设计
+
+### 1. 录制入口
+- 新增 `RobotDataService`，仅暴露 `RecordEpisodeStart` / `RecordEpisodeEnd`；
+- gRPC server 启动时构造一个 `LerobotDataRecorder`，数据根目录固定为仓库下 `data/lerobot/<repo_name>`；
+- 同一 backend 实例同一时刻只允许一个录制 session。
+
+### 2. 采样模型
+- `RecordEpisodeStart` 读取一次 backend 的 `robot_state`、`robot_spec`、`end_effector_state`、`sensor snapshot`，先推导数据集 schema，再立即写入第一帧；
+- 后续由后台线程按 `fps` 继续采样；
+- `RecordEpisodeEnd` 停止采样线程、保存 episode，并立即 `finalize()`，保证每次结束后磁盘上的数据集都是可加载状态。
+
+### 3. 字段映射
+- 关节状态统一映射为：
+  - `observation.state`
+  - `observation.velocity`
+  - `observation.effort`
+- MuJoCo 额外暴露当前 joint target，映射为：
+  - `action.position`
+  - `action.velocity`
+  - `action.effort`
+- 末端位姿映射为 `observation.end_effectors.<group>.{position,orientation}`；
+- 视觉数据映射为 `observation.images.<sensor>`；
+- IMU / LiDAR / Odom / Force / Torque 各自映射到对应 `observation.*` 数值向量。
+
+### 4. 过滤规则
+- `jmg_excluded` 先于 `jmg_included` 生效；
+- 未显式指定 `jmg_*` 时，默认录制当前 `get_robot_state()` 返回的全部关节；
+- 未显式指定 `sensor_*` 时，默认录制全部非 joint 传感器；
+- 现阶段不重复把 joint sensor 写入 dataset，因为它和 `observation.state` 语义重叠。
+
+### 5. LeRobot 落盘策略
+- 直接复用 `lerobot>=0.5` 提供的 `LeRobotDataset.create()/resume()/add_frame()/save_episode()/finalize()`；
+- 当前相机帧使用 `image` 特征直接写盘，不走 mp4 编码，先保证 v3 数据结构稳定和测试确定性；
+- 已存在 repo 继续录制时使用 `resume()`，并校验 `fps` 与 feature schema 必须完全一致。
+
+## ServoControlStream 调试客户端
+
+- 调试客户端位于 `control_stubs/tools/servo_keyboard.py`，职责仅限于把终端键盘事件转成 `ServoCommand` 流，不引入新的控制抽象；
+- 客户端启动时先读取 `RobotSpecification`，默认自动选择一个带 end effector 的 `jmg` 作为 twist 控制目标；若存在较小的非 ee `jmg`，则同时把它作为 joint 调试目标；
+- 终端 raw mode 只能稳定拿到 key-down，不能可靠拿到 key-up，因此客户端采用“按键生效一小段保持时间，超时后自动补发零速度”的语义，避免后端持续保持旧 velocity target；
+- `ServoCommand` 是 `oneof`，因此 twist 和 joint 调试命令始终分开发送，客户端每个周期最多发一条 twist 命令和一条 joint 命令。
+
 ## 模块结构
 ```
 robosim/

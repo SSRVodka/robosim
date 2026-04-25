@@ -44,7 +44,7 @@ class SimulationServicer(sim_pb2_grpc.SimulationServiceServicer):
             return common_pb2.Status(code=common_pb2.STATUS_FAILURE, message=str(e))
 
     def StepPhysics(
-        self, request: sim_pb2.StepRequest, context: grpc.ServicerContext
+        self, request: common_pb2.Empty, context: grpc.ServicerContext
     ) -> sim_pb2.StepResponse:
         _logger.warning("StepPhysics not implemented")
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -53,6 +53,20 @@ class SimulationServicer(sim_pb2_grpc.SimulationServiceServicer):
             reward=0.0,
             done=False,
         )
+    
+    def Pause(
+        self, request: common_pb2.Empty, context: grpc.ServicerContext
+    ) -> common_pb2.Empty:
+        _logger.warning("Pause not implemented")
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        return common_pb2.Empty()
+    
+    def Resume(
+        self, request: common_pb2.Empty, context: grpc.ServicerContext
+    ) -> common_pb2.Empty:
+        _logger.warning("Resume not implemented")
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        return common_pb2.Empty()
 
     def SetObjectPose(
         self, request: sim_pb2.ObjectState, context: grpc.ServicerContext

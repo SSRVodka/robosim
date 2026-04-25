@@ -12,6 +12,8 @@ from control_stubs import (
     mobility_ai_pb2_grpc,
     robot_core_pb2,
     robot_core_pb2_grpc,
+    robot_data_pb2,
+    robot_data_pb2_grpc,
     sensing_pb2,
     sensing_pb2_grpc,
     simulation_pb2,
@@ -30,6 +32,7 @@ class RobosimClient:
         self.simulation = SimulationStub(self._channel)
         self.sensing = SensingStub(self._channel)
         self.robot_core = RobotCoreStub(self._channel)
+        self.robot_data = RobotDataStub(self._channel)
         self.mobility = MobilityStub(self._channel)
 
     def close(self) -> None:
@@ -51,9 +54,8 @@ class SimulationStub:
         )
         return self._stub.ResetWorld(req)
 
-    def step_physics(self, block: bool = True) -> simulation_pb2.StepResponse:
-        req = simulation_pb2.StepRequest(block=block)
-        return self._stub.StepPhysics(req)
+    def step_physics(self) -> simulation_pb2.StepResponse:
+        return self._stub.StepPhysics()
 
     def set_object_pose(
         self,
@@ -108,13 +110,18 @@ class RobotCoreStub:
         mode: robot_core_pb2.JointCommand.ControlMode,
         jmg_name: str | None = None,
     ) -> common_pb2.Status:
-        group = robot_core_pb2.MoveGroupRequest(jmg_name=jmg_name) if jmg_name else None
+        group = robot_core_pb2.JointModelGroupRequest(jmg_name=jmg_name) if jmg_name else None
         req = robot_core_pb2.JointCommand(name=names, data=data, mode=mode, group=group)
         return self._stub.SetJointTarget(req)
 
     def get_end_effector_state(self, jmg_name: str) -> robot_core_pb2.EndEffectorState:
-        req = robot_core_pb2.MoveGroupRequest(jmg_name=jmg_name)
+        req = robot_core_pb2.JointModelGroupRequest(jmg_name=jmg_name)
         return self._stub.GetEndEffectorState(req)
+
+    def servo_control_stream(
+        self, commands: Iterator[robot_core_pb2.ServoCommand]
+    ) -> Iterator[common_pb2.JointState]:
+        return self._stub.ServoControlStream(commands)
 
     def emergency_stop(self) -> common_pb2.Status:
         return self._stub.EmergencyStop(common_pb2.Empty())
@@ -146,3 +153,34 @@ class MobilityStub:
             max_velocity=max_velocity,
         )
         return self._stub.NavigateTo(req)
+
+
+class RobotDataStub:
+    """RobotDataService client stub."""
+
+    def __init__(self, channel: grpc.Channel) -> None:
+        self._stub = robot_data_pb2_grpc.RobotDataServiceStub(channel)
+
+    def record_episode_start(
+        self,
+        repo_name: str,
+        task_text: str = "",
+        fps: int = 0,
+        jmg_included: list[str] | None = None,
+        jmg_excluded: list[str] | None = None,
+        sensor_name_included: list[str] | None = None,
+        sensor_name_excluded: list[str] | None = None,
+    ) -> robot_data_pb2.RecordJobInfo:
+        req = robot_data_pb2.RecordOptions(
+            repo_name=repo_name,
+            task_text=task_text,
+            fps=fps,
+            jmg_included=jmg_included or [],
+            jmg_excluded=jmg_excluded or [],
+            sensor_name_included=sensor_name_included or [],
+            sensor_name_excluded=sensor_name_excluded or [],
+        )
+        return self._stub.RecordEpisodeStart(req)
+
+    def record_episode_end(self) -> common_pb2.Status:
+        return self._stub.RecordEpisodeEnd(common_pb2.Empty())

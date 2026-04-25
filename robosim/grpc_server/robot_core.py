@@ -85,7 +85,7 @@ class RobotCoreServicer(core_pb2_grpc.RobotCoreServiceServicer):
             return common_pb2.Status(code=common_pb2.STATUS_FAILURE, message=str(e))
 
     def GetEndEffectorState(
-        self, request: core_pb2.MoveGroupRequest, context: grpc.ServicerContext
+        self, request: core_pb2.JointModelGroupRequest, context: grpc.ServicerContext
     ) -> core_pb2.EndEffectorState:
         _logger.info("GetEndEffectorState called: jmg_name=%s", request.jmg_name)
         try:

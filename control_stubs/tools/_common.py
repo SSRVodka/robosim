@@ -52,6 +52,13 @@ def _serialize_navigate_feedback(fb: Any) -> dict[str, Any] | None:
     }
 
 
+def _serialize_record_job_info(info: Any) -> dict[str, Any]:
+    return {
+        "status": _serialize_status(info.status),
+        "episode_id": info.episode_id,
+    }
+
+
 
 
 
@@ -168,6 +175,44 @@ TOOL_DEFINITIONS = [
         },
     },
     {
+        "name": "record_episode_start",
+        "description": "Start recording a dataset episode into a managed local LeRobotDataset repository.",
+        "parameters": {
+            "type": "object",
+            "required": ["repo_name"],
+            "properties": {
+                "repo_name": {"type": "string", "description": "Dataset repository directory name"},
+                "task_text": {"type": "string", "description": "Per-frame natural language task label"},
+                "fps": {"type": "integer", "description": "Sampling frame rate"},
+                "jmg_included": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional joint model group allowlist",
+                },
+                "jmg_excluded": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional joint model group denylist",
+                },
+                "sensor_name_included": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional sensor allowlist",
+                },
+                "sensor_name_excluded": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional sensor denylist",
+                },
+            },
+        },
+    },
+    {
+        "name": "record_episode_end",
+        "description": "Stop the current recording episode and flush it to the local LeRobotDataset.",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    {
         "name": "emergency_stop",
         "description": "Trigger emergency stop to halt all robot motion immediately.",
         "parameters": {"type": "object", "properties": {}},
@@ -216,8 +261,8 @@ def create_tool_implementations(client: RobosimClient) -> dict[str, Callable[...
             )
         ))
 
-    async def step_physics(a: dict[str, Any]) -> str:
-        resp = client.simulation.step_physics(block=a.get("block", True))
+    async def step_physics(_: dict[str, Any]) -> str:
+        resp = client.simulation.step_physics()
         return json.dumps(_serialize_step_response(resp))
 
     async def set_object_pose(a: dict[str, Any]) -> str:
@@ -256,6 +301,21 @@ def create_tool_implementations(client: RobosimClient) -> dict[str, Callable[...
         resp = client.robot_core.get_end_effector_state(a["jmg_name"])
         return json.dumps(json_format.MessageToDict(resp.pose_stamped))
 
+    async def record_episode_start(a: dict[str, Any]) -> str:
+        resp = client.robot_data.record_episode_start(
+            repo_name=a["repo_name"],
+            task_text=a.get("task_text", ""),
+            fps=a.get("fps", 0),
+            jmg_included=a.get("jmg_included"),
+            jmg_excluded=a.get("jmg_excluded"),
+            sensor_name_included=a.get("sensor_name_included"),
+            sensor_name_excluded=a.get("sensor_name_excluded"),
+        )
+        return json.dumps(_serialize_record_job_info(resp))
+
+    async def record_episode_end(_: dict[str, Any]) -> str:
+        return json.dumps(_serialize_status(client.robot_data.record_episode_end()))
+
     async def emergency_stop(_: dict[str, Any]) -> str:
         return json.dumps(_serialize_status(client.robot_core.emergency_stop()))
 
@@ -284,6 +344,8 @@ def create_tool_implementations(client: RobosimClient) -> dict[str, Callable[...
         "get_robot_spec": get_robot_spec,
         "set_joint_target": set_joint_target,
         "get_end_effector_state": get_end_effector_state,
+        "record_episode_start": record_episode_start,
+        "record_episode_end": record_episode_end,
         "emergency_stop": emergency_stop,
         "get_robot_pose_in_map": get_robot_pose_in_map,
         "navigate_to": navigate_to,

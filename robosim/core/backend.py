@@ -78,6 +78,11 @@ class SimulatorBackend(ABC):
     def get_end_effector_state(self, group: str) -> EndEffectorState:
         """Get end effector pose for a move group."""
         raise NotImplementedError
+    
+    @abstractmethod
+    def get_joint_command_state(self) -> JointState:
+        """Get latest joint command state. Used as action field in the dataset."""
+        raise NotImplementedError
 
     @abstractmethod
     def list_sensors(self) -> SensorMetaList:

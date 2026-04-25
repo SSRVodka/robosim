@@ -1,13 +1,23 @@
 # TODO - 短期里程碑
 
+
 # VERSION v0.0.4
 
 ## New Features
-- [x] 以 function tools 和 MCP tools 的形式暴露 gRPC 接口
-- [x] 引入 Agent 模块控制
-- [ ] 支持基于非 ROS2 包、基于 ROS2 包的数据采集
-- [ ] 支持稳定版本的 LeRobot Dataset
-- [ ] 支持常见模型的 VLA 推理（对接 LeRobot 接口）
+- [x] 以 function tools 和 MCP tools 的形式暴露 gRPC 接口；
+- [x] 引入 Agent 模块控制；
+- [x] 接入 `RobotDataService`，支持通过 gRPC 开始/结束 episode 录制；
+- [x] 支持稳定版本的 LeRobot Dataset：实现 `LerobotDataRecorder`，按 `RecordOptions` 从 backend 采样并落盘到 LeRobotDataset v3；
+- [x] 支持 MuJoCo 关节状态、末端位姿、控制目标、相机/IMU/LiDAR/Odom/力力矩传感器录制；
+- [x] 为 Gazebo 补充最小 `GetRobotSpec`（实际功能例如真正解析 Gazebo 模型语义数据，有待后续补充），使 `jmg` 过滤能够工作；
+- [x] 新增 `control_stubs/tools/servo_keyboard.py`，用终端键盘向 `ServoControlStream` 发送 ee twist / joint servo 调试命令；
+- [x] 为 control tools / MCP tools 暴露录制接口；
+- [ ] 支持常见模型的 VLA 推理（对接 LeRobot 接口）；
+
+## Tests
+- [x] 补充 recorder / RobotDataService 单元测试；
+- [x] 补充键盘 servo 客户端的绑定选择与命令构造单元测试；
+- [x] 验证 MuJoCo server 启动路径；
 
 # VERSION v0.0.3
 

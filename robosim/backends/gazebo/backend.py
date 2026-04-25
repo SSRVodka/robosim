@@ -367,8 +367,37 @@ class GazeboBackend(SimulatorBackend, Node):
         self.get_logger().warning("No joint state found")
         return common_pb2.JointState()
 
+    # TODO: implement this later
     def get_robot_spec(self) -> core_pb2.RobotSpecification:
-        raise NotImplementedError("Robot spec loading not implemented")
+        joint_state = self.get_robot_state()
+        joint_names = list(joint_state.name)
+        if not joint_names:
+            return core_pb2.RobotSpecification(robot_name=self._robot_name)
+        return core_pb2.RobotSpecification(
+            robot_name=self._robot_name,
+            joints=[
+                core_pb2.JointLimit(
+                    name=name,
+                    type="unknown",
+                    jmg_names=["all"],
+                    lower_limit=0.0,
+                    upper_limit=0.0,
+                    velocity_limit=0.0,
+                    acceleration_limit=0.0,
+                    effort_limit=0.0,
+                )
+                for name in joint_names
+            ],
+            joint_model_groups=[
+                core_pb2.JointModelGroupSpec(
+                    name="all",
+                    joint_names=joint_names,
+                )
+            ],
+        )
+
+    def get_joint_command_state(self) -> common_pb2.JointState:
+        return common_pb2.JointState()
 
     def set_joint_target(
         self,

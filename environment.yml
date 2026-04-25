@@ -26,7 +26,7 @@ dependencies:
   - xacro
 
   # MuJoCo stack
-  - mujoco
+  - mujoco>=3.6
 
   # Agent stack (optional)
   - openai
@@ -44,6 +44,9 @@ dependencies:
   - click
   - rich
   - aiofiles
+
+  # Data collector
+  - lerobot>=0.5
 
   # Dev tools
   - pip

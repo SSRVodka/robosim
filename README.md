@@ -1,20 +1,55 @@
 
-## QUICKSTART
+## RoboSim: A Meta-Simulator Framework for Embodied Intelligence
 
-环境准备。以 miniforge 管理虚拟环境为例：
+### Supported Features
+
+- [x] 支持 Gazebo / MuJoCo 模拟器后端；
+
+- [x] 支持动态的传感器发现、机器人关节和定义发现；
+
+- [x] 语言无关的控制接口 (gRPC)，无需用户了解模拟器细节。包括 core（机器人及环境状态查询和操作）、sensing（传感器相关操作）、simulation（仿真环境相关操作）、mobility（AI/导航）、data（仿真数据收集）共 5 个方面；
+
+- [x] 简单的示例，包括一个 [multi-modal agent](./agent/README.md)，各种[实用工具](./control_stubs/tools/) 例如配套的 gRPC client (python)，键盘伺服操纵工具，function tools，MCP tools 等；
+
+- [ ] (WIP) 多类精彩的模拟仿真环境 `drivers_sim`；
+
+- [ ] (WIP) 对真实机器人本体（如曦胧本体）的适配 `drivers_real`；
+
+- [ ] (WIP) 对常见具身模型（如 $\pi_0$、openvla-oft 等）推理支持；
+
+
+### Quick Start
+
+拉下本仓库并准备环境。以 miniforge 管理虚拟环境为例：
 
 ```bash
+git clone --recurisve https://github.com/SSRVodka/robosim.git
+pushd robosim
 mamba env create -f environment.yml
 mamba activate robosim
+popd
 ```
 
-再编译 proto 接口、启动 gRPC server：
+> [!NOTE]
+> 
+> 如果下拉仓库时没有添加 `--recursive` 选项，可以执行下面的命令来补充拉取子模块资产：
+> 
+> ```bash
+> git submodule update --init --recursive
+> ```
+
+再编译 proto 接口（一旦存在 *.proto 文件的更新就需要重新执行）：
 
 ```bash
-mamba activate robosim
+# 需要在 robosim 环境下，即 mamba activate robosim，下面不再赘述
 ./scripts/gen_protos.sh --clean
 ./scripts/gen_protos.sh
-python3 -m robosim.server --port 50051 [ --backend <gazebo|mujoco> ] [ --headless | --no-headless ]
+```
+
+最后启动 robosim（`[]` 表示可选项，`<>` 表示必填项）。更多参数用法请使用 `--help`：
+
+```bash
+python3 -m robosim.server [--help] [--host <gRPC-listen-host>] [--port <gRPC-listen-port>] [--backend <gazebo|mujoco>] [--headless | --no-headless]
 ```
 
 > [!WARNING]
@@ -36,20 +71,69 @@ python3 -m robosim.server --port 50051 [ --backend <gazebo|mujoco> ] [ --headles
 >
 > 然后再启动 gRPC server。
 
+现在，你的环境已经准备好了！
+
+> (WIP) OpenHarmony 部署环境的文档正在准备中。
+
+
+### 实用工具演示
+
+#### A. 本框架如何接入 Agent
+
+`control_stubs/tools/` 给出了 gRPC 的 client 定义、function tools 和 MCP tools 定义，你可以用它们接入任何主流的 Agent 框架中作为 Agent Tools 使用。
+
 > [!TIP]
->
-> (optional) 使用 Agent：
->
-> `control_stubs/tools/` 给出了 gRPC 的 client 定义、function tools 和 MCP tools 定义，你可以用它们接入任何主流的 Agent 框架中作为 Agent Tools 使用。
->
-> 当然本项目提供了一个最小化的示例 Agent 实现，实现细节参见 [`agent/README.md`](./agent/README.md)。您可以按照 `agent/config/default.yaml` 中写一份配置，然后使用 `agent_orchestrator.py` 来尝试。
->
-> 在启动 robosim gRPC server 后执行下面的指令进入 Agent REPL（使用 `--help` 查看帮助）：
->
+> 
+> 当然本项目也提供了一个最小化的示例 Agent 实现，实现细节参见 [`agent/README.md`](./agent/README.md)。您可以按照 `agent/config/default.yaml` 中写一份配置，然后使用 `agent_orchestrator.py` 来尝试。
+> 
+> 确保您的 shell 在仓库根目录下。在启动 robosim gRPC server 后执行下面的指令进入 Agent REPL（使用 `--help` 查看帮助）：
+> 
 > ```bash
 > python3 agent_orchestrator.py --config <你的配置文件> --grpc-host 127.0.0.1 --grpc-port <你之前robosim启动设置的端口> chat
 > ```
 
+#### B. 简单的测试伺服操作 demo
+
+确保您的 shell 在仓库根目录下。
+
+以 MuJoCo 后端为例，先启动 robosim（需要确保您的宿主机环境支持 OpenGL）：
+
+```bash
+python3 -m robosim.server --port 50051 --backend mujoco --no-headless
+```
+
+此时会弹出模拟环境 GUI。然后使用伺服工具查看现在有哪些关节和关节组能被伺服控制：
+
+```bash
+python3 -m control_stubs.tools.servo_keyboard --list
+```
+
+例如如果输出是这样的：
+
+```
+robot: panda
+  panda_arm: joints=7 ee=hand
+  panda_hand: joints=2 ee=-
+  panda_arm_hand: joints=9 ee=-
+```
+
+表示当前可以操纵的关节模型组有 3 个，其中 `panda_arm` 这个组存在一个末端执行器 `hand`。
+
+您可以在笛卡尔坐标系下通过键盘驱动末端执行器：
+
+```bash
+python3 -m control_stubs.tools.servo_keyboard --jmg panda_arm --ee hand
+```
+
+现在您的终端应该打印消息提示如何操纵这个关节模型组了。根据提示操纵即可。
+
+更多能力，例如直接操纵指定关节位置/速度/力矩、调整指令发送的频率等等，请参见工具的 `--help` 信息：
+
+```bash
+python3 -m control_stubs.tools.servo_keyboard --help
+```
+
+---
 
 ## 开发规约与环境说明
 
@@ -57,7 +141,7 @@ python3 -m robosim.server --port 50051 [ --backend <gazebo|mujoco> ] [ --headles
 - 本项目开发环境统一使用 miniforge 管理的虚拟环境；
 - robosim 环境已经提供了固定 gRPC 的版本（`grpcio==1.78.1`,`protobuf==6.33.5`），不得随意更改这个版本，这提供了对 OpenHarmony ArkUI 的兼容性；
 
-## 资产规约
 
-精简版简化了资源目录的放置方法。按照模拟器类型区分存放目录，`drivers_sim/gazebo-11/assets` 存放 Gazebo Classic 的资源，`drivers_sim/mujoco/assets` 存放 MuJoCo 的资源。
+## 仿真环境资产规约
 
+详细请参见 [`drivers_sim`](./drivers_sim/README.md)；

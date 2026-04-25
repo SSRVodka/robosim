@@ -10,7 +10,11 @@ service SimulationService {
   rpc ResetWorld (ResetRequest) returns (robot_sim.common.Status);
 
   // Step the physics engine manually (for synchronous training)
-  rpc StepPhysics (StepRequest) returns (StepResponse);
+  rpc StepPhysics (robot_sim.common.Empty) returns (StepResponse);
+
+  rpc Pause(robot_sim.common.Empty) returns (robot_sim.common.Empty);
+
+  rpc Resume(robot_sim.common.Empty) returns (robot_sim.common.Empty);
 
   // Manipulate objects in the sim (cheat)
   rpc SetObjectPose (ObjectState) returns (robot_sim.common.Status);
@@ -20,11 +24,6 @@ message ResetRequest {
   uint32 seed = 1;
   // Optional: randomize specific aspects like lighting or friction
   map<string, float> randomization_params = 2;
-}
-
-message StepRequest {
-  // If true, the server waits for the physics step to complete before returning
-  bool block = 1; 
 }
 
 message StepResponse {
