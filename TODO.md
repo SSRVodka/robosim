@@ -14,6 +14,10 @@
 - [x] 为 control tools / MCP tools 暴露录制接口；
 - [ ] 支持常见模型的 VLA 推理（对接 LeRobot 接口）；
 
+## Bug Fixes
+- [x] LeRobot image 模式下图片实际写入 parquet 后，清理 `images/` 下残留空目录，避免误判为 MuJoCo 相机采集失败；
+- [x] 修复 MuJoCo 相机离屏渲染跨线程复用同一 `mujoco.Renderer`，导致 recorder 第一帧后出现黑帧/彩条；
+
 ## Tests
 - [x] 补充 recorder / RobotDataService 单元测试；
 - [x] 补充键盘 servo 客户端的绑定选择与命令构造单元测试；

@@ -118,6 +118,7 @@
   - MJCF `<sensor>` 中可直接映射的传感器；
   - model cameras；
 - camera 通过 `mujoco.Renderer` 做 offscreen rendering；
+- MuJoCo 的 offscreen renderer 绑定创建它的线程；后端按“线程 + 分辨率”缓存 renderer，避免录制线程和 gRPC 请求线程跨线程复用 EGL/OpenGL 上下文导致黑帧/花屏；
 - 当前 gRPC 扩充了力/力矩传感器类型与数据结构，以避免 MuJoCo 现有传感器语义丢失。
 
 ## LeRobot 录制设计
@@ -154,6 +155,7 @@
 ### 5. LeRobot 落盘策略
 - 直接复用 `lerobot>=0.5` 提供的 `LeRobotDataset.create()/resume()/add_frame()/save_episode()/finalize()`；
 - 当前相机帧使用 `image` 特征直接写盘，不走 mp4 编码，先保证 v3 数据结构稳定和测试确定性；
+- `lerobot` 会在写 parquet 时把图片字节嵌入 parquet，再删除 `images/<camera>/episode-*` 下的临时 PNG；recorder 在 episode 结束后继续清理残留空目录，避免留下误导性的空相机目录；
 - 已存在 repo 继续录制时使用 `resume()`，并校验 `fps` 与 feature schema 必须完全一致。
 
 ## ServoControlStream 调试客户端

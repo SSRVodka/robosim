@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from collections.abc import Iterator
 
 import grpc
 
@@ -19,9 +19,6 @@ from control_stubs import (
     simulation_pb2,
     simulation_pb2_grpc,
 )
-
-if TYPE_CHECKING:
-    from collections.abc import Iterator
 
 
 class RobosimClient:

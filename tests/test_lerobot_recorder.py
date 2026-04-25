@@ -65,6 +65,7 @@ def test_lerobot_recorder_writes_and_resumes(tmp_path: Path, backend: MuJoCoBack
 
     assert dataset.num_episodes == 2
     assert dataset.num_frames >= 2
+    assert not (dataset_root / "images").exists()
     assert dataset.features["observation.state"]["names"] == [
         "panda_joint1",
         "panda_joint2",

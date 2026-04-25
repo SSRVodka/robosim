@@ -133,6 +133,37 @@ python3 -m control_stubs.tools.servo_keyboard --jmg panda_arm --ee hand
 python3 -m control_stubs.tools.servo_keyboard --help
 ```
 
+#### C. 简单的测试 LeRobot 数据采集 demo
+
+确保您的 shell 在仓库根目录下。
+
+以 MuJoCo 后端为例，先启动 robosim（需要确保您的宿主机环境支持 OpenGL）：
+
+```bash
+python3 -m robosim.server --port 50051 --backend mujoco --no-headless
+```
+
+执行下面的指令开始录制数据：
+
+```bash
+python3 -m control_stubs.tools.data_recorder start --repo-name demo1 --task-text "demo-move"
+# 更多配置选项请使用
+# python3 -m control_stubs.tools.data_recorder start --help
+```
+
+数据采集期间您可以使用各种方法操作仿真环境的机器人（例如使用上一节提到的 “测试伺服操作 demo”）。
+
+执行下面的指令结束录制并将数据落盘：
+
+```bash
+python3 -m control_stubs.tools.data_recorder end
+```
+
+> [!TIP]
+>
+> 默认存放在项目根目录下的 `data/lerobot` 中，您可以通过更改 `robosim/server.py` 中的 `DATA_REPO_ROOT` 变量来决定以何目录为数据根目录；
+
+
 ---
 
 ## 开发规约与环境说明

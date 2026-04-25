@@ -37,7 +37,7 @@ from robosim.grpc_server import (
     SimulationServicer,
 )
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+DATA_REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def create_server(
@@ -126,7 +126,7 @@ async def serve_async(
         else:
             raise ValueError(f"Unknown backend type: {backend_type}")
 
-        recorder = LerobotDataRecorder(REPO_ROOT, backend)
+        recorder = LerobotDataRecorder(DATA_REPO_ROOT, backend)
         server = create_server(backend, recorder, port)
 
         await server.start()

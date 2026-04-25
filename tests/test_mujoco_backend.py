@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable, Generator
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from control_stubs import common_pb2
@@ -89,6 +91,34 @@ def test_list_and_get_sensors(backend: MuJoCoBackend) -> None:
     assert sensor_data.images[0].height == 240
     assert len(sensor_data.forces) == 1
     assert len(sensor_data.torques) == 1
+
+
+def test_camera_rendering_remains_valid_across_threads(backend: MuJoCoBackend) -> None:
+    first_image = backend.get_sensors(["world_camera"]).images[0]
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        second_image = executor.submit(
+            lambda: backend.get_sensors(["world_camera"]).images[0]
+        ).result()
+
+    first_frame = np.frombuffer(first_image.data, dtype=np.uint8).reshape(
+        first_image.height,
+        first_image.width,
+        3,
+    )
+    second_frame = np.frombuffer(second_image.data, dtype=np.uint8).reshape(
+        second_image.height,
+        second_image.width,
+        3,
+    )
+
+    assert float(first_frame.mean()) > 20.0
+    assert float(first_frame.std()) > 20.0
+    assert float(second_frame.mean()) > 20.0
+    assert float(second_frame.std()) > 20.0
+    assert np.mean(
+        np.abs(second_frame.astype(np.int16) - first_frame.astype(np.int16))
+    ) < 10.0
 
 
 def test_set_joint_target_and_reset_world(backend: MuJoCoBackend) -> None:

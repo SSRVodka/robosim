@@ -109,7 +109,7 @@ class MuJoCoBackend(SimulatorBackend):
         self._capabilities = self._detect_capabilities()
 
         self._viewer: mujoco.viewer.Handle | None = None
-        self._renderers: dict[tuple[int, int], mujoco.Renderer] = {}
+        self._renderers: dict[tuple[int, int, int], mujoco.Renderer] = {}
         if not self._headless_mode:
             self._viewer = self._launch_viewer()
 
@@ -815,10 +815,11 @@ class MuJoCoBackend(SimulatorBackend):
     def _render_camera_locked(self, sensor: SensorInfo) -> sensing_pb2.CameraImage:
         assert sensor.source_id is not None
         width, height = self._camera_resolution(sensor.source_id)
-        renderer = self._renderers.get((width, height))
+        renderer_key = (threading.get_ident(), width, height)
+        renderer = self._renderers.get(renderer_key)
         if renderer is None:
             renderer = mujoco.Renderer(self._model, height=height, width=width)
-            self._renderers[(width, height)] = renderer
+            self._renderers[renderer_key] = renderer
         renderer.update_scene(self._data, camera=sensor.name)
         pixels = renderer.render()
         return sensing_pb2.CameraImage(

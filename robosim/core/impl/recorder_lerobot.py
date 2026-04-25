@@ -119,6 +119,7 @@ class LerobotDataRecorder(DataRecorder):
                 raise session.failure
             if session.dataset.has_pending_frames():
                 session.dataset.save_episode()
+            self._prune_empty_image_dirs(session.plan.dataset_root)
             return Status(code=common_pb2.STATUS_SUCCESS, message="recording finished")
         finally:
             with contextlib.suppress(Exception):
@@ -605,3 +606,13 @@ class LerobotDataRecorder(DataRecorder):
                 normalized_value["names"] = list(normalized_value["names"])
             normalized[key] = normalized_value
         return normalized
+
+    def _prune_empty_image_dirs(self, dataset_root: Path) -> None:
+        images_root = dataset_root / "images"
+        if not images_root.is_dir():
+            return
+        for directory in sorted(images_root.rglob("*"), reverse=True):
+            if directory.is_dir() and not any(directory.iterdir()):
+                directory.rmdir()
+        if not any(images_root.iterdir()):
+            images_root.rmdir()
