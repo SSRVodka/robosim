@@ -1,0 +1,645 @@
+<mujoco model="Japandi Room">
+  <compiler angle="degree" coordinate="local" inertiafromgeom="true"/>
+  <option timestep="0.002" gravity="0 0 -9.81" density="1.2"/>
+
+  <default>
+    <geom condim="3" friction="0.7 0.005 0.005"/>
+    <joint damping="1.0" frictionloss="0.2"/>
+  </default>
+  
+  <include file="../../robots/robot_vacuum/robot_vacuum_defaults.xml"/>
+
+  <visual>
+    <headlight ambient="0.4 0.4 0.4" diffuse="0.6 0.6 0.6" specular="0.1 0.1 0.1"/>
+    <map fogstart="3" fogend="10" znear="0.1" zfar="50"/>
+    <quality shadowsize="4096"/>
+  </visual>
+
+  <statistic center="0 0 1" extent="4"/>
+
+  <asset>
+    <include file="../../robots/robot_vacuum/robot_vacuum_assets.xml"/>
+    <!-- Textures -->
+    <texture name="tex_floor" type="2d" file="room.png" width="512" height="512" mark="none"/>
+    <texture name="tex_wood_light" type="cube" builtin="flat" rgb1="0.82 0.70 0.55" width="128" height="128"/> 
+    <texture name="tex_wood_dark" type="cube" builtin="flat" rgb1="0.6 0.4 0.2" width="128" height="128"/>
+    <texture name="tex_wall" type="cube" builtin="flat" rgb1="0.95 0.94 0.92" width="128" height="128"/> <!-- Off-white -->
+    <texture name="tex_fabric_beige" type="cube" builtin="flat" rgb1="0.88 0.82 0.75" width="128" height="128"/>
+    <texture name="tex_fabric_white" type="cube" builtin="flat" rgb1="0.98 0.98 0.98" width="128" height="128"/>
+    <texture name="tex_glass" type="cube" builtin="flat" rgb1="0.8 0.9 1.0" width="128" height="128"/>
+
+    <!-- Materials -->
+    <material name="mat_floor" texture="tex_floor" texrepeat="5 5" reflectance="0.0" specular="0.0" shininess="0.0"/>
+    <material name="mat_wood" texture="tex_wood_light" reflectance="0.2"/>
+    <material name="mat_wood_dark" texture="tex_wood_dark" reflectance="0.1"/>
+    <material name="mat_wall" texture="tex_wall" reflectance="0.0"/>
+    <material name="mat_fabric_beige" texture="tex_fabric_beige" reflectance="0.0"/>
+    <material name="mat_fabric_white" texture="tex_fabric_white" reflectance="0.0"/>
+    <material name="mat_glass" texture="tex_glass" rgba="0.8 0.9 1.0 0.3" shininess="0.5"/>
+    <material name="mat_metal" rgba="0.8 0.8 0.8 1" shininess="0.8" reflectance="0.5"/>
+    
+    <material name="mat_leaf" rgba="0.2 0.6 0.2 1" reflectance="0.1"/>
+    
+    <!-- Bathroom Assets -->
+    <texture name="tex_tile_white" type="cube" builtin="flat" rgb1="0.95 0.95 0.95" width="128" height="128"/>
+    <material name="mat_tile" texture="tex_tile_white" reflectance="0.3" shininess="0.8"/>
+    <material name="mat_mirror" rgba="0.9 0.9 1.0 1" reflectance="0.9" shininess="1.0"/>
+    <material name="mat_chrome" rgba="0.8 0.8 0.8 1" reflectance="0.8" shininess="0.9"/>
+    
+    <!-- Imported Assets -->
+    <texture name="tex_classic" type="2d" file="BEDROOM_CLASSIC/texture.png"/>
+    <material name="mat_classic" texture="tex_classic" specular="0.5" shininess="0.5"/>
+    <mesh name="mesh_classic_visual" file="BEDROOM_CLASSIC/model.obj" scale="20 20 20"/>
+    <mesh name="mesh_classic_col_0" file="BEDROOM_CLASSIC/model_collision_0.obj" scale="20 20 20"/>
+    <mesh name="mesh_classic_col_1" file="BEDROOM_CLASSIC/model_collision_1.obj" scale="20 20 20"/>
+    <mesh name="mesh_classic_col_2" file="BEDROOM_CLASSIC/model_collision_2.obj" scale="20 20 20"/>
+    <mesh name="mesh_classic_col_3" file="BEDROOM_CLASSIC/model_collision_3.obj" scale="20 20 20"/>
+    <mesh name="mesh_classic_col_4" file="BEDROOM_CLASSIC/model_collision_4.obj" scale="20 20 20"/>
+    <mesh name="mesh_classic_col_5" file="BEDROOM_CLASSIC/model_collision_5.obj" scale="20 20 20"/>
+    <mesh name="mesh_classic_col_6" file="BEDROOM_CLASSIC/model_collision_6.obj" scale="20 20 20"/>
+    <mesh name="mesh_classic_col_7" file="BEDROOM_CLASSIC/model_collision_7.obj" scale="20 20 20"/>
+    <mesh name="mesh_classic_col_8" file="BEDROOM_CLASSIC/model_collision_8.obj" scale="20 20 20"/>
+    <mesh name="mesh_classic_col_9" file="BEDROOM_CLASSIC/model_collision_9.obj" scale="20 20 20"/>
+    <mesh name="mesh_classic_col_10" file="BEDROOM_CLASSIC/model_collision_10.obj" scale="20 20 20"/>
+    <mesh name="mesh_classic_col_11" file="BEDROOM_CLASSIC/model_collision_11.obj" scale="20 20 20"/>
+    <mesh name="mesh_classic_col_12" file="BEDROOM_CLASSIC/model_collision_12.obj" scale="20 20 20"/>
+    <mesh name="mesh_classic_col_13" file="BEDROOM_CLASSIC/model_collision_13.obj" scale="20 20 20"/>
+    <mesh name="mesh_classic_col_14" file="BEDROOM_CLASSIC/model_collision_14.obj" scale="20 20 20"/>
+    <mesh name="mesh_classic_col_15" file="BEDROOM_CLASSIC/model_collision_15.obj" scale="20 20 20"/>
+    <mesh name="mesh_classic_col_16" file="BEDROOM_CLASSIC/model_collision_16.obj" scale="20 20 20"/>
+    <mesh name="mesh_classic_col_17" file="BEDROOM_CLASSIC/model_collision_17.obj" scale="20 20 20"/>
+    <mesh name="mesh_classic_col_18" file="BEDROOM_CLASSIC/model_collision_18.obj" scale="20 20 20"/>
+    <mesh name="mesh_classic_col_19" file="BEDROOM_CLASSIC/model_collision_19.obj" scale="20 20 20"/>
+    <mesh name="mesh_classic_col_20" file="BEDROOM_CLASSIC/model_collision_20.obj" scale="20 20 20"/>
+    <mesh name="mesh_classic_col_21" file="BEDROOM_CLASSIC/model_collision_21.obj" scale="20 20 20"/>
+    <mesh name="mesh_classic_col_22" file="BEDROOM_CLASSIC/model_collision_22.obj" scale="20 20 20"/>
+    <mesh name="mesh_classic_col_23" file="BEDROOM_CLASSIC/model_collision_23.obj" scale="20 20 20"/>
+    <mesh name="mesh_classic_col_24" file="BEDROOM_CLASSIC/model_collision_24.obj" scale="20 20 20"/>
+    <mesh name="mesh_classic_col_25" file="BEDROOM_CLASSIC/model_collision_25.obj" scale="20 20 20"/>
+    <mesh name="mesh_classic_col_26" file="BEDROOM_CLASSIC/model_collision_26.obj" scale="20 20 20"/>
+    <mesh name="mesh_classic_col_27" file="BEDROOM_CLASSIC/model_collision_27.obj" scale="20 20 20"/>
+    <mesh name="mesh_classic_col_28" file="BEDROOM_CLASSIC/model_collision_28.obj" scale="20 20 20"/>
+    <mesh name="mesh_classic_col_29" file="BEDROOM_CLASSIC/model_collision_29.obj" scale="20 20 20"/>
+    <mesh name="mesh_classic_col_30" file="BEDROOM_CLASSIC/model_collision_30.obj" scale="20 20 20"/>
+    <mesh name="mesh_classic_col_31" file="BEDROOM_CLASSIC/model_collision_31.obj" scale="20 20 20"/>
+
+    <texture name="tex_neo" type="2d" file="BEDROOM_NEO/texture.png"/>
+    <material name="mat_neo" texture="tex_neo" specular="0.5" shininess="0.5"/>
+    <mesh name="mesh_neo_visual" file="BEDROOM_NEO/model.obj" scale="20 20 20"/>
+    <mesh name="mesh_neo_col_0" file="BEDROOM_NEO/model_collision_0.obj" scale="20 20 20"/>
+    <mesh name="mesh_neo_col_1" file="BEDROOM_NEO/model_collision_1.obj" scale="20 20 20"/>
+    <mesh name="mesh_neo_col_2" file="BEDROOM_NEO/model_collision_2.obj" scale="20 20 20"/>
+    <mesh name="mesh_neo_col_3" file="BEDROOM_NEO/model_collision_3.obj" scale="20 20 20"/>
+    <mesh name="mesh_neo_col_4" file="BEDROOM_NEO/model_collision_4.obj" scale="20 20 20"/>
+    <mesh name="mesh_neo_col_5" file="BEDROOM_NEO/model_collision_5.obj" scale="20 20 20"/>
+    <mesh name="mesh_neo_col_6" file="BEDROOM_NEO/model_collision_6.obj" scale="20 20 20"/>
+    <mesh name="mesh_neo_col_7" file="BEDROOM_NEO/model_collision_7.obj" scale="20 20 20"/>
+    <mesh name="mesh_neo_col_8" file="BEDROOM_NEO/model_collision_8.obj" scale="20 20 20"/>
+    <mesh name="mesh_neo_col_9" file="BEDROOM_NEO/model_collision_9.obj" scale="20 20 20"/>
+    <mesh name="mesh_neo_col_10" file="BEDROOM_NEO/model_collision_10.obj" scale="20 20 20"/>
+    <mesh name="mesh_neo_col_11" file="BEDROOM_NEO/model_collision_11.obj" scale="20 20 20"/>
+    <mesh name="mesh_neo_col_12" file="BEDROOM_NEO/model_collision_12.obj" scale="20 20 20"/>
+    <mesh name="mesh_neo_col_13" file="BEDROOM_NEO/model_collision_13.obj" scale="20 20 20"/>
+    <mesh name="mesh_neo_col_14" file="BEDROOM_NEO/model_collision_14.obj" scale="20 20 20"/>
+    <mesh name="mesh_neo_col_15" file="BEDROOM_NEO/model_collision_15.obj" scale="20 20 20"/>
+    <mesh name="mesh_neo_col_16" file="BEDROOM_NEO/model_collision_16.obj" scale="20 20 20"/>
+    <mesh name="mesh_neo_col_17" file="BEDROOM_NEO/model_collision_17.obj" scale="20 20 20"/>
+    <mesh name="mesh_neo_col_18" file="BEDROOM_NEO/model_collision_18.obj" scale="20 20 20"/>
+    <mesh name="mesh_neo_col_19" file="BEDROOM_NEO/model_collision_19.obj" scale="20 20 20"/>
+    <mesh name="mesh_neo_col_20" file="BEDROOM_NEO/model_collision_20.obj" scale="20 20 20"/>
+    <mesh name="mesh_neo_col_21" file="BEDROOM_NEO/model_collision_21.obj" scale="20 20 20"/>
+    <mesh name="mesh_neo_col_22" file="BEDROOM_NEO/model_collision_22.obj" scale="20 20 20"/>
+    <mesh name="mesh_neo_col_23" file="BEDROOM_NEO/model_collision_23.obj" scale="20 20 20"/>
+    <mesh name="mesh_neo_col_24" file="BEDROOM_NEO/model_collision_24.obj" scale="20 20 20"/>
+    <mesh name="mesh_neo_col_25" file="BEDROOM_NEO/model_collision_25.obj" scale="20 20 20"/>
+    <mesh name="mesh_neo_col_26" file="BEDROOM_NEO/model_collision_26.obj" scale="20 20 20"/>
+    <mesh name="mesh_neo_col_27" file="BEDROOM_NEO/model_collision_27.obj" scale="20 20 20"/>
+    <mesh name="mesh_neo_col_28" file="BEDROOM_NEO/model_collision_28.obj" scale="20 20 20"/>
+    <mesh name="mesh_neo_col_29" file="BEDROOM_NEO/model_collision_29.obj" scale="20 20 20"/>
+    <mesh name="mesh_neo_col_30" file="BEDROOM_NEO/model_collision_30.obj" scale="20 20 20"/>
+    <mesh name="mesh_neo_col_31" file="BEDROOM_NEO/model_collision_31.obj" scale="20 20 20"/>
+
+    <!-- Dining Room Assets -->
+    <texture name="tex_dining" type="2d" file="DINNING_ROOM_FURNITURE_SET_1/texture.png"/>
+    <material name="mat_dining" texture="tex_dining" specular="0.5" shininess="0.5"/>
+    <mesh name="mesh_dining_visual" file="DINNING_ROOM_FURNITURE_SET_1/model.obj" scale="15 15 15"/>
+    <mesh name="mesh_dining_col_0" file="DINNING_ROOM_FURNITURE_SET_1/model_collision_0.obj" scale="15 15 15"/>
+    <mesh name="mesh_dining_col_1" file="DINNING_ROOM_FURNITURE_SET_1/model_collision_1.obj" scale="15 15 15"/>
+    <mesh name="mesh_dining_col_2" file="DINNING_ROOM_FURNITURE_SET_1/model_collision_2.obj" scale="15 15 15"/>
+    <mesh name="mesh_dining_col_3" file="DINNING_ROOM_FURNITURE_SET_1/model_collision_3.obj" scale="15 15 15"/>
+    <mesh name="mesh_dining_col_4" file="DINNING_ROOM_FURNITURE_SET_1/model_collision_4.obj" scale="15 15 15"/>
+    <mesh name="mesh_dining_col_5" file="DINNING_ROOM_FURNITURE_SET_1/model_collision_5.obj" scale="15 15 15"/>
+    <mesh name="mesh_dining_col_6" file="DINNING_ROOM_FURNITURE_SET_1/model_collision_6.obj" scale="15 15 15"/>
+    <mesh name="mesh_dining_col_7" file="DINNING_ROOM_FURNITURE_SET_1/model_collision_7.obj" scale="15 15 15"/>
+    <mesh name="mesh_dining_col_8" file="DINNING_ROOM_FURNITURE_SET_1/model_collision_8.obj" scale="15 15 15"/>
+    <mesh name="mesh_dining_col_9" file="DINNING_ROOM_FURNITURE_SET_1/model_collision_9.obj" scale="15 15 15"/>
+    <mesh name="mesh_dining_col_10" file="DINNING_ROOM_FURNITURE_SET_1/model_collision_10.obj" scale="15 15 15"/>
+    <mesh name="mesh_dining_col_11" file="DINNING_ROOM_FURNITURE_SET_1/model_collision_11.obj" scale="15 15 15"/>
+    <mesh name="mesh_dining_col_12" file="DINNING_ROOM_FURNITURE_SET_1/model_collision_12.obj" scale="15 15 15"/>
+    <mesh name="mesh_dining_col_13" file="DINNING_ROOM_FURNITURE_SET_1/model_collision_13.obj" scale="15 15 15"/>
+    <mesh name="mesh_dining_col_14" file="DINNING_ROOM_FURNITURE_SET_1/model_collision_14.obj" scale="15 15 15"/>
+    <mesh name="mesh_dining_col_15" file="DINNING_ROOM_FURNITURE_SET_1/model_collision_15.obj" scale="15 15 15"/>
+    <mesh name="mesh_dining_col_16" file="DINNING_ROOM_FURNITURE_SET_1/model_collision_16.obj" scale="15 15 15"/>
+    <mesh name="mesh_dining_col_17" file="DINNING_ROOM_FURNITURE_SET_1/model_collision_17.obj" scale="15 15 15"/>
+    <mesh name="mesh_dining_col_18" file="DINNING_ROOM_FURNITURE_SET_1/model_collision_18.obj" scale="15 15 15"/>
+    <mesh name="mesh_dining_col_19" file="DINNING_ROOM_FURNITURE_SET_1/model_collision_19.obj" scale="15 15 15"/>
+    <mesh name="mesh_dining_col_20" file="DINNING_ROOM_FURNITURE_SET_1/model_collision_20.obj" scale="15 15 15"/>
+    <mesh name="mesh_dining_col_21" file="DINNING_ROOM_FURNITURE_SET_1/model_collision_21.obj" scale="15 15 15"/>
+    <mesh name="mesh_dining_col_22" file="DINNING_ROOM_FURNITURE_SET_1/model_collision_22.obj" scale="15 15 15"/>
+    <mesh name="mesh_dining_col_23" file="DINNING_ROOM_FURNITURE_SET_1/model_collision_23.obj" scale="15 15 15"/>
+    <mesh name="mesh_dining_col_24" file="DINNING_ROOM_FURNITURE_SET_1/model_collision_24.obj" scale="15 15 15"/>
+    <mesh name="mesh_dining_col_25" file="DINNING_ROOM_FURNITURE_SET_1/model_collision_25.obj" scale="15 15 15"/>
+    <mesh name="mesh_dining_col_26" file="DINNING_ROOM_FURNITURE_SET_1/model_collision_26.obj" scale="15 15 15"/>
+    <mesh name="mesh_dining_col_27" file="DINNING_ROOM_FURNITURE_SET_1/model_collision_27.obj" scale="15 15 15"/>
+    <mesh name="mesh_dining_col_28" file="DINNING_ROOM_FURNITURE_SET_1/model_collision_28.obj" scale="15 15 15"/>
+    <mesh name="mesh_dining_col_29" file="DINNING_ROOM_FURNITURE_SET_1/model_collision_29.obj" scale="15 15 15"/>
+    <mesh name="mesh_dining_col_30" file="DINNING_ROOM_FURNITURE_SET_1/model_collision_30.obj" scale="15 15 15"/>
+    <mesh name="mesh_dining_col_31" file="DINNING_ROOM_FURNITURE_SET_1/model_collision_31.obj" scale="15 15 15"/>
+
+    <!-- Kitchen Assets -->
+    <texture name="tex_kitchen" type="2d" file="KITCHEN_SET_CLASSIC_40HwCHfeG0H/texture.png"/>
+    <material name="mat_kitchen" texture="tex_kitchen" specular="0.5" shininess="0.5"/>
+    <mesh name="mesh_kitchen_visual" file="KITCHEN_SET_CLASSIC_40HwCHfeG0H/model.obj" scale="15 15 15"/>
+    <mesh name="mesh_kitchen_col_0" file="KITCHEN_SET_CLASSIC_40HwCHfeG0H/model_collision_0.obj" scale="15 15 15"/>
+    <mesh name="mesh_kitchen_col_1" file="KITCHEN_SET_CLASSIC_40HwCHfeG0H/model_collision_1.obj" scale="15 15 15"/>
+    <mesh name="mesh_kitchen_col_2" file="KITCHEN_SET_CLASSIC_40HwCHfeG0H/model_collision_2.obj" scale="15 15 15"/>
+    <mesh name="mesh_kitchen_col_3" file="KITCHEN_SET_CLASSIC_40HwCHfeG0H/model_collision_3.obj" scale="15 15 15"/>
+    <mesh name="mesh_kitchen_col_4" file="KITCHEN_SET_CLASSIC_40HwCHfeG0H/model_collision_4.obj" scale="15 15 15"/>
+    <mesh name="mesh_kitchen_col_5" file="KITCHEN_SET_CLASSIC_40HwCHfeG0H/model_collision_5.obj" scale="15 15 15"/>
+    <mesh name="mesh_kitchen_col_6" file="KITCHEN_SET_CLASSIC_40HwCHfeG0H/model_collision_6.obj" scale="15 15 15"/>
+    <mesh name="mesh_kitchen_col_7" file="KITCHEN_SET_CLASSIC_40HwCHfeG0H/model_collision_7.obj" scale="15 15 15"/>
+    <mesh name="mesh_kitchen_col_8" file="KITCHEN_SET_CLASSIC_40HwCHfeG0H/model_collision_8.obj" scale="15 15 15"/>
+    <mesh name="mesh_kitchen_col_9" file="KITCHEN_SET_CLASSIC_40HwCHfeG0H/model_collision_9.obj" scale="15 15 15"/>
+    <mesh name="mesh_kitchen_col_10" file="KITCHEN_SET_CLASSIC_40HwCHfeG0H/model_collision_10.obj" scale="15 15 15"/>
+    <mesh name="mesh_kitchen_col_11" file="KITCHEN_SET_CLASSIC_40HwCHfeG0H/model_collision_11.obj" scale="15 15 15"/>
+    <mesh name="mesh_kitchen_col_12" file="KITCHEN_SET_CLASSIC_40HwCHfeG0H/model_collision_12.obj" scale="15 15 15"/>
+    <mesh name="mesh_kitchen_col_13" file="KITCHEN_SET_CLASSIC_40HwCHfeG0H/model_collision_13.obj" scale="15 15 15"/>
+    <mesh name="mesh_kitchen_col_14" file="KITCHEN_SET_CLASSIC_40HwCHfeG0H/model_collision_14.obj" scale="15 15 15"/>
+    <mesh name="mesh_kitchen_col_15" file="KITCHEN_SET_CLASSIC_40HwCHfeG0H/model_collision_15.obj" scale="15 15 15"/>
+    <mesh name="mesh_kitchen_col_16" file="KITCHEN_SET_CLASSIC_40HwCHfeG0H/model_collision_16.obj" scale="15 15 15"/>
+    <mesh name="mesh_kitchen_col_17" file="KITCHEN_SET_CLASSIC_40HwCHfeG0H/model_collision_17.obj" scale="15 15 15"/>
+    <mesh name="mesh_kitchen_col_18" file="KITCHEN_SET_CLASSIC_40HwCHfeG0H/model_collision_18.obj" scale="15 15 15"/>
+    <mesh name="mesh_kitchen_col_19" file="KITCHEN_SET_CLASSIC_40HwCHfeG0H/model_collision_19.obj" scale="15 15 15"/>
+    <mesh name="mesh_kitchen_col_20" file="KITCHEN_SET_CLASSIC_40HwCHfeG0H/model_collision_20.obj" scale="15 15 15"/>
+    <mesh name="mesh_kitchen_col_21" file="KITCHEN_SET_CLASSIC_40HwCHfeG0H/model_collision_21.obj" scale="15 15 15"/>
+    <mesh name="mesh_kitchen_col_22" file="KITCHEN_SET_CLASSIC_40HwCHfeG0H/model_collision_22.obj" scale="15 15 15"/>
+    <mesh name="mesh_kitchen_col_23" file="KITCHEN_SET_CLASSIC_40HwCHfeG0H/model_collision_23.obj" scale="15 15 15"/>
+    <mesh name="mesh_kitchen_col_24" file="KITCHEN_SET_CLASSIC_40HwCHfeG0H/model_collision_24.obj" scale="15 15 15"/>
+    <mesh name="mesh_kitchen_col_25" file="KITCHEN_SET_CLASSIC_40HwCHfeG0H/model_collision_25.obj" scale="15 15 15"/>
+    <mesh name="mesh_kitchen_col_26" file="KITCHEN_SET_CLASSIC_40HwCHfeG0H/model_collision_26.obj" scale="15 15 15"/>
+    <mesh name="mesh_kitchen_col_27" file="KITCHEN_SET_CLASSIC_40HwCHfeG0H/model_collision_27.obj" scale="15 15 15"/>
+    <mesh name="mesh_kitchen_col_28" file="KITCHEN_SET_CLASSIC_40HwCHfeG0H/model_collision_28.obj" scale="15 15 15"/>
+    <mesh name="mesh_kitchen_col_29" file="KITCHEN_SET_CLASSIC_40HwCHfeG0H/model_collision_29.obj" scale="15 15 15"/>
+    <mesh name="mesh_kitchen_col_30" file="KITCHEN_SET_CLASSIC_40HwCHfeG0H/model_collision_30.obj" scale="15 15 15"/>
+    <mesh name="mesh_kitchen_col_31" file="KITCHEN_SET_CLASSIC_40HwCHfeG0H/model_collision_31.obj" scale="15 15 15"/>
+
+    <!-- Bathroom Assets -->
+    <texture name="tex_bath_classic" type="2d" file="BATHROOM_CLASSIC/texture.png"/>
+    <material name="mat_bath_classic" texture="tex_bath_classic" specular="0.5" shininess="0.5"/>
+    <mesh name="mesh_bath_classic_visual" file="BATHROOM_CLASSIC/model.obj" scale="16 16 16"/>
+    <mesh name="mesh_bath_classic_col_0" file="BATHROOM_CLASSIC/model_collision_0.obj" scale="16 16 16"/>
+    <mesh name="mesh_bath_classic_col_1" file="BATHROOM_CLASSIC/model_collision_1.obj" scale="16 16 16"/>
+    <mesh name="mesh_bath_classic_col_2" file="BATHROOM_CLASSIC/model_collision_2.obj" scale="16 16 16"/>
+    <mesh name="mesh_bath_classic_col_3" file="BATHROOM_CLASSIC/model_collision_3.obj" scale="16 16 16"/>
+    <mesh name="mesh_bath_classic_col_4" file="BATHROOM_CLASSIC/model_collision_4.obj" scale="16 16 16"/>
+    <mesh name="mesh_bath_classic_col_5" file="BATHROOM_CLASSIC/model_collision_5.obj" scale="16 16 16"/>
+    <mesh name="mesh_bath_classic_col_6" file="BATHROOM_CLASSIC/model_collision_6.obj" scale="16 16 16"/>
+    <mesh name="mesh_bath_classic_col_7" file="BATHROOM_CLASSIC/model_collision_7.obj" scale="16 16 16"/>
+    <mesh name="mesh_bath_classic_col_8" file="BATHROOM_CLASSIC/model_collision_8.obj" scale="16 16 16"/>
+    <mesh name="mesh_bath_classic_col_9" file="BATHROOM_CLASSIC/model_collision_9.obj" scale="16 16 16"/>
+    <mesh name="mesh_bath_classic_col_10" file="BATHROOM_CLASSIC/model_collision_10.obj" scale="16 16 16"/>
+    <mesh name="mesh_bath_classic_col_11" file="BATHROOM_CLASSIC/model_collision_11.obj" scale="16 16 16"/>
+    <mesh name="mesh_bath_classic_col_12" file="BATHROOM_CLASSIC/model_collision_12.obj" scale="16 16 16"/>
+    <mesh name="mesh_bath_classic_col_13" file="BATHROOM_CLASSIC/model_collision_13.obj" scale="16 16 16"/>
+    <mesh name="mesh_bath_classic_col_14" file="BATHROOM_CLASSIC/model_collision_14.obj" scale="16 16 16"/>
+    <mesh name="mesh_bath_classic_col_15" file="BATHROOM_CLASSIC/model_collision_15.obj" scale="16 16 16"/>
+    <mesh name="mesh_bath_classic_col_16" file="BATHROOM_CLASSIC/model_collision_16.obj" scale="16 16 16"/>
+    <mesh name="mesh_bath_classic_col_17" file="BATHROOM_CLASSIC/model_collision_17.obj" scale="16 16 16"/>
+    <mesh name="mesh_bath_classic_col_18" file="BATHROOM_CLASSIC/model_collision_18.obj" scale="16 16 16"/>
+    <mesh name="mesh_bath_classic_col_19" file="BATHROOM_CLASSIC/model_collision_19.obj" scale="16 16 16"/>
+    <mesh name="mesh_bath_classic_col_20" file="BATHROOM_CLASSIC/model_collision_20.obj" scale="16 16 16"/>
+    <mesh name="mesh_bath_classic_col_21" file="BATHROOM_CLASSIC/model_collision_21.obj" scale="16 16 16"/>
+    <mesh name="mesh_bath_classic_col_22" file="BATHROOM_CLASSIC/model_collision_22.obj" scale="16 16 16"/>
+    <mesh name="mesh_bath_classic_col_23" file="BATHROOM_CLASSIC/model_collision_23.obj" scale="16 16 16"/>
+    <mesh name="mesh_bath_classic_col_24" file="BATHROOM_CLASSIC/model_collision_24.obj" scale="16 16 16"/>
+    <mesh name="mesh_bath_classic_col_25" file="BATHROOM_CLASSIC/model_collision_25.obj" scale="16 16 16"/>
+    <mesh name="mesh_bath_classic_col_26" file="BATHROOM_CLASSIC/model_collision_26.obj" scale="16 16 16"/>
+    <mesh name="mesh_bath_classic_col_27" file="BATHROOM_CLASSIC/model_collision_27.obj" scale="16 16 16"/>
+    <mesh name="mesh_bath_classic_col_28" file="BATHROOM_CLASSIC/model_collision_28.obj" scale="16 16 16"/>
+    <mesh name="mesh_bath_classic_col_29" file="BATHROOM_CLASSIC/model_collision_29.obj" scale="16 16 16"/>
+    <mesh name="mesh_bath_classic_col_30" file="BATHROOM_CLASSIC/model_collision_30.obj" scale="16 16 16"/>
+    <mesh name="mesh_bath_classic_col_31" file="BATHROOM_CLASSIC/model_collision_31.obj" scale="16 16 16"/>
+  </asset>
+
+  <worldbody>
+    <!-- Lighting -->
+    <light pos="-4 0 4" dir="1 -0.5 -1" diffuse="0.8 0.8 0.7" castshadow="true"/> <!-- Bedroom 1 Window Light -->
+    <light pos="6 5 4" dir="0 -1 -1" diffuse="0.7 0.7 0.6" castshadow="true"/> <!-- Living Room 1 Window Light -->
+    <light pos="-4 10 4" dir="1 -0.5 -1" diffuse="0.8 0.8 0.7" castshadow="true"/> <!-- Bedroom 2 Window Light -->
+    <light pos="6 15 4" dir="0 -1 -1" diffuse="0.7 0.7 0.6" castshadow="true"/> <!-- Living Room 2 Window Light -->
+    <light pos="10.5 6.5 3" dir="0 0 -1" diffuse="0.6 0.6 0.6" castshadow="true"/> <!-- Bathroom Light -->
+    <light pos="4 5 4" dir="0 0 -1" diffuse="0.3 0.3 0.3" castshadow="false"/> <!-- Ambient fill -->
+
+    <!-- Floor (Combined 2x2 Layout) -->
+    <!-- Overall Bounds: X -4 to 12, Y -5 to 15. Center X=4, Y=5. Size X=8, Y=10. -->
+    <geom name="floor_main" type="plane" size="8 10 0.1" pos="4 5 0" material="mat_floor"/>
+
+    <!-- ================= BEDROOM 1 WALLS (SW) ================= -->
+    <!-- Back Wall (Shared with Bed 2) -->
+    <geom name="wall_bed1_back" type="box" size="4.1 0.1 2" pos="0 5 2" material="mat_wall"/>
+    
+    <!-- Front Wall (Opposite to Bed) -->
+    <geom name="wall_bed1_front" type="box" size="4.1 0.1 2" pos="0 -5 2" material="mat_wall"/>
+
+    <!-- Left Wall (Bedroom Window) -->
+    <geom name="wall_bed1_left_back" type="box" size="0.1 1.5 2" pos="-4 3.5 2" material="mat_wall"/>
+    <geom name="wall_bed1_left_front" type="box" size="0.1 1.5 2" pos="-4 -3.5 2" material="mat_wall"/>
+    <geom name="wall_bed1_left_bottom" type="box" size="0.1 2 0.5" pos="-4 0 0.5" material="mat_wall"/>
+    <geom name="wall_bed1_left_top" type="box" size="0.1 2 0.5" pos="-4 0 3.5" material="mat_wall"/>
+    <geom name="window_bed1" type="box" size="0.02 2 1" pos="-4 0 2" material="mat_glass"/>
+    <geom name="window_bed1_frame_h" type="box" size="0.05 2 0.05" pos="-4 0 2" material="mat_wood"/>
+    <geom name="window_bed1_frame_v" type="box" size="0.05 0.05 1" pos="-4 0 2" material="mat_wood"/>
+
+    <!-- Partition Wall (Bedroom 1 <-> Living Room 1) -->
+    <!-- Doorway at Y=1 (Shifted North by 1m) -->
+    <!-- Doorway Width = 2.66m (2/3 of original 4m) -->
+    <!-- Back Segment: Y=2.3325 to 5 (Len 2.6675) -->
+    <geom name="wall_bed1_right_back" type="box" size="0.1 1.33375 2" pos="4 3.66625 2" material="mat_wall"/>
+    <!-- Front Segment: Y=-5 to -0.3325 (Len 4.6675) -->
+    <geom name="wall_bed1_right_front" type="box" size="0.1 2.33375 2" pos="4 -2.66625 2" material="mat_wall"/>
+    <!-- Header: Center Y=1, Size Y=1.33 -->
+    <geom name="wall_bed1_right_header" type="box" size="0.1 1.33 0.5" pos="4 1 3.5" material="mat_wall"/>
+
+    <!-- ================= LIVING ROOM 1 WALLS (SE) ================= -->
+    <!-- Back Wall (Shared with Living Room 2) -->
+    <!-- Open doorway connecting Living 1 and Living 2 -->
+    <geom name="wall_living1_back_left" type="box" size="1.5 0.1 2" pos="5.5 5 2" material="mat_wall"/>
+    <geom name="wall_living1_back_right" type="box" size="1.5 0.1 2" pos="10.5 5 2" material="mat_wall"/>
+    <geom name="wall_living1_back_header" type="box" size="1 0.1 0.5" pos="8 5 3.5" material="mat_wall"/>
+    
+    <!-- Front Wall (Living Room Window) -->
+    <geom name="wall_living1_front_left" type="box" size="1 0.1 2" pos="5 -5 2" material="mat_wall"/>
+    <geom name="wall_living1_front_right" type="box" size="1 0.1 2" pos="11 -5 2" material="mat_wall"/>
+    <geom name="wall_living1_front_bottom" type="box" size="2 0.1 0.5" pos="8 -5 0.5" material="mat_wall"/>
+    <geom name="wall_living1_front_top" type="box" size="2 0.1 0.5" pos="8 -5 3.5" material="mat_wall"/>
+    <geom name="window_living1_front" type="box" size="2 0.02 1" pos="8 -5 2" material="mat_glass"/>
+    <geom name="window_living1_front_frame_h" type="box" size="2 0.05 0.05" pos="8 -5 2" material="mat_wood"/>
+    <geom name="window_living1_front_frame_v" type="box" size="0.05 0.05 1" pos="8 -5 2" material="mat_wood"/>
+
+    <!-- Right Wall (Side Window) -->
+    <geom name="wall_living1_right_back" type="box" size="0.1 1 2" pos="12 4 2" material="mat_wall"/>
+    <geom name="wall_living1_right_front" type="box" size="0.1 1 2" pos="12 -4 2" material="mat_wall"/>
+    <geom name="wall_living1_right_bottom" type="box" size="0.1 3 0.5" pos="12 0 0.5" material="mat_wall"/>
+    <geom name="wall_living1_right_top" type="box" size="0.1 3 0.5" pos="12 0 3.5" material="mat_wall"/>
+    <geom name="window_living1_side" type="box" size="0.02 3 1" pos="12 0 2" material="mat_glass"/>
+    <geom name="window_living1_side_frame_h" type="box" size="0.05 3 0.05" pos="12 0 2" material="mat_wood"/>
+
+    <!-- ================= BEDROOM 2 WALLS (NW) ================= -->
+    <!-- Moved from NE to NW -->
+    <!-- Back Wall (North) -->
+    <geom name="wall_bed2_back" type="box" size="4.1 0.1 2" pos="0 15 2" material="mat_wall"/>
+    <!-- Left Wall (West) - WITH WINDOW -->
+    <!-- Wall spans Y=5 to 15 (Length 10). Window centered at Y=10. -->
+    <!-- Back Segment (North of Window): Y=11 to 15 (Len 4). Center Y=13 -->
+    <geom name="wall_bed2_left_back" type="box" size="0.1 2 2" pos="-4 13 2" material="mat_wall"/>
+    <!-- Front Segment (South of Window): Y=5 to 9 (Len 4). Center Y=7 -->
+    <geom name="wall_bed2_left_front" type="box" size="0.1 2 2" pos="-4 7 2" material="mat_wall"/>
+    <!-- Bottom Segment (Under Window): Y=9 to 11 (Len 2). Z=0 to 1. Center Y=10, Z=0.5 -->
+    <geom name="wall_bed2_left_bottom" type="box" size="0.1 1 0.5" pos="-4 10 0.5" material="mat_wall"/>
+    <!-- Top Segment (Above Window): Y=9 to 11. Z=3 to 4. Center Y=10, Z=3.5 -->
+    <geom name="wall_bed2_left_top" type="box" size="0.1 1 0.5" pos="-4 10 3.5" material="mat_wall"/>
+    
+    <!-- Window (2x2m Square) -->
+    <geom name="window_bed2" type="box" size="0.02 1 1" pos="-4 10 2" material="mat_glass"/>
+    <geom name="window_bed2_frame_h" type="box" size="0.05 1 0.05" pos="-4 10 2" material="mat_wood"/>
+    <geom name="window_bed2_frame_v" type="box" size="0.05 0.05 1" pos="-4 10 2" material="mat_wood"/>
+    
+    <!-- Right Wall (Partition to Living 2) - WITH DOORWAY -->
+    <!-- Doorway at Y=8.5 (Shifted South by 1.5m total, 0.5m more) -->
+    <!-- Doorway Width = 2.66m -->
+    <!-- Front Segment: Y=5 to 7.165 (Len 2.165) -->
+    <geom name="wall_bed2_right_front" type="box" size="0.1 1.0825 2" pos="4 6.0825 2" material="mat_wall"/>
+    <!-- Back Segment: Y=9.835 to 15 (Len 5.165) -->
+    <geom name="wall_bed2_right_back" type="box" size="0.1 2.5825 2" pos="4 12.4175 2" material="mat_wall"/>
+    <!-- Header: Center Y=8.5, Size Y=1.33 -->
+    <geom name="wall_bed2_right_header" type="box" size="0.1 1.33 0.5" pos="4 8.5 3.5" material="mat_wall"/>
+
+    <!-- ================= LIVING ROOM 2 WALLS (NE) ================= -->
+    <!-- Back Wall (North) -->
+    <geom name="wall_living2_back" type="box" size="4 0.1 2" pos="8 15 2" material="mat_wall"/>
+    
+    <!-- Right Wall (East) -->
+    <geom name="wall_living2_right_back" type="box" size="0.1 1 2" pos="12 14 2" material="mat_wall"/>
+    <geom name="wall_living2_right_front" type="box" size="0.1 1 2" pos="12 6 2" material="mat_wall"/>
+    <geom name="wall_living2_right_bottom" type="box" size="0.1 3 0.5" pos="12 10 0.5" material="mat_wall"/>
+    <geom name="wall_living2_right_top" type="box" size="0.1 3 0.5" pos="12 10 3.5" material="mat_wall"/>
+    <geom name="window_living2_side" type="box" size="0.02 3 1" pos="12 10 2" material="mat_glass"/>
+    <geom name="window_living2_side_frame_h" type="box" size="0.05 3 0.05" pos="12 10 2" material="mat_wood"/>
+
+    <!-- ================= BATHROOM WALLS (SE corner of Living 2) ================= -->
+    <!-- Located at X: 9-12, Y: 5-8. Approx 3x3m -->
+    <!-- North Wall of Bathroom (Inside Living 2) -->
+    <geom name="wall_bath_north" type="box" size="1.5 0.1 2" pos="10.5 8 2" material="mat_tile"/>
+    <!-- West Wall of Bathroom (Inside Living 2) -->
+    <!-- Doorway on West Wall -->
+    <geom name="wall_bath_west_back" type="box" size="0.1 0.5 2" pos="9 7.5 2" material="mat_tile"/>
+    <geom name="wall_bath_west_front" type="box" size="0.1 0.5 2" pos="9 5.5 2" material="mat_tile"/>
+    <geom name="wall_bath_west_header" type="box" size="0.1 1 0.5" pos="9 6.5 3.5" material="mat_tile"/>
+    
+    <!-- Floor Tile Overlay -->
+    <geom name="floor_bath" type="plane" size="1.5 1.5 0.101" pos="10.5 6.5 0" material="mat_tile"/>
+
+    <!-- Bathroom Furniture -->
+    <body name="bathroom_classic" pos="10.5 6.5 0">
+      <geom material="mat_bath_classic" mesh="mesh_bath_classic_visual" type="mesh" contype="0" conaffinity="0" group="2"/>
+      <geom mesh="mesh_bath_classic_col_0" type="mesh" group="3"/>
+      <geom mesh="mesh_bath_classic_col_1" type="mesh" group="3"/>
+      <geom mesh="mesh_bath_classic_col_2" type="mesh" group="3"/>
+      <geom mesh="mesh_bath_classic_col_3" type="mesh" group="3"/>
+      <geom mesh="mesh_bath_classic_col_4" type="mesh" group="3"/>
+      <geom mesh="mesh_bath_classic_col_5" type="mesh" group="3"/>
+      <geom mesh="mesh_bath_classic_col_6" type="mesh" group="3"/>
+      <geom mesh="mesh_bath_classic_col_7" type="mesh" group="3"/>
+      <geom mesh="mesh_bath_classic_col_8" type="mesh" group="3"/>
+      <geom mesh="mesh_bath_classic_col_9" type="mesh" group="3"/>
+      <geom mesh="mesh_bath_classic_col_10" type="mesh" group="3"/>
+      <geom mesh="mesh_bath_classic_col_11" type="mesh" group="3"/>
+      <geom mesh="mesh_bath_classic_col_12" type="mesh" group="3"/>
+      <geom mesh="mesh_bath_classic_col_13" type="mesh" group="3"/>
+      <geom mesh="mesh_bath_classic_col_14" type="mesh" group="3"/>
+      <geom mesh="mesh_bath_classic_col_15" type="mesh" group="3"/>
+      <geom mesh="mesh_bath_classic_col_16" type="mesh" group="3"/>
+      <geom mesh="mesh_bath_classic_col_17" type="mesh" group="3"/>
+      <geom mesh="mesh_bath_classic_col_18" type="mesh" group="3"/>
+      <geom mesh="mesh_bath_classic_col_19" type="mesh" group="3"/>
+      <geom mesh="mesh_bath_classic_col_20" type="mesh" group="3"/>
+      <geom mesh="mesh_bath_classic_col_21" type="mesh" group="3"/>
+      <geom mesh="mesh_bath_classic_col_22" type="mesh" group="3"/>
+      <geom mesh="mesh_bath_classic_col_23" type="mesh" group="3"/>
+      <geom mesh="mesh_bath_classic_col_24" type="mesh" group="3"/>
+      <geom mesh="mesh_bath_classic_col_25" type="mesh" group="3"/>
+      <geom mesh="mesh_bath_classic_col_26" type="mesh" group="3"/>
+      <geom mesh="mesh_bath_classic_col_27" type="mesh" group="3"/>
+      <geom mesh="mesh_bath_classic_col_28" type="mesh" group="3"/>
+      <geom mesh="mesh_bath_classic_col_29" type="mesh" group="3"/>
+      <geom mesh="mesh_bath_classic_col_30" type="mesh" group="3"/>
+      <geom mesh="mesh_bath_classic_col_31" type="mesh" group="3"/>
+    </body>
+
+    <!-- ================= BEDROOM 1 FURNITURE ================= -->
+    <!-- Replaced with Classic Bedroom Model -->
+    <!-- Positioned to have Bed Head at North Wall (Y=5) -->
+    <!-- Bed aligns with West Wall (X=-4) -->
+    <!-- Rotated 90 degrees counter-clockwise (Head is +Y) -->
+    <!-- Center adjusted for 90 deg rotation. Original center ~[0, 0]. -->
+    <!-- Dimensions ~[5.4, 6.3, 3.1]. Half ~[2.7, 3.15]. -->
+    <!-- Target Head at Y=5. Center Y = 5 - 2.7 = 2.3 -->
+    <!-- Target Side at X=-4. Center X = -4 + 3.15 = -0.85 -->
+    <!-- Previous attempt pos="-1.33 1.86 0" was for 0 deg. -->
+    <!-- Let's try pos="-0.85 2.3 0" euler="0 0 90" -->
+    <body name="bedroom_classic" pos="-0.85 2.3 0" euler="0 0 90">
+      <geom material="mat_classic" mesh="mesh_classic_visual" type="mesh" contype="0" conaffinity="0" group="2"/>
+      <geom mesh="mesh_classic_col_0" type="mesh" group="3"/>
+      <geom mesh="mesh_classic_col_1" type="mesh" group="3"/>
+      <geom mesh="mesh_classic_col_2" type="mesh" group="3"/>
+      <geom mesh="mesh_classic_col_3" type="mesh" group="3"/>
+      <geom mesh="mesh_classic_col_4" type="mesh" group="3"/>
+      <geom mesh="mesh_classic_col_5" type="mesh" group="3"/>
+      <geom mesh="mesh_classic_col_6" type="mesh" group="3"/>
+      <geom mesh="mesh_classic_col_7" type="mesh" group="3"/>
+      <geom mesh="mesh_classic_col_8" type="mesh" group="3"/>
+      <geom mesh="mesh_classic_col_9" type="mesh" group="3"/>
+      <geom mesh="mesh_classic_col_10" type="mesh" group="3"/>
+      <geom mesh="mesh_classic_col_11" type="mesh" group="3"/>
+      <geom mesh="mesh_classic_col_12" type="mesh" group="3"/>
+      <geom mesh="mesh_classic_col_13" type="mesh" group="3"/>
+      <geom mesh="mesh_classic_col_14" type="mesh" group="3"/>
+      <geom mesh="mesh_classic_col_15" type="mesh" group="3"/>
+      <geom mesh="mesh_classic_col_16" type="mesh" group="3"/>
+      <geom mesh="mesh_classic_col_17" type="mesh" group="3"/>
+      <geom mesh="mesh_classic_col_18" type="mesh" group="3"/>
+      <geom mesh="mesh_classic_col_19" type="mesh" group="3"/>
+      <geom mesh="mesh_classic_col_20" type="mesh" group="3"/>
+      <geom mesh="mesh_classic_col_21" type="mesh" group="3"/>
+      <geom mesh="mesh_classic_col_22" type="mesh" group="3"/>
+      <geom mesh="mesh_classic_col_23" type="mesh" group="3"/>
+      <geom mesh="mesh_classic_col_24" type="mesh" group="3"/>
+      <geom mesh="mesh_classic_col_25" type="mesh" group="3"/>
+      <geom mesh="mesh_classic_col_26" type="mesh" group="3"/>
+      <geom mesh="mesh_classic_col_27" type="mesh" group="3"/>
+      <geom mesh="mesh_classic_col_28" type="mesh" group="3"/>
+      <geom mesh="mesh_classic_col_29" type="mesh" group="3"/>
+      <geom mesh="mesh_classic_col_30" type="mesh" group="3"/>
+      <geom mesh="mesh_classic_col_31" type="mesh" group="3"/>
+    </body>
+
+    <!-- ================= LIVING ROOM FURNITURE ================= -->
+    <!-- Re-generated: Standing AC, Sofa Set, Rectangular Coffee Table -->
+
+    <!-- Standing AC (NE Corner) -->
+    <body name="ac_standing_living1" pos="11.5 4.5 0">
+        <geom type="box" size="0.25 0.25 0.9" pos="0 0 0.9" material="mat_metal"/> <!-- Body -->
+        <geom type="box" size="0.2 0.02 0.4" pos="0 -0.26 1.4" material="mat_wood_dark"/> <!-- Vent -->
+    </body>
+
+    <!-- Sofa Set -->
+    <!-- 3-Seater (North side, facing South) -->
+    <body name="sofa_3seater_living1" pos="8 -1.0 0">
+       <geom type="box" size="1.2 0.4 0.2" pos="0 0 0.2" material="mat_fabric_beige"/> <!-- Seat -->
+       <geom type="box" size="1.2 0.1 0.4" pos="0 0.4 0.6" material="mat_fabric_beige"/> <!-- Back -->
+       <geom type="box" size="0.1 0.4 0.3" pos="-1.2 0 0.4" material="mat_fabric_beige"/> <!-- Arm L -->
+       <geom type="box" size="0.1 0.4 0.3" pos="1.2 0 0.4" material="mat_fabric_beige"/> <!-- Arm R -->
+       <!-- Legs -->
+       <geom type="cylinder" size="0.03 0.1" pos="-1.1 -0.3 0.05" material="mat_wood"/>
+       <geom type="cylinder" size="0.03 0.1" pos="1.1 -0.3 0.05" material="mat_wood"/>
+       <geom type="cylinder" size="0.03 0.1" pos="-1.1 0.3 0.05" material="mat_wood"/>
+       <geom type="cylinder" size="0.03 0.1" pos="1.1 0.3 0.05" material="mat_wood"/>
+    </body>
+
+    <!-- 1-Seater Left (West side, facing East) -->
+    <body name="sofa_1seater_left_living1" pos="5.5 -2.5 0" euler="0 0 90">
+       <geom type="box" size="0.45 0.4 0.2" pos="0 0 0.2" material="mat_fabric_beige"/>
+       <geom type="box" size="0.45 0.1 0.4" pos="0 0.4 0.6" material="mat_fabric_beige"/>
+       <geom type="box" size="0.1 0.4 0.3" pos="-0.5 0 0.4" material="mat_fabric_beige"/>
+       <geom type="box" size="0.1 0.4 0.3" pos="0.5 0 0.4" material="mat_fabric_beige"/>
+       <geom type="cylinder" size="0.03 0.1" pos="-0.4 -0.3 0.05" material="mat_wood"/>
+       <geom type="cylinder" size="0.03 0.1" pos="0.4 -0.3 0.05" material="mat_wood"/>
+       <geom type="cylinder" size="0.03 0.1" pos="-0.4 0.3 0.05" material="mat_wood"/>
+       <geom type="cylinder" size="0.03 0.1" pos="0.4 0.3 0.05" material="mat_wood"/>
+    </body>
+
+    <!-- 1-Seater Right (East side, facing West) -->
+    <body name="sofa_1seater_right_living1" pos="10.5 -2.5 0" euler="0 0 -90">
+       <geom type="box" size="0.45 0.4 0.2" pos="0 0 0.2" material="mat_fabric_beige"/>
+       <geom type="box" size="0.45 0.1 0.4" pos="0 0.4 0.6" material="mat_fabric_beige"/>
+       <geom type="box" size="0.1 0.4 0.3" pos="-0.5 0 0.4" material="mat_fabric_beige"/>
+       <geom type="box" size="0.1 0.4 0.3" pos="0.5 0 0.4" material="mat_fabric_beige"/>
+       <geom type="cylinder" size="0.03 0.1" pos="-0.4 -0.3 0.05" material="mat_wood"/>
+       <geom type="cylinder" size="0.03 0.1" pos="0.4 -0.3 0.05" material="mat_wood"/>
+       <geom type="cylinder" size="0.03 0.1" pos="-0.4 0.3 0.05" material="mat_wood"/>
+       <geom type="cylinder" size="0.03 0.1" pos="0.4 0.3 0.05" material="mat_wood"/>
+    </body>
+
+    <!-- Rectangular Coffee Table -->
+    <body name="table_coffee_living1" pos="8 -2.5 0">
+       <geom type="box" size="0.8 0.4 0.02" pos="0 0 0.4" material="mat_wood"/> <!-- Top (1.6m x 0.8m) -->
+       <!-- Legs -->
+       <geom type="cylinder" size="0.03 0.2" pos="-0.7 -0.3 0.2" material="mat_wood"/>
+       <geom type="cylinder" size="0.03 0.2" pos="0.7 -0.3 0.2" material="mat_wood"/>
+       <geom type="cylinder" size="0.03 0.2" pos="-0.7 0.3 0.2" material="mat_wood"/>
+       <geom type="cylinder" size="0.03 0.2" pos="0.7 0.3 0.2" material="mat_wood"/>
+    </body>
+
+    <!-- 4. Plants -->
+    <!-- Plants removed as per request -->
+
+    <!-- ================= BEDROOM 2 FURNITURE ================= -->
+    <!-- Replaced with Neo Bedroom Model -->
+    <!-- Positioned to have Bed Head at North Wall (Y=15) -->
+    <!-- Rotated 180 degrees around Z -->
+    <!-- Updated Rotation: Clockwise 180 degrees (180 - 180 = 0) -->
+    <!-- Shifted East to align cabinet with East wall (X=4) -->
+    <body name="bedroom_neo" pos="1.36 12.5 0" euler="0 0 0">
+      <geom material="mat_neo" mesh="mesh_neo_visual" type="mesh" contype="0" conaffinity="0" group="2"/>
+      <geom mesh="mesh_neo_col_0" type="mesh" group="3"/>
+      <geom mesh="mesh_neo_col_1" type="mesh" group="3"/>
+      <geom mesh="mesh_neo_col_2" type="mesh" group="3"/>
+      <geom mesh="mesh_neo_col_3" type="mesh" group="3"/>
+      <geom mesh="mesh_neo_col_4" type="mesh" group="3"/>
+      <geom mesh="mesh_neo_col_5" type="mesh" group="3"/>
+      <geom mesh="mesh_neo_col_6" type="mesh" group="3"/>
+      <geom mesh="mesh_neo_col_7" type="mesh" group="3"/>
+      <geom mesh="mesh_neo_col_8" type="mesh" group="3"/>
+      <geom mesh="mesh_neo_col_9" type="mesh" group="3"/>
+      <geom mesh="mesh_neo_col_10" type="mesh" group="3"/>
+      <geom mesh="mesh_neo_col_11" type="mesh" group="3"/>
+      <geom mesh="mesh_neo_col_12" type="mesh" group="3"/>
+      <geom mesh="mesh_neo_col_13" type="mesh" group="3"/>
+      <geom mesh="mesh_neo_col_14" type="mesh" group="3"/>
+      <geom mesh="mesh_neo_col_15" type="mesh" group="3"/>
+      <geom mesh="mesh_neo_col_16" type="mesh" group="3"/>
+      <geom mesh="mesh_neo_col_17" type="mesh" group="3"/>
+      <geom mesh="mesh_neo_col_18" type="mesh" group="3"/>
+      <geom mesh="mesh_neo_col_19" type="mesh" group="3"/>
+      <geom mesh="mesh_neo_col_20" type="mesh" group="3"/>
+      <geom mesh="mesh_neo_col_21" type="mesh" group="3"/>
+      <geom mesh="mesh_neo_col_22" type="mesh" group="3"/>
+      <geom mesh="mesh_neo_col_23" type="mesh" group="3"/>
+      <geom mesh="mesh_neo_col_24" type="mesh" group="3"/>
+      <geom mesh="mesh_neo_col_25" type="mesh" group="3"/>
+      <geom mesh="mesh_neo_col_26" type="mesh" group="3"/>
+      <geom mesh="mesh_neo_col_27" type="mesh" group="3"/>
+      <geom mesh="mesh_neo_col_28" type="mesh" group="3"/>
+      <geom mesh="mesh_neo_col_29" type="mesh" group="3"/>
+      <geom mesh="mesh_neo_col_30" type="mesh" group="3"/>
+      <geom mesh="mesh_neo_col_31" type="mesh" group="3"/>
+    </body>
+
+    <!-- ================= LIVING ROOM 2 FURNITURE ================= -->
+    <!-- Dining Room Furniture (NW Corner) -->
+    <!-- Positioned at X=6, Y=13.5 (Shifted West by another 1.5m, total 3m) -->
+    <body name="dining_furniture" pos="6 13.5 0">
+      <geom material="mat_dining" mesh="mesh_dining_visual" type="mesh" contype="0" conaffinity="0" group="2"/>
+      <geom mesh="mesh_dining_col_0" type="mesh" group="3"/>
+      <geom mesh="mesh_dining_col_1" type="mesh" group="3"/>
+      <geom mesh="mesh_dining_col_2" type="mesh" group="3"/>
+      <geom mesh="mesh_dining_col_3" type="mesh" group="3"/>
+      <geom mesh="mesh_dining_col_4" type="mesh" group="3"/>
+      <geom mesh="mesh_dining_col_5" type="mesh" group="3"/>
+      <geom mesh="mesh_dining_col_6" type="mesh" group="3"/>
+      <geom mesh="mesh_dining_col_7" type="mesh" group="3"/>
+      <geom mesh="mesh_dining_col_8" type="mesh" group="3"/>
+      <geom mesh="mesh_dining_col_9" type="mesh" group="3"/>
+      <geom mesh="mesh_dining_col_10" type="mesh" group="3"/>
+      <geom mesh="mesh_dining_col_11" type="mesh" group="3"/>
+      <geom mesh="mesh_dining_col_12" type="mesh" group="3"/>
+      <geom mesh="mesh_dining_col_13" type="mesh" group="3"/>
+      <geom mesh="mesh_dining_col_14" type="mesh" group="3"/>
+      <geom mesh="mesh_dining_col_15" type="mesh" group="3"/>
+      <geom mesh="mesh_dining_col_16" type="mesh" group="3"/>
+      <geom mesh="mesh_dining_col_17" type="mesh" group="3"/>
+      <geom mesh="mesh_dining_col_18" type="mesh" group="3"/>
+      <geom mesh="mesh_dining_col_19" type="mesh" group="3"/>
+      <geom mesh="mesh_dining_col_20" type="mesh" group="3"/>
+      <geom mesh="mesh_dining_col_21" type="mesh" group="3"/>
+      <geom mesh="mesh_dining_col_22" type="mesh" group="3"/>
+      <geom mesh="mesh_dining_col_23" type="mesh" group="3"/>
+      <geom mesh="mesh_dining_col_24" type="mesh" group="3"/>
+      <geom mesh="mesh_dining_col_25" type="mesh" group="3"/>
+      <geom mesh="mesh_dining_col_26" type="mesh" group="3"/>
+      <geom mesh="mesh_dining_col_27" type="mesh" group="3"/>
+      <geom mesh="mesh_dining_col_28" type="mesh" group="3"/>
+      <geom mesh="mesh_dining_col_29" type="mesh" group="3"/>
+      <geom mesh="mesh_dining_col_30" type="mesh" group="3"/>
+      <geom mesh="mesh_dining_col_31" type="mesh" group="3"/>
+    </body>
+
+    <!-- Kitchen Set (NE Corner) -->
+    <!-- Positioned at X=10.55, Y=13.5 (Aligned with East wall X=12 minus wall thickness/clipping buffer) -->
+    <body name="kitchen_set" pos="10.55 13.5 0">
+      <geom material="mat_kitchen" mesh="mesh_kitchen_visual" type="mesh" contype="0" conaffinity="0" group="2"/>
+      <geom mesh="mesh_kitchen_col_0" type="mesh" group="3"/>
+      <geom mesh="mesh_kitchen_col_1" type="mesh" group="3"/>
+      <geom mesh="mesh_kitchen_col_2" type="mesh" group="3"/>
+      <geom mesh="mesh_kitchen_col_3" type="mesh" group="3"/>
+      <geom mesh="mesh_kitchen_col_4" type="mesh" group="3"/>
+      <geom mesh="mesh_kitchen_col_5" type="mesh" group="3"/>
+      <geom mesh="mesh_kitchen_col_6" type="mesh" group="3"/>
+      <geom mesh="mesh_kitchen_col_7" type="mesh" group="3"/>
+      <geom mesh="mesh_kitchen_col_8" type="mesh" group="3"/>
+      <geom mesh="mesh_kitchen_col_9" type="mesh" group="3"/>
+      <geom mesh="mesh_kitchen_col_10" type="mesh" group="3"/>
+      <geom mesh="mesh_kitchen_col_11" type="mesh" group="3"/>
+      <geom mesh="mesh_kitchen_col_12" type="mesh" group="3"/>
+      <geom mesh="mesh_kitchen_col_13" type="mesh" group="3"/>
+      <geom mesh="mesh_kitchen_col_14" type="mesh" group="3"/>
+      <geom mesh="mesh_kitchen_col_15" type="mesh" group="3"/>
+      <geom mesh="mesh_kitchen_col_16" type="mesh" group="3"/>
+      <geom mesh="mesh_kitchen_col_17" type="mesh" group="3"/>
+      <geom mesh="mesh_kitchen_col_18" type="mesh" group="3"/>
+      <geom mesh="mesh_kitchen_col_19" type="mesh" group="3"/>
+      <geom mesh="mesh_kitchen_col_20" type="mesh" group="3"/>
+      <geom mesh="mesh_kitchen_col_21" type="mesh" group="3"/>
+      <geom mesh="mesh_kitchen_col_22" type="mesh" group="3"/>
+      <geom mesh="mesh_kitchen_col_23" type="mesh" group="3"/>
+      <geom mesh="mesh_kitchen_col_24" type="mesh" group="3"/>
+      <geom mesh="mesh_kitchen_col_25" type="mesh" group="3"/>
+      <geom mesh="mesh_kitchen_col_26" type="mesh" group="3"/>
+      <geom mesh="mesh_kitchen_col_27" type="mesh" group="3"/>
+      <geom mesh="mesh_kitchen_col_28" type="mesh" group="3"/>
+      <geom mesh="mesh_kitchen_col_29" type="mesh" group="3"/>
+      <geom mesh="mesh_kitchen_col_30" type="mesh" group="3"/>
+      <geom mesh="mesh_kitchen_col_31" type="mesh" group="3"/>
+    </body>
+    
+    <!-- ================= BATHROOM FURNITURE ================= -->
+    <!-- Removed redundant white vanity and toilet geometries -->
+    <!-- Replaced with BATHROOM_CLASSIC model above -->
+
+    <body name="bath_shower" pos="9.5 7.5 0">
+        <!-- Glass Enclosure -->
+        <geom type="box" size="0.02 0.5 1" pos="0.5 0 1" material="mat_glass"/> <!-- Side Glass -->
+        <geom type="box" size="0.5 0.02 1" pos="0 -0.5 1" material="mat_glass"/> <!-- Front Glass -->
+        <!-- Shower Head -->
+        <geom type="cylinder" size="0.05 0.02" pos="0 0 1.8" euler="0 90 0" material="mat_chrome"/>
+        <geom type="capsule" size="0.02 0.3" pos="0 0 1.5" material="mat_chrome"/>
+    </body>
+
+    <!-- Plants Removed -->
+
+    <body name="robot_vacuum_spawn" pos="2.0 -3.0 0.052">
+      <freejoint/>
+      <include file="../../robots/robot_vacuum/robot_vacuum_body.xml"/>
+    </body>
+
+  </worldbody>
+
+  <actuator>
+    <include file="../../robots/robot_vacuum/robot_vacuum_actuators.xml"/>
+  </actuator>
+
+  <sensor>
+    <include file="../../robots/robot_vacuum/robot_vacuum_sensors.xml"/>
+  </sensor>
+
+</mujoco>

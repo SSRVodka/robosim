@@ -1,0 +1,69 @@
+<mujocoinclude>
+  <body name="robot_vacuum" childclass="robot_vacuum">
+    <geom name="rv_chassis" type="cylinder" size="0.18 0.04" pos="0 0 0.02" material="rv_mat_body" density="500"/>
+
+    <geom name="rv_lidar" type="cylinder" size="0.04 0.015" pos="0.05 0 0.07" material="rv_mat_sensor"/>
+    <geom name="rv_lidar_cap" type="cylinder" size="0.042 0.002" pos="0.05 0 0.085" material="rv_mat_wheel"/>
+
+    <site name="rv_site_lidar_center" pos="0.1 0 0.05" zaxis="1 0 0" size="0.01" rgba="1 0 0 0.5"/>
+    <site name="rv_site_lidar_left" pos="0.09 0.05 0.05" zaxis="0.866 0.5 0" size="0.01" rgba="1 0 0 0.5"/>
+    <site name="rv_site_lidar_right" pos="0.09 -0.05 0.05" zaxis="0.866 -0.5 0" size="0.01" rgba="1 0 0 0.5"/>
+
+    <site name="rv_scan_000" pos="0.0 0.0 0.05" zaxis="1.000000 0.000000 0" size="0.005" rgba="0 1 0 0.1"/>
+    <site name="rv_scan_010" pos="0.0 0.0 0.05" zaxis="0.984808 0.173648 0" size="0.005" rgba="0 1 0 0.1"/>
+    <site name="rv_scan_020" pos="0.0 0.0 0.05" zaxis="0.939693 0.342020 0" size="0.005" rgba="0 1 0 0.1"/>
+    <site name="rv_scan_030" pos="0.0 0.0 0.05" zaxis="0.866025 0.500000 0" size="0.005" rgba="0 1 0 0.1"/>
+    <site name="rv_scan_040" pos="0.0 0.0 0.05" zaxis="0.766044 0.642788 0" size="0.005" rgba="0 1 0 0.1"/>
+    <site name="rv_scan_050" pos="0.0 0.0 0.05" zaxis="0.642788 0.766044 0" size="0.005" rgba="0 1 0 0.1"/>
+    <site name="rv_scan_060" pos="0.0 0.0 0.05" zaxis="0.500000 0.866025 0" size="0.005" rgba="0 1 0 0.1"/>
+    <site name="rv_scan_070" pos="0.0 0.0 0.05" zaxis="0.342020 0.939693 0" size="0.005" rgba="0 1 0 0.1"/>
+    <site name="rv_scan_080" pos="0.0 0.0 0.05" zaxis="0.173648 0.984808 0" size="0.005" rgba="0 1 0 0.1"/>
+    <site name="rv_scan_090" pos="0.0 0.0 0.05" zaxis="0.000000 1.000000 0" size="0.005" rgba="0 1 0 0.1"/>
+    <site name="rv_scan_100" pos="0.0 0.0 0.05" zaxis="-0.173648 0.984808 0" size="0.005" rgba="0 1 0 0.1"/>
+    <site name="rv_scan_110" pos="0.0 0.0 0.05" zaxis="-0.342020 0.939693 0" size="0.005" rgba="0 1 0 0.1"/>
+    <site name="rv_scan_120" pos="0.0 0.0 0.05" zaxis="-0.500000 0.866025 0" size="0.005" rgba="0 1 0 0.1"/>
+    <site name="rv_scan_130" pos="0.0 0.0 0.05" zaxis="-0.642788 0.766044 0" size="0.005" rgba="0 1 0 0.1"/>
+    <site name="rv_scan_140" pos="0.0 0.0 0.05" zaxis="-0.766044 0.642788 0" size="0.005" rgba="0 1 0 0.1"/>
+    <site name="rv_scan_150" pos="0.0 0.0 0.05" zaxis="-0.866025 0.500000 0" size="0.005" rgba="0 1 0 0.1"/>
+    <site name="rv_scan_160" pos="0.0 0.0 0.05" zaxis="-0.939693 0.342020 0" size="0.005" rgba="0 1 0 0.1"/>
+    <site name="rv_scan_170" pos="0.0 0.0 0.05" zaxis="-0.984808 0.173648 0" size="0.005" rgba="0 1 0 0.1"/>
+    <site name="rv_scan_180" pos="0.0 0.0 0.05" zaxis="-1.000000 0.000000 0" size="0.005" rgba="0 1 0 0.1"/>
+    <site name="rv_scan_190" pos="0.0 0.0 0.05" zaxis="-0.984808 -0.173648 0" size="0.005" rgba="0 1 0 0.1"/>
+    <site name="rv_scan_200" pos="0.0 0.0 0.05" zaxis="-0.939693 -0.342020 0" size="0.005" rgba="0 1 0 0.1"/>
+    <site name="rv_scan_210" pos="0.0 0.0 0.05" zaxis="-0.866025 -0.500000 0" size="0.005" rgba="0 1 0 0.1"/>
+    <site name="rv_scan_220" pos="0.0 0.0 0.05" zaxis="-0.766044 -0.642788 0" size="0.005" rgba="0 1 0 0.1"/>
+    <site name="rv_scan_230" pos="0.0 0.0 0.05" zaxis="-0.642788 -0.766044 0" size="0.005" rgba="0 1 0 0.1"/>
+    <site name="rv_scan_240" pos="0.0 0.0 0.05" zaxis="-0.500000 -0.866025 0" size="0.005" rgba="0 1 0 0.1"/>
+    <site name="rv_scan_250" pos="0.0 0.0 0.05" zaxis="-0.342020 -0.939693 0" size="0.005" rgba="0 1 0 0.1"/>
+    <site name="rv_scan_260" pos="0.0 0.0 0.05" zaxis="-0.173648 -0.984808 0" size="0.005" rgba="0 1 0 0.1"/>
+    <site name="rv_scan_270" pos="0.0 0.0 0.05" zaxis="0.000000 -1.000000 0" size="0.005" rgba="0 1 0 0.1"/>
+    <site name="rv_scan_280" pos="0.0 0.0 0.05" zaxis="0.173648 -0.984808 0" size="0.005" rgba="0 1 0 0.1"/>
+    <site name="rv_scan_290" pos="0.0 0.0 0.05" zaxis="0.342020 -0.939693 0" size="0.005" rgba="0 1 0 0.1"/>
+    <site name="rv_scan_300" pos="0.0 0.0 0.05" zaxis="0.500000 -0.866025 0" size="0.005" rgba="0 1 0 0.1"/>
+    <site name="rv_scan_310" pos="0.0 0.0 0.05" zaxis="0.642788 -0.766044 0" size="0.005" rgba="0 1 0 0.1"/>
+    <site name="rv_scan_320" pos="0.0 0.0 0.05" zaxis="0.766044 -0.642788 0" size="0.005" rgba="0 1 0 0.1"/>
+    <site name="rv_scan_330" pos="0.0 0.0 0.05" zaxis="0.866025 -0.500000 0" size="0.005" rgba="0 1 0 0.1"/>
+    <site name="rv_scan_340" pos="0.0 0.0 0.05" zaxis="0.939693 -0.342020 0" size="0.005" rgba="0 1 0 0.1"/>
+    <site name="rv_scan_350" pos="0.0 0.0 0.05" zaxis="0.984808 -0.173648 0" size="0.005" rgba="0 1 0 0.1"/>
+
+    <geom name="rv_bumper" type="capsule" size="0.04 0.05" fromto="0.1 0.1 0.02 0.1 -0.1 0.02" material="rv_mat_body"/>
+
+    <body name="rv_left_wheel" pos="0 0.16 0" zaxis="0 1 0">
+      <joint name="rv_left_wheel_joint" type="hinge" axis="0 0 1" damping="0.5" armature="0.01"/>
+      <geom class="robot_vacuum_wheel"/>
+    </body>
+
+    <body name="rv_right_wheel" pos="0 -0.16 0" zaxis="0 1 0">
+      <joint name="rv_right_wheel_joint" type="hinge" axis="0 0 1" damping="0.5" armature="0.01"/>
+      <geom class="robot_vacuum_wheel"/>
+    </body>
+
+    <body name="rv_caster_front" pos="0.14 0 -0.02">
+      <geom class="robot_vacuum_caster"/>
+    </body>
+
+    <body name="rv_caster_back" pos="-0.14 0 -0.02">
+      <geom class="robot_vacuum_caster"/>
+    </body>
+  </body>
+</mujocoinclude>

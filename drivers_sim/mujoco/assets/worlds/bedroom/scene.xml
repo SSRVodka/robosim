@@ -1,0 +1,193 @@
+<mujoco model="modern_bedroom_pro_car">
+<compiler angle="degree" coordinate="local" inertiafromgeom="true" autolimits="true"/>
+<option timestep="0.002" gravity="0 0 -9.81"/>
+<asset>
+<texture name="wood_floor_tex" type="2d" builtin="checker" rgb1=".45 .3 .2" rgb2=".4 .25 .15" width="512" height="512"/>
+<texture name="wallpaper_tex" type="2d" builtin="checker" rgb1="0.95 0.95 0.92" rgb2="0.92 0.91 0.88" width="512" height="512"/>
+<material name="floor_wood_mat" texture="wood_floor_tex" texrepeat="2 8" texuniform="true" reflectance="0.2" shininess="0.5"/>
+<material name="wall_mat" texture="wallpaper_tex" texrepeat="4 4" texuniform="true" rgba="1 1 1 1" reflectance="0.01"/>
+<material name="wood_mat" rgba="0.4 0.25 0.15 1" specular="0.2" shininess="0.3"/>
+<material name="shelf_wood" rgba="0.5 0.35 0.25 1"/>
+<material name="door_wood_light" rgba="0.65 0.5 0.35 1"/>
+<material name="fabric_dark" rgba="0.2 0.25 1 1"/>
+<material name="fabric_sofa" rgba="0.3 0.35 0.45 1"/>
+<material name="bedding_white" rgba="0.98 0.98 1 1"/>
+<material name="quilt_blue" rgba="0.2 0.3 0.5 1"/>
+<material name="laptop_silver" rgba="0.7 0.7 0.72 1" shininess="0.9"/>
+<material name="screen_black" rgba="0.05 0.05 0.05 1" shininess="1" reflectance="0.8"/>
+<material name="lamp_glow" rgba="1 1 0.9 1" emission="1"/>
+<material name="pot_clay" rgba="0.6 0.4 0.3 1"/>
+<material name="plant_green" rgba="0.1 0.5 0.2 1"/>
+<material name="piano_black" rgba="0.02 0.02 0.02 1" specular="1" shininess="1" reflectance="0.5"/>
+<material name="piano_keys" rgba="0.95 0.95 0.95 1"/>
+<material name="handle_silver" rgba="0.8 0.8 0.83 1" specular="1" shininess="1"/>
+<material name="window_glass" rgba="0.7 0.8 0.9 0.3" shininess="1" reflectance="0.5"/>
+<material name="book_blue" rgba="0.1 0.2 0.4 1"/>
+<material name="book_red" rgba="0.5 0.1 0.1 1"/>
+<material name="book_brown" rgba="0.3 0.2 0.1 1"/>
+<material name="book_grey" rgba="0.7 0.7 0.7 1"/>
+<material name="sensor_blue" rgba="0 0.4 0.8 1" emission="0.5"/>
+<material name="laser_red" rgba="1 0 0 0.8" emission="1"/>
+<material name="car_accent" rgba="0.2 0.6 1 1" emission="0.3"/>
+</asset>
+<worldbody>
+<light directional="true" pos="0 0 5" dir="0 0 -1" diffuse="0.2 0.2 0.2"/>
+<light directional="true" pos="0 -5 2" dir="0 1 -0.5" diffuse="0.3 0.3 0.25" specular="0.1 0.1 0.1"/>
+<body name="ceiling_lamp" pos="0 0 2.9">
+<geom name="ceiling_lamp_geom" type="cylinder" size="0.3 0.02" material="lamp_glow"/>
+<light pos="0 0 -0.1" dir="0 0 -1" diffuse="0.5 0.5 0.4" cutoff="60"/>
+</body>
+<geom name="floor" pos="0 0 0" size="4 4 0.1" type="plane" material="floor_wood_mat"/>
+<body name="room_walls">
+<geom name="wall_back" type="box" size="3.5 0.05 1.5" pos="0 3.5 1.5" material="wall_mat"/>
+<geom name="wall_right" type="box" size="0.05 3.5 1.5" pos="3.5 0 1.5" material="wall_mat"/>
+<geom name="wall_front_bottom" type="box" size="3.5 0.05 0.6" pos="0 -3.5 0.6" material="wall_mat"/>
+<geom name="wall_front_top" type="box" size="3.5 0.05 0.4" pos="0 -3.5 2.6" material="wall_mat"/>
+<geom name="wall_front_left_side" type="box" size="1.0 0.05 0.5" pos="-2.5 -3.5 1.7" material="wall_mat"/>
+<geom name="wall_front_right_side" type="box" size="1.0 0.05 0.5" pos="2.5 -3.5 1.7" material="wall_mat"/>
+<geom name="wall_left_front_segment" type="box" size="0.05 1.65 1.5" pos="-3.5 -1.85 1.5" material="wall_mat"/>
+<geom name="wall_left_back_segment" type="box" size="0.05 1.45 1.5" pos="-3.5 2.05 1.5" material="wall_mat"/>
+<geom name="wall_left_door_header" type="box" size="0.05 0.4 0.4" pos="-3.5 0.2 2.6" material="wall_mat"/>
+<geom name="sofa_window_pane" type="box" size="1.5 0.01 0.5" pos="0 -3.5 1.7" material="window_glass"/>
+<geom name="window_frame" type="box" size="1.5 0.015 0.015" pos="0 -3.5 1.7" material="handle_silver"/>
+<geom name="curtain_rod" type="cylinder" size="0.015 1.6" pos="0 -3.42 2.25" euler="0 90 0" material="handle_silver"/>
+<geom name="curtain_left" type="box" size="0.15 0.03 0.55" pos="-1.35 -3.42 1.7" material="quilt_blue"/>
+<geom name="curtain_right" type="box" size="0.15 0.03 0.55" pos="1.35 -3.42 1.7" material="quilt_blue"/>
+</body>
+<body name="entrance_door" pos="-3.5 0.2 0">
+<joint name="door_hinge" type="hinge" axis="0 0 1" range="0 90" limited="true" pos="0 -0.4 0"/>
+<geom name="door_panel" type="box" size="0.03 0.4 1.1" pos="0 0 1.1" material="door_wood_light"/>
+<geom name="door_knob" type="sphere" size="0.02" pos="0.04 0.3 1.1" rgba="0.7 0.7 0.7 1"/>
+</body>
+<body name="piano" pos="-3.35 -1.5 0">
+<geom name="piano_body" type="box" size="0.15 0.7 0.6" pos="0 0 0.6" material="piano_black"/>
+<geom name="piano_keyboard_deck" type="box" size="0.12 0.68 0.05" pos="0.25 0 0.6" material="piano_black"/>
+<geom name="piano_keys_visual" type="box" size="0.1 0.66 0.01" pos="0.27 0 0.65" material="piano_keys"/>
+<geom name="piano_leg_l" type="cylinder" size="0.02 0.3" pos="0.32 0.62 0.3" material="piano_black"/>
+<geom name="piano_leg_r" type="cylinder" size="0.02 0.3" pos="0.32 -0.62 0.3" material="piano_black"/>
+<geom name="pedals" type="box" size="0.05 0.1 0.02" pos="0.2 0 0.05" rgba="0.8 0.7 0.3 1"/>
+<body name="piano_bench" pos="0.6 0 -0.2">
+<geom name="bench_top" type="box" size="0.15 0.4 0.03" pos="0 0 0.45" material="piano_black"/>
+<geom name="bench_frame" type="box" size="0.15 0.4 0.02" pos="0 0 0.42" material="piano_black"/>
+<geom name="bench_leg_fl" type="box" size="0.02 0.02 0.2" pos="0.12 0.36 0.2" material="piano_black"/>
+<geom name="bench_leg_fr" type="box" size="0.02 0.02 0.2" pos="0.12 -0.36 0.2" material="piano_black"/>
+<geom name="bench_leg_bl" type="box" size="0.02 0.02 0.2" pos="-0.12 0.36 0.2" material="piano_black"/>
+<geom name="bench_leg_br" type="box" size="0.02 0.02 0.2" pos="-0.12 -0.36 0.2" material="piano_black"/>
+</body>
+</body>
+<body name="chair" pos="-1.2 1.5 0" euler="0 0 180">
+<geom name="c_seat" type="box" size="0.25 0.25 0.04" pos="0 0 0.48" material="piano_black"/>
+<geom name="c_back" type="box" size="0.25 0.04 0.35" pos="0 0.21 0.83" material="piano_black"/>
+<geom name="c_leg_fr" type="cylinder" size="0.02 0.24" pos="0.18 0.18 0.24" material="piano_black"/>
+<geom name="c_leg_fl" type="cylinder" size="0.02 0.24" pos="-0.18 0.18 0.24" material="piano_black"/>
+<geom name="c_leg_br" type="cylinder" size="0.02 0.24" pos="0.18 -0.18 0.24" material="piano_black"/>
+<geom name="c_leg_bl" type="cylinder" size="0.02 0.24" pos="-0.18 -0.18 0.24" material="piano_black"/>
+</body>
+<body name="wardrobe" pos="3.0 1.2 1.1">
+<geom name="wardrobe_shell" type="box" size="0.4 1.5 1.1" material="wood_mat"/>
+<geom name="wardrobe_top_frame" type="box" size="0.42 1.52 0.02" pos="0.01 0 1.1" material="wood_mat"/>
+<geom name="wardrobe_side_l" type="box" size="0.42 0.02 1.1" pos="0.01 1.5 0" material="wood_mat"/>
+<geom name="wardrobe_side_r" type="box" size="0.42 0.02 1.1" pos="0.01 -1.5 0" material="wood_mat"/>
+<body name="wardrobe_door_l" pos="-0.41 0.75 0">
+<joint name="slide_door_l" type="slide" axis="0 1 0" range="-1.45 0" limited="true" damping="20"/>
+<geom name="door_l_panel" type="box" size="0.02 0.75 1.08" material="door_wood_light"/>
+<geom name="door_l_handle" type="box" size="0.01 0.01 0.2" pos="-0.03 -0.65 0" material="handle_silver"/>
+</body>
+<body name="wardrobe_door_r" pos="-0.44 -0.75 0">
+<joint name="slide_door_r" type="slide" axis="0 1 0" range="0 1.45" limited="true" damping="20"/>
+<geom name="door_r_panel" type="box" size="0.02 0.75 1.08" material="door_wood_light"/>
+<geom name="door_r_handle" type="box" size="0.01 0.01 0.2" pos="-0.03 0.65 0" material="handle_silver"/>
+</body>
+</body>
+<body name="bookshelf" pos="-3.05 2.3 1.0" euler="0 0 90">
+<geom name="shelf_back" type="box" size="0.8 0.02 1.0" pos="0 0.38 0" material="shelf_wood"/>
+<geom name="shelf_side_l" type="box" size="0.02 0.4 1.0" pos="-0.8 0 0" material="shelf_wood"/>
+<geom name="shelf_side_r" type="box" size="0.02 0.4 1.0" pos="0.8 0 0" material="shelf_wood"/>
+<geom name="shelf_top" type="box" size="0.8 0.4 0.02" pos="0 0 1.0" material="shelf_wood"/>
+<geom name="shelf_bottom" type="box" size="0.8 0.4 0.02" pos="0 0 -1.0" material="shelf_wood"/>
+<geom name="l1" type="box" size="0.78 0.38 0.015" pos="0 0 -0.6" material="shelf_wood"/>
+<geom name="l2" type="box" size="0.78 0.38 0.015" pos="0 0 -0.2" material="shelf_wood"/>
+<geom name="l3" type="box" size="0.78 0.38 0.015" pos="0 0 0.2" material="shelf_wood"/>
+<geom name="l4" type="box" size="0.78 0.38 0.015" pos="0 0 0.6" material="shelf_wood"/>
+<geom type="box" size="0.02 0.15 0.18" pos="-0.7 0 -0.4" material="book_blue"/>
+<geom type="box" size="0.03 0.15 0.18" pos="-0.64 0 -0.4" material="book_red"/>
+<geom type="box" size="0.03 0.15 0.18" pos="-0.7 0 0" material="book_grey"/>
+<geom name="pot_1" type="box" size="0.2 0.15 0.05" pos="-0.4 0 1.07" material="pot_clay"/>
+<geom name="plant_1" type="box" size="0.15 0.1 0.08" pos="-0.4 0 1.15" material="plant_green"/>
+</body>
+<body name="desk_setup" pos="-1.2 2.3 0.8">
+<geom name="desk_top" type="box" size="0.8 0.5 0.03" material="wood_mat"/>
+<geom name="d_leg_fl" type="cylinder" size="0.03 0.4" pos="-0.75 0.45 -0.4" material="wood_mat"/>
+<geom name="d_leg_fr" type="cylinder" size="0.03 0.4" pos="0.75 0.45 -0.4" material="wood_mat"/>
+<geom name="d_leg_bl" type="cylinder" size="0.03 0.4" pos="-0.75 -0.45 -0.4" material="wood_mat"/>
+<geom name="d_leg_br" type="cylinder" size="0.03 0.4" pos="0.75 -0.45 -0.4" material="wood_mat"/>
+<body name="laptop" pos="0 0 0.035">
+<geom name="laptop_base" type="box" size="0.18 0.12 0.01" material="laptop_silver"/>
+<geom name="laptop_screen" type="box" size="0.18 0.01 0.12" pos="0 0.11 0.125" euler="-15 0 0" material="laptop_silver"/>
+<geom name="screen_display" type="box" size="0.17 0.005 0.11" pos="0 0.104 0.125" euler="-15 0 0" material="screen_black"/>
+</body>
+</body>
+<body name="bed" pos="1.2 1.2 0.2">
+<geom name="bed_frame" type="box" size="1.0 1.6 0.1" material="wood_mat"/>
+<geom name="mattress" type="box" size="0.95 1.55 0.15" pos="0 0 0.2" material="bedding_white"/>
+<geom name="pillow_l" type="box" size="0.35 0.22 0.06" pos="-0.4 1.2 0.36" material="bedding_white"/>
+<geom name="pillow_r" type="box" size="0.35 0.22 0.06" pos="0.4 1.2 0.36" material="bedding_white"/>
+<geom name="quilt" type="box" size="0.96 1.1 0.05" pos="0 -0.4 0.38" material="quilt_blue"/>
+</body>
+<body name="sofa" pos="1.5 -2.2 0">
+<geom name="sofa_frame" type="box" size="0.9 0.45 0.08" pos="0 0 0.08" material="wood_mat"/>
+<geom name="cushion_l" type="box" size="0.38 0.42 0.12" pos="-0.4 0.02 0.22" material="fabric_sofa"/>
+<geom name="cushion_r" type="box" size="0.38 0.42 0.12" pos="0.4 0.02 0.22" material="fabric_sofa"/>
+<geom name="armrest_l" type="box" size="0.1 0.42 0.18" pos="-0.82 0.02 0.32" material="fabric_sofa"/>
+<geom name="armrest_r" type="box" size="0.1 0.42 0.18" pos="0.82 0.02 0.32" material="fabric_sofa"/>
+<geom name="sofa_backrest" type="box" size="0.82 0.1 0.35" pos="0 -0.38 0.48" euler="-12 0 0" material="fabric_sofa"/>
+<geom name="pillow_left" type="box" size="0.15 0.08 0.15" pos="-0.4 -0.25 0.45" euler="-15 0 0" material="bedding_white"/>
+<geom name="pillow_right" type="box" size="0.15 0.08 0.15" pos="0.4 -0.25 0.45" euler="-15 0 0" material="bedding_white"/>
+</body>
+<body name="smart_car" pos="0 -1.5 0.12">
+<freejoint name="car_joint"/>
+<geom name="car_chassis" type="ellipsoid" size="0.25 0.18 0.04" material="piano_black"/>
+<geom name="car_shell" type="box" size="0.16 0.12 0.03" pos="-0.02 0 0.04" material="laptop_silver"/>
+<body name="lidar_tower" pos="0.08 0 0.07">
+<geom type="cylinder" size="0.045 0.015" material="piano_black"/>
+<geom type="cylinder" size="0.04 0.01" pos="0 0 0.015" material="sensor_blue"/>
+</body>
+<site name="s_front" pos="0.26 0 0.02" size="0.01" material="laser_red"/>
+<site name="s_front_l" pos="0.22 0.12 0.02" euler="0 0 30" size="0.01" material="laser_red"/>
+<site name="s_front_r" pos="0.22 -0.12 0.02" euler="0 0 -30" size="0.01" material="laser_red"/>
+<site name="s_left" pos="0 0.19 0.02" euler="0 0 90" size="0.01" material="laser_red"/>
+<site name="s_right" pos="0 -0.19 0.02" euler="0 0 -90" size="0.01" material="laser_red"/>
+<site name="s_rear" pos="-0.26 0 0.02" euler="0 0 180" size="0.01" material="laser_red"/>
+<body name="wheel_fl" pos="0.14 0.18 -0.02">
+<joint name="joint_fl" type="hinge" axis="0 1 0"/>
+<geom type="cylinder" size="0.06 0.025" euler="90 0 0" material="piano_black" friction="1.0"/>
+</body>
+<body name="wheel_fr" pos="0.14 -0.18 -0.02">
+<joint name="joint_fr" type="hinge" axis="0 1 0"/>
+<geom type="cylinder" size="0.06 0.025" euler="90 0 0" material="piano_black" friction="1.0"/>
+</body>
+<body name="wheel_bl" pos="-0.14 0.18 -0.02">
+<joint name="joint_bl" type="hinge" axis="0 1 0"/>
+<geom type="cylinder" size="0.06 0.025" euler="90 0 0" material="piano_black" friction="1.0"/>
+</body>
+<body name="wheel_br" pos="-0.14 -0.18 -0.02">
+<joint name="joint_br" type="hinge" axis="0 1 0"/>
+<geom type="cylinder" size="0.06 0.025" euler="90 0 0" material="piano_black" friction="1.0"/>
+</body>
+</body>
+</worldbody>
+<sensor>
+<rangefinder name="dist_front" site="s_front"/>
+<rangefinder name="dist_fl" site="s_front_l"/>
+<rangefinder name="dist_fr" site="s_front_r"/>
+<rangefinder name="dist_left" site="s_left"/>
+<rangefinder name="dist_right" site="s_right"/>
+<rangefinder name="dist_rear" site="s_rear"/>
+</sensor>
+<actuator>
+<motor name="m_fl" joint="joint_fl" gear="60"/>
+<motor name="m_fr" joint="joint_fr" gear="60"/>
+<motor name="m_bl" joint="joint_bl" gear="60"/>
+<motor name="m_br" joint="joint_br" gear="60"/>
+</actuator>
+</mujoco>

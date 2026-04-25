@@ -1,0 +1,9 @@
+<mujocoinclude>
+  <texture name="rv_tex_body_white" type="cube" builtin="flat" rgb1="0.95 0.95 0.95" width="128" height="128"/>
+  <texture name="rv_tex_sensor_metal" type="cube" builtin="flat" rgb1="0.8 0.8 0.8" width="128" height="128"/>
+  <texture name="rv_tex_wheel_dark" type="cube" builtin="flat" rgb1="0.2 0.2 0.2" width="128" height="128"/>
+
+  <material name="rv_mat_body" texture="rv_tex_body_white" reflectance="0.1"/>
+  <material name="rv_mat_sensor" texture="rv_tex_sensor_metal" reflectance="0.5" shininess="0.8"/>
+  <material name="rv_mat_wheel" texture="rv_tex_wheel_dark" reflectance="0.0"/>
+</mujocoinclude>

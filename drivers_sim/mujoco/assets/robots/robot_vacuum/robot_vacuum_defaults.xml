@@ -1,0 +1,16 @@
+<mujocoinclude>
+  <default>
+    <default class="robot_vacuum">
+      <geom condim="3" friction="0.7 0.005 0.005"/>
+      <joint damping="0.1"/>
+    </default>
+
+    <default class="robot_vacuum_wheel">
+      <geom type="cylinder" size="0.05 0.01" material="rv_mat_wheel" friction="1.5 0.005 0.005"/>
+    </default>
+
+    <default class="robot_vacuum_caster">
+      <geom type="sphere" size="0.03" material="rv_mat_wheel" friction="0 0 0" condim="1"/>
+    </default>
+  </default>
+</mujocoinclude>

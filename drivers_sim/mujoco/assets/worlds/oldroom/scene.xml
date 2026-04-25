@@ -1,0 +1,1017 @@
+<mujoco model="cohesive_home">
+  <compiler angle="degree" coordinate="local" meshdir="." texturedir="."/>
+  <option gravity="0 0 -9.81" timestep="0.002"/>
+  <size nconmax="1000" njmax="5000"/>
+  <include file="../../robots/vx300s_cohesive/vx300s_dependencies_cohesive.xml"/>
+
+  <visual>
+    <quality shadowsize="4096"/>
+    <map znear="0.1" zfar="100"/>
+    <headlight ambient="0.4 0.4 0.4" diffuse="0.4 0.4 0.4" specular="0.1 0.1 0.1"/>
+  </visual>
+
+  <default>
+    <geom contype="1" conaffinity="1" friction="1 0.005 0.0001" condim="3" solref="0.02 1"/>
+    
+    <!-- Master Bedroom Defaults (Cozy) -->
+    <default class="wall_master">
+      <geom type="box" rgba="0.92 0.9 0.88 1" material="mat_master_wall"/>
+    </default>
+    <default class="floor_master">
+      <geom type="box" material="mat_master_floor"/>
+    </default>
+    <default class="furniture_cream">
+      <geom type="box" rgba="0.95 0.92 0.88 1" material="mat_master_fabric_cream"/>
+    </default>
+    <default class="wood_light">
+      <geom type="box" rgba="0.85 0.75 0.65 1" material="mat_master_wood_light"/>
+    </default>
+    <default class="plant">
+      <geom type="capsule" rgba="0.3 0.6 0.3 1"/>
+    </default>
+
+    <!-- Living Room Defaults (Modern) -->
+    <default class="wall_living">
+      <geom type="box" rgba="0.95 0.94 0.92 1" material="mat_living_wall"/>
+    </default>
+    <default class="floor_living">
+      <geom type="box" material="mat_living_floor"/>
+    </default>
+    <default class="furniture_living_wood">
+      <geom type="box" rgba="0.8 0.7 0.6 1" material="mat_living_wood"/>
+    </default>
+    <default class="sofa_fabric">
+      <geom type="box" rgba="0.75 0.75 0.75 1" material="mat_living_fabric_grey"/>
+    </default>
+
+    <!-- Guest Bedroom Defaults (Studio) -->
+    <default class="wall_guest">
+      <geom type="box" rgba="0.95 0.95 0.95 1" material="mat_guest_wall"/>
+    </default>
+    <default class="floor_guest">
+      <geom type="box" rgba="1 1 1 1" material="mat_guest_floor"/>
+    </default>
+    <default class="furniture_guest_wood">
+      <geom type="box" rgba="0.7 0.6 0.5 1" material="mat_guest_wood"/>
+    </default>
+    <default class="furniture_guest_black">
+      <geom type="box" rgba="0.15 0.15 0.15 1" material="mat_guest_fabric_dark"/>
+    </default>
+    <default class="guest_bedding">
+      <geom type="box" rgba="0.9 0.9 0.85 1" material="mat_guest_fabric_light"/>
+    </default>
+    <default class="metal">
+      <geom type="cylinder" rgba="0.8 0.8 0.8 1" material="mat_guest_metal"/>
+    </default>
+    <default class="glass">
+      <geom type="box" rgba="0.8 0.9 1 0.3" conaffinity="0" contype="0"/>
+    </default>
+    <default class="viz_stl_Metal_studyTable">
+      <geom group="1" contype="0" conaffinity="0" type="mesh" material="M_Metal_studyTable"/>
+    </default>
+    <default class="viz_stl_Wood_studyTable">
+      <geom group="1" contype="0" conaffinity="0" type="mesh" material="M_Wood_studyTable"/>
+    </default>
+    <default class="drawer_studyTable">
+      <geom contype="1" conaffinity="1" group="3" rgba="1 0 0 1"/>
+      <joint limited="true" damping="2" frictionloss="5" armature="0.1"/>
+    </default>
+    <default class="body_studyTable">
+      <geom contype="1" conaffinity="1" group="4" rgba="0 1 0 1"/>
+      <joint limited="true" damping="1" frictionloss="0.5" armature=".01"/>
+    </default>
+  </default>
+
+  <asset>
+    <!-- Master Bedroom Assets (Cozy) -->
+    <texture name="tex_master_floor" type="2d" builtin="flat" width="512" height="512" rgb1="0.4 0.25 0.15" rgb2="0.35 0.2 0.1"/>
+    <material name="mat_master_floor" texture="tex_master_floor" texrepeat="6 6" reflectance="0.1"/>
+
+    <texture name="tex_master_wood_light" type="2d" builtin="flat" width="512" height="512" rgb1="0.85 0.75 0.65" rgb2="0.8 0.7 0.6"/>
+    <material name="mat_master_wood_light" texture="tex_master_wood_light" reflectance="0.1"/>
+
+    <texture name="tex_master_wall" type="2d" builtin="flat" width="512" height="512" rgb1="0.92 0.9 0.88" rgb2="0.9 0.88 0.86"/>
+    <material name="mat_master_wall" texture="tex_master_wall" reflectance="0.05"/>
+
+    <texture name="tex_master_fabric_cream" type="2d" builtin="flat" width="512" height="512" rgb1="0.95 0.92 0.88" rgb2="0.92 0.89 0.85"/>
+    <material name="mat_master_fabric_cream" texture="tex_master_fabric_cream" reflectance="0.02"/>
+
+    <texture name="tex_living_floor" type="2d" builtin="checker" width="512" height="512" rgb1="0.5 0.5 0.5" rgb2="0.4 0.4 0.4" mark="edge" markrgb="0.3 0.3 0.3"/>
+    <material name="mat_living_floor" texture="tex_living_floor" texrepeat="6 6" reflectance="0.4" shininess="0.5"/>
+
+    <texture name="tex_living_wall" type="2d" builtin="flat" width="512" height="512" rgb1="0.95 0.94 0.92" rgb2="0.95 0.94 0.92"/>
+    <material name="mat_living_wall" texture="tex_living_wall" reflectance="0.1"/>
+
+    <texture name="tex_living_wood" type="2d" builtin="flat" width="512" height="512" rgb1="0.8 0.7 0.6" rgb2="0.75 0.65 0.55"/>
+    <material name="mat_living_wood" texture="tex_living_wood" reflectance="0.2"/>
+
+    <texture name="tex_living_fabric_grey" type="2d" builtin="flat" width="512" height="512" rgb1="0.75 0.75 0.75" rgb2="0.7 0.7 0.7"/>
+    <material name="mat_living_fabric_grey" texture="tex_living_fabric_grey" reflectance="0.05"/>
+
+    <material name="mat_living_black" rgba="0.1 0.1 0.1 1" reflectance="0.1"/>
+
+    <!-- Guest Bedroom Assets (Studio) -->
+    <texture name="tex_guest_floor" type="2d" builtin="checker" width="512" height="512" rgb1="0.4 0.3 0.2" rgb2="0.35 0.25 0.15" mark="edge" markrgb="0.3 0.2 0.1"/>
+    <material name="mat_guest_floor" texture="tex_guest_floor" texrepeat="8 6" reflectance="0.3"/>
+    
+    <texture name="tex_guest_wall" type="2d" builtin="flat" width="512" height="512" rgb1="0.95 0.95 0.95" rgb2="0.95 0.95 0.95"/>
+    <material name="mat_guest_wall" texture="tex_guest_wall" reflectance="0.1"/>
+    
+    <texture name="tex_guest_wood" type="2d" builtin="flat" width="512" height="512" rgb1="0.8 0.7 0.6" rgb2="0.75 0.65 0.55"/>
+    <material name="mat_guest_wood" texture="tex_guest_wood" reflectance="0.2"/>
+    
+    <texture name="tex_guest_fabric_dark" type="2d" builtin="flat" width="512" height="512" rgb1="0.15 0.15 0.15" rgb2="0.2 0.2 0.2"/>
+    <material name="mat_guest_fabric_dark" texture="tex_guest_fabric_dark" reflectance="0.05"/>
+    
+    <texture name="tex_guest_fabric_light" type="2d" builtin="flat" width="512" height="512" rgb1="0.9 0.9 0.85" rgb2="0.85 0.85 0.8"/>
+    <material name="mat_guest_fabric_light" texture="tex_guest_fabric_light" reflectance="0.05"/>
+
+    <material name="mat_guest_metal" rgba="0.85 0.85 0.85 1" reflectance="0.8" shininess="0.8"/>
+    <material name="mat_glass_window" rgba="0.8 0.9 1.0 0.3" specular="0.9" shininess="0.9" reflectance="0.2"/>
+
+    <!-- Fridge Materials -->
+    <material name="silver_metal" rgba="0.7 0.72 0.75 1" specular="0.8" shininess="0.6" reflectance="0.3"/>
+    <material name="dark_metal" rgba="0.3 0.3 0.35 1" specular="0.5" shininess="0.5"/>
+    <material name="handle_metal" rgba="0.8 0.8 0.8 1" specular="0.9" shininess="0.8"/>
+    <material name="display_glass" rgba="0.1 0.1 0.1 1" specular="0.9" shininess="0.9" reflectance="0.5"/>
+    <material name="display_text" rgba="0.2 0.8 1.0 1" emission="0.5"/>
+
+    <!-- Washing Machine Materials -->
+    <material name="mat_body" rgba="0.95 0.95 0.95 1" specular="0.3" shininess="0.2"/>
+    <material name="mat_glass" rgba="0.05 0.05 0.1 1" specular="0.9" shininess="0.9" reflectance="0.4"/>
+    <material name="mat_chrome" rgba="0.9 0.9 0.9 1" specular="1.0" shininess="1.0" reflectance="0.6"/>
+    <material name="mat_display" rgba="0.05 0.05 0.05 1" specular="0.2" shininess="0.5"/>
+    <material name="mat_dark_rim" rgba="0.2 0.2 0.2 1" specular="0.4" shininess="0.3"/>
+
+
+    <!-- TV Materials -->
+    <material name="mat_tv_bezel" rgba="0.05 0.05 0.05 1" specular="0.5" shininess="0.8"/>
+    <material name="mat_tv_screen" rgba="0 0 0 1" specular="0.9" shininess="0.9" reflectance="0.1"/>
+    <material name="mat_tv_stand" rgba="0.6 0.6 0.6 1" specular="0.8" shininess="0.7"/>
+    <material name="mat_tv_logo" rgba="0.8 0.8 0.8 1" emission="0.2"/>
+    
+
+
+
+
+
+    <!-- Robot Materials -->
+    <material name="mat_robot_body" rgba="0.95 0.95 0.95 1" reflectance="0.7" shininess="0.9"/>
+    <material name="mat_robot_dark" rgba="0.1 0.1 0.1 1" reflectance="0.3"/>
+    <material name="mat_robot_light" rgba="0.2 0.8 1.0 1" emission="0.5"/>
+    <material name="mat_bumper" rgba="0.3 0.3 0.3 1" reflectance="0.1"/>
+    <material name="mat_sensor_beam" rgba="1 0 0 0.5" emission="0.8"/>
+
+    <texture type="2d" name="tex_dollhouse_sofa" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_Sofa/texture.png"/>
+    <material name="mat_dollhouse_sofa" texture="tex_dollhouse_sofa" specular="0.5" shininess="0.5"/>
+    <material name="mat_dollhouse_sofa_beige" rgba="0.95 0.88 0.68 1" specular="0.35" shininess="0.4" reflectance="0.08"/>
+    <mesh name="mesh_dollhouse_sofa_visual" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_Sofa/model.obj" scale="10 10 10"/>
+    <mesh name="mesh_dollhouse_sofa_col_0" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_Sofa/model_collision_0.obj" scale="10 10 10"/>
+    <mesh name="mesh_dollhouse_sofa_col_1" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_Sofa/model_collision_1.obj" scale="10 10 10"/>
+    <mesh name="mesh_dollhouse_sofa_col_2" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_Sofa/model_collision_2.obj" scale="10 10 10"/>
+    <mesh name="mesh_dollhouse_sofa_col_3" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_Sofa/model_collision_3.obj" scale="10 10 10"/>
+    <mesh name="mesh_dollhouse_sofa_col_4" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_Sofa/model_collision_4.obj" scale="10 10 10"/>
+    <mesh name="mesh_dollhouse_sofa_col_5" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_Sofa/model_collision_5.obj" scale="10 10 10"/>
+    <mesh name="mesh_dollhouse_sofa_col_6" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_Sofa/model_collision_6.obj" scale="10 10 10"/>
+    <mesh name="mesh_dollhouse_sofa_col_7" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_Sofa/model_collision_7.obj" scale="10 10 10"/>
+    <mesh name="mesh_dollhouse_sofa_col_8" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_Sofa/model_collision_8.obj" scale="10 10 10"/>
+    <mesh name="mesh_dollhouse_sofa_col_9" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_Sofa/model_collision_9.obj" scale="10 10 10"/>
+    <mesh name="mesh_dollhouse_sofa_col_10" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_Sofa/model_collision_10.obj" scale="10 10 10"/>
+    <mesh name="mesh_dollhouse_sofa_col_11" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_Sofa/model_collision_11.obj" scale="10 10 10"/>
+    <mesh name="mesh_dollhouse_sofa_col_12" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_Sofa/model_collision_12.obj" scale="10 10 10"/>
+    <mesh name="mesh_dollhouse_sofa_col_13" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_Sofa/model_collision_13.obj" scale="10 10 10"/>
+    <mesh name="mesh_dollhouse_sofa_col_14" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_Sofa/model_collision_14.obj" scale="10 10 10"/>
+    <mesh name="mesh_dollhouse_sofa_col_15" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_Sofa/model_collision_15.obj" scale="10 10 10"/>
+    <mesh name="mesh_dollhouse_sofa_col_16" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_Sofa/model_collision_16.obj" scale="10 10 10"/>
+    <mesh name="mesh_dollhouse_sofa_col_17" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_Sofa/model_collision_17.obj" scale="10 10 10"/>
+    <mesh name="mesh_dollhouse_sofa_col_18" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_Sofa/model_collision_18.obj" scale="10 10 10"/>
+    <mesh name="mesh_dollhouse_sofa_col_19" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_Sofa/model_collision_19.obj" scale="10 10 10"/>
+    <mesh name="mesh_dollhouse_sofa_col_20" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_Sofa/model_collision_20.obj" scale="10 10 10"/>
+    <mesh name="mesh_dollhouse_sofa_col_21" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_Sofa/model_collision_21.obj" scale="10 10 10"/>
+    <mesh name="mesh_dollhouse_sofa_col_22" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_Sofa/model_collision_22.obj" scale="10 10 10"/>
+    <mesh name="mesh_dollhouse_sofa_col_23" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_Sofa/model_collision_23.obj" scale="10 10 10"/>
+    <mesh name="mesh_dollhouse_sofa_col_24" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_Sofa/model_collision_24.obj" scale="10 10 10"/>
+    <mesh name="mesh_dollhouse_sofa_col_25" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_Sofa/model_collision_25.obj" scale="10 10 10"/>
+    <mesh name="mesh_dollhouse_sofa_col_26" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_Sofa/model_collision_26.obj" scale="10 10 10"/>
+    <mesh name="mesh_dollhouse_sofa_col_27" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_Sofa/model_collision_27.obj" scale="10 10 10"/>
+    <mesh name="mesh_dollhouse_sofa_col_28" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_Sofa/model_collision_28.obj" scale="10 10 10"/>
+    <mesh name="mesh_dollhouse_sofa_col_29" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_Sofa/model_collision_29.obj" scale="10 10 10"/>
+    <mesh name="mesh_dollhouse_sofa_col_30" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_Sofa/model_collision_30.obj" scale="10 10 10"/>
+    <mesh name="mesh_dollhouse_sofa_col_31" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_Sofa/model_collision_31.obj" scale="10 10 10"/>
+
+    <texture type="2d" name="tex_dollhouse_tablepurple" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_TablePurple/texture.png"/>
+    <material name="mat_dollhouse_tablepurple" texture="tex_dollhouse_tablepurple" specular="0.5" shininess="0.5"/>
+    <mesh name="mesh_dollhouse_tablepurple_visual" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_TablePurple/model.obj" scale="20 10 10"/>
+    <mesh name="mesh_dollhouse_tablepurple_col_0" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_TablePurple/model_collision_0.obj" scale="20 10 10"/>
+    <mesh name="mesh_dollhouse_tablepurple_col_1" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_TablePurple/model_collision_1.obj" scale="20 10 10"/>
+    <mesh name="mesh_dollhouse_tablepurple_col_2" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_TablePurple/model_collision_2.obj" scale="20 10 10"/>
+    <mesh name="mesh_dollhouse_tablepurple_col_3" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_TablePurple/model_collision_3.obj" scale="20 10 10"/>
+    <mesh name="mesh_dollhouse_tablepurple_col_4" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_TablePurple/model_collision_4.obj" scale="20 10 10"/>
+    <mesh name="mesh_dollhouse_tablepurple_col_5" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_TablePurple/model_collision_5.obj" scale="20 10 10"/>
+    <mesh name="mesh_dollhouse_tablepurple_col_6" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_TablePurple/model_collision_6.obj" scale="20 10 10"/>
+    <mesh name="mesh_dollhouse_tablepurple_col_7" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_TablePurple/model_collision_7.obj" scale="20 10 10"/>
+    <mesh name="mesh_dollhouse_tablepurple_col_8" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_TablePurple/model_collision_8.obj" scale="20 10 10"/>
+    <mesh name="mesh_dollhouse_tablepurple_col_9" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_TablePurple/model_collision_9.obj" scale="20 10 10"/>
+    <mesh name="mesh_dollhouse_tablepurple_col_10" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_TablePurple/model_collision_10.obj" scale="20 10 10"/>
+    <mesh name="mesh_dollhouse_tablepurple_col_11" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_TablePurple/model_collision_11.obj" scale="20 10 10"/>
+    <mesh name="mesh_dollhouse_tablepurple_col_12" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_TablePurple/model_collision_12.obj" scale="20 10 10"/>
+    <mesh name="mesh_dollhouse_tablepurple_col_13" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_TablePurple/model_collision_13.obj" scale="20 10 10"/>
+    <mesh name="mesh_dollhouse_tablepurple_col_14" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_TablePurple/model_collision_14.obj" scale="20 10 10"/>
+    <mesh name="mesh_dollhouse_tablepurple_col_15" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_TablePurple/model_collision_15.obj" scale="20 10 10"/>
+    <mesh name="mesh_dollhouse_tablepurple_col_16" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_TablePurple/model_collision_16.obj" scale="20 10 10"/>
+    <mesh name="mesh_dollhouse_tablepurple_col_17" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_TablePurple/model_collision_17.obj" scale="20 10 10"/>
+    <mesh name="mesh_dollhouse_tablepurple_col_18" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_TablePurple/model_collision_18.obj" scale="20 10 10"/>
+    <mesh name="mesh_dollhouse_tablepurple_col_19" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_TablePurple/model_collision_19.obj" scale="20 10 10"/>
+    <mesh name="mesh_dollhouse_tablepurple_col_20" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_TablePurple/model_collision_20.obj" scale="20 10 10"/>
+    <mesh name="mesh_dollhouse_tablepurple_col_21" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_TablePurple/model_collision_21.obj" scale="20 10 10"/>
+    <mesh name="mesh_dollhouse_tablepurple_col_22" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_TablePurple/model_collision_22.obj" scale="20 10 10"/>
+    <mesh name="mesh_dollhouse_tablepurple_col_23" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_TablePurple/model_collision_23.obj" scale="20 10 10"/>
+    <mesh name="mesh_dollhouse_tablepurple_col_24" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_TablePurple/model_collision_24.obj" scale="20 10 10"/>
+    <mesh name="mesh_dollhouse_tablepurple_col_25" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_TablePurple/model_collision_25.obj" scale="20 10 10"/>
+    <mesh name="mesh_dollhouse_tablepurple_col_26" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_TablePurple/model_collision_26.obj" scale="20 10 10"/>
+    <mesh name="mesh_dollhouse_tablepurple_col_27" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_TablePurple/model_collision_27.obj" scale="20 10 10"/>
+    <mesh name="mesh_dollhouse_tablepurple_col_28" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_TablePurple/model_collision_28.obj" scale="20 10 10"/>
+    <mesh name="mesh_dollhouse_tablepurple_col_29" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_TablePurple/model_collision_29.obj" scale="20 10 10"/>
+    <mesh name="mesh_dollhouse_tablepurple_col_30" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_TablePurple/model_collision_30.obj" scale="20 10 10"/>
+    <mesh name="mesh_dollhouse_tablepurple_col_31" file="git kelong/jiaju2/mujoco_scanned_objects/models/3D_Dollhouse_TablePurple/model_collision_31.obj" scale="20 10 10"/>
+
+    <mesh name="studyTable_Main" file="git kelong/jiaju/studyTable/meshes/studyTable_Main.stl" scale="0.01 0.01 0.01"/>
+    <mesh name="studyTable_Slide_Wood" file="git kelong/jiaju/studyTable/meshes/studyTable_Slide_Wood.stl" scale="0.01 0.01 0.01"/>
+    <mesh name="studyTable_Slide_Handle" file="git kelong/jiaju/studyTable/meshes/studyTable_Slide_Handle.stl" scale="0.01 0.01 0.01"/>
+    <mesh name="studyTable_Drawer_Wood" file="git kelong/jiaju/studyTable/meshes/studyTable_Drawer_Wood.stl" scale="0.01 0.01 0.01"/>
+    <mesh name="studyTable_Drawer_Handle" file="git kelong/jiaju/studyTable/meshes/studyTable_Drawer_Handle.stl" scale="0.01 0.01 0.01"/>
+    <texture name="T_Wood_studyTable" type="cube" height="1" width="1" file="git kelong/jiaju/common/textures/wood0.png"/>
+    <texture name="T_Metal_studyTable" type="cube" height="1" width="1" file="git kelong/jiaju/common/textures/metal0.png"/>
+    <material name="M_Wood_studyTable" texture="T_Wood_studyTable" rgba="0.8 0.8 0.8 1" shininess="0.2" reflectance="0.3" texuniform="false"/>
+    <material name="M_Metal_studyTable" texture="T_Metal_studyTable" texrepeat="3 3" reflectance="0.7" texuniform="false"/>
+
+    <material name="mat_master_stool_wood" rgba="0.77 0.67 0.55 1" specular="0.15" shininess="0.25" reflectance="0.12"/>
+    <material name="mat_master_stool_metal" rgba="0.55 0.56 0.58 1" specular="0.8" shininess="0.7" reflectance="0.3"/>
+    <material name="mat_master_stool_cushion" rgba="0.92 0.88 0.82 1" specular="0.2" shininess="0.3" reflectance="0.05"/>
+
+  </asset>
+
+  <worldbody>
+
+    <!-- Global Overhead Light (Sky Light) -->
+    <light name="sky_light" pos="0 0 10" dir="0 0 -1" diffuse="0.8 0.8 0.85" castshadow="true" directional="true"/>
+
+
+    <!-- Global Cameras -->
+    <camera name="global_top_down" pos="0 0 20" zaxis="0 0 1"/>
+    <camera name="global_iso" pos="0 -20 15" xyaxes="1 0 0 0 0.7 0.7"/>
+
+
+
+
+
+
+
+    <!-- Robot Vacuum V3 (Advanced) in Living Room -->
+    <body name="robot" pos="-1.5 0 0.05" euler="0 0 0">
+      <freejoint/>
+      
+      <!-- Chassis -->
+      <geom name="chassis" type="cylinder" pos="0 0 0.06" size="0.18 0.04" material="mat_robot_body" mass="3"/>
+      <geom name="lidar_tower" type="cylinder" pos="0 0 0.11" size="0.05 0.02" material="mat_robot_dark"/>
+      <geom name="eye" type="box" pos="0.16 0 0.06" size="0.01 0.03 0.01" material="mat_robot_light"/>
+
+      <!-- Bumper (Collision Sensor) - Segmented for Directionality -->
+      <body name="bumper_front" pos="0.19 0 0.06">
+          <!-- Center Segment -->
+          <geom name="bumper_c" type="box" pos="0 0 0" size="0.01 0.04 0.03" material="mat_bumper" solimp="0.9 0.95 0.001" solref="0.02 1"/>
+          <site name="touch_bumper_c" pos="0 0 0" size="0.012 0.04 0.03" type="box" rgba="1 0 0 0"/>
+          
+          <!-- Left Segment -->
+          <geom name="bumper_l" type="box" pos="-0.01 0.08 0" size="0.01 0.04 0.03" euler="0 0 15" material="mat_bumper" solimp="0.9 0.95 0.001" solref="0.02 1"/>
+          <site name="touch_bumper_l" pos="-0.01 0.08 0" size="0.012 0.04 0.03" euler="0 0 15" type="box" rgba="1 0 0 0"/>
+          
+          <!-- Right Segment -->
+          <geom name="bumper_r" type="box" pos="-0.01 -0.08 0" size="0.01 0.04 0.03" euler="0 0 -15" material="mat_bumper" solimp="0.9 0.95 0.001" solref="0.02 1"/>
+          <site name="touch_bumper_r" pos="-0.01 -0.08 0" size="0.012 0.04 0.03" euler="0 0 -15" type="box" rgba="1 0 0 0"/>
+      </body>
+
+      <!-- 4-Wheel Drive System -->
+      <!-- Front Left -->
+      <body name="wheel_fl" pos="0.12 0.16 0.05" euler="-90 0 0">
+        <joint name="joint_fl" type="hinge" axis="0 0 1" damping="0.1"/>
+        <geom name="geom_wheel_fl" type="cylinder" size="0.05 0.015" material="mat_robot_dark" friction="1.0"/>
+      </body>
+      <!-- Front Right -->
+      <body name="wheel_fr" pos="0.12 -0.16 0.05" euler="-90 0 0">
+        <joint name="joint_fr" type="hinge" axis="0 0 1" damping="0.1"/>
+        <geom name="geom_wheel_fr" type="cylinder" size="0.05 0.015" material="mat_robot_dark" friction="1.0"/>
+      </body>
+      <!-- Back Left -->
+      <body name="wheel_bl" pos="-0.12 0.16 0.05" euler="-90 0 0">
+        <joint name="joint_bl" type="hinge" axis="0 0 1" damping="0.1"/>
+        <geom name="geom_wheel_bl" type="cylinder" size="0.05 0.015" material="mat_robot_dark" friction="1.0"/>
+      </body>
+      <!-- Back Right -->
+      <body name="wheel_br" pos="-0.12 -0.16 0.05" euler="-90 0 0">
+        <joint name="joint_br" type="hinge" axis="0 0 1" damping="0.1"/>
+        <geom name="geom_wheel_br" type="cylinder" size="0.05 0.015" material="mat_robot_dark" friction="1.0"/>
+      </body>
+
+    <!-- Sensors Sites (High Resolution Lidar) REMOVED -->
+      <!-- Front Sector (0 to +/- 45) -->
+      <!-- Side Sector (+/- 60 to +/- 90) -->
+      <!-- Rear Sector (+/- 120 to 180) -->
+      
+      <!-- Rear Bumper REMOVED -->
+      
+      <!-- Camera -->
+      <camera name="robot_cam" pos="0.18 0 0.15" euler="0 0 0" fovy="90"/>
+      
+      <!-- Cliff Sensors -->
+      <site name="s_cliff_f" pos="0.19 0 0.02" zaxis="0 0 -1" size="0.005" rgba="0 0 1 1"/>
+      <site name="s_cliff_l" pos="0.1 0.15 0.02" zaxis="0 0 -1" size="0.005" rgba="0 0 1 1"/>
+      <site name="s_cliff_r" pos="0.1 -0.15 0.02" zaxis="0 0 -1" size="0.005" rgba="0 0 1 1"/>
+    </body>
+
+    <!-- ======================================================= -->
+    <!-- 2. LIVING ROOM (Center) - Modern -->
+    <!-- Pos: (0,0,0) -->
+    <!-- ======================================================= -->
+    <body name="scene_living_room" pos="0 0 0">
+        <light name="living_sun" pos="-4 -2 4" dir="0.8 0.5 -1" diffuse="0.9 0.85 0.8" castshadow="true"/>
+        <light name="living_ceiling_1" pos="0 0 2.8" dir="0 0 -1" diffuse="0.5 0.5 0.45" castshadow="false" attenuation="1 0 0"/>
+        
+        <!-- Floor -->
+        <geom name="living_floor" class="floor_living" pos="0 0 0" size="2.5 3 0.05"/>
+
+        <!-- Walls -->
+        <geom name="living_wall_north" class="wall_living" pos="0 3 1.4" size="2.5 0.1 1.4"/>
+        
+        <!-- East Wall (Shared with Master) - Cut for Door (South) -->
+        <geom name="living_wall_east_1" class="wall_living" pos="2.45 0.75 1.4" size="0.05 2.05 1.4"/> <!-- North of door -->
+        <!-- Door removed and walls removed for open passage -->
+        <geom name="living_wall_east_2" class="wall_living" pos="2.45 -2.75 1.4" size="0.05 0.05 1.4"/> <!-- South of door -->
+        <geom name="living_wall_east_header" class="wall_living" pos="2.45 -2.0 2.6" size="0.05 0.5 0.2"/> <!-- Door Header -->
+
+        <!-- Door (East - to Master) -->
+        <body name="living_door_east" pos="2.5 -2.0 1.2">
+            <!-- Frame -->
+            <geom type="box" pos="0 0.45 0" size="0.06 0.05 1.2" material="mat_living_wood"/> <!-- North Frame -->
+            <geom type="box" pos="0 -0.45 0" size="0.06 0.05 1.2" material="mat_living_wood"/> <!-- South Frame -->
+            <geom type="box" pos="0 0 1.15" size="0.06 0.5 0.05" material="mat_living_wood"/> <!-- Top Frame -->
+            
+            <!-- Door Panel (Moving) -->
+            <body name="door_panel_east" pos="0 0.35 0" euler="0 0 90">
+                <joint name="joint_door_east" type="hinge" axis="0 0 1" range="-90 0" damping="0.33"/>
+                <!-- Panel geometry shifted relative to hinge -->
+                <geom type="box" pos="0 -0.35 0" size="0.02 0.35 1.08" material="mat_glass_window"/>
+                <!-- Handle shifted relative to hinge -->
+                <geom type="box" pos="-0.04 -0.65 -0.1" size="0.02 0.01 0.06" rgba="0.2 0.2 0.2 1"/>
+            </body>
+        </body>
+
+        <!-- Door (West - to Guest) -->
+        <body name="living_door_west" pos="-2.5 -2.0 1.2">
+            <!-- Frame -->
+            <geom type="box" pos="0 0.45 0" size="0.06 0.05 1.2" material="mat_living_wood"/> <!-- North Frame -->
+            <geom type="box" pos="0 -0.45 0" size="0.06 0.05 1.2" material="mat_living_wood"/> <!-- South Frame -->
+            <geom type="box" pos="0 0 1.15" size="0.06 0.5 0.05" material="mat_living_wood"/> <!-- Top Frame -->
+            
+            <!-- Door Panel (Moving) -->
+            <body name="door_panel_west" pos="0 0.35 0" euler="0 0 -90">
+                <joint name="joint_door_west" type="hinge" axis="0 0 1" range="0 90" damping="0.33"/>
+                <!-- Panel geometry shifted relative to hinge -->
+                <geom type="box" pos="0 -0.35 0" size="0.02 0.35 1.08" material="mat_living_wood" rgba="0.9 0.85 0.8 1"/>
+                <!-- Handle shifted relative to hinge -->
+                <geom type="box" pos="0.04 -0.7 -0.1" size="0.02 0.01 0.06" rgba="0.2 0.2 0.2 1"/>
+            </body>
+        </body>
+
+        <!-- West Wall (Shared with Guest) - Cut for Door (South) -->
+        <geom name="living_wall_west_1" class="wall_living" pos="-2.45 0.75 1.4" size="0.05 2.05 1.4"/> <!-- North of door -->
+        <geom name="living_wall_west_2" class="wall_living" pos="-2.45 -2.75 1.4" size="0.05 0.05 1.4"/> <!-- South of door -->
+        <geom name="living_wall_west_header" class="wall_living" pos="-2.45 -2.0 2.6" size="0.05 0.5 0.2"/> <!-- Header -->
+        
+        <geom name="living_wall_south" class="wall_living" pos="0 -3 1.4" size="2.5 0.1 1.4"/>
+
+        <!-- Window (Shifted North to accommodate door) -->
+        <body name="living_window" pos="-2.5 1.0 1.3">
+            <geom type="box" pos="0 0 0" size="0.05 1.0 1.3" rgba="0.1 0.1 0.1 1"/>
+            <geom class="glass" pos="0 0 0" size="0.02 0.9 1.2"/>
+            <geom type="box" pos="0.1 0.8 0" size="0.1 0.2 1.3" rgba="0.8 0.78 0.75 1"/>
+        </body>
+
+        <!-- Wall Fillers (Sealing old doors) -->
+        <!-- <geom name="living_wall_east_filler" class="wall_living" pos="2.45 -2.0 1.2" size="0.05 0.5 1.2"/> REMOVED -->
+        <!-- <geom name="living_wall_west_filler" class="wall_living" pos="-2.45 -2.0 1.2" size="0.05 0.5 1.2"/> REMOVED -->
+
+        <!-- Minecraft Painting: The Stage Is Set -->
+        <body name="painting_minecraft" pos="-2.4 0.75 1.8" euler="0 0 90">
+            <!-- Frame -->
+            <geom type="box" size="0.5 0.02 0.5" rgba="0.4 0.25 0.1 1"/>
+            <!-- Canvas (Background) -->
+            <geom type="box" pos="0 -0.01 0" size="0.42 0.01 0.42" rgba="0.8 0.8 0.8 1"/>
+            <!-- Spider Body -->
+            <geom type="box" pos="0 -0.02 0.1" size="0.1 0.01 0.08" rgba="0.1 0.1 0.1 1"/>
+            <!-- Spider Head -->
+            <geom type="box" pos="0 -0.02 0.0" size="0.06 0.01 0.06" rgba="0.1 0.1 0.1 1"/>
+            <!-- Eyes -->
+            <geom type="box" pos="0.02 -0.025 -0.02" size="0.01 0.005 0.01" rgba="0.9 0.1 0.1 1"/>
+            <geom type="box" pos="-0.02 -0.025 -0.02" size="0.01 0.005 0.01" rgba="0.9 0.1 0.1 1"/>
+            <!-- Legs (Simple representation) -->
+            <geom type="box" pos="0.15 -0.02 0.15" size="0.08 0.005 0.01" rgba="0.1 0.1 0.1 1" euler="0 0 30"/>
+            <geom type="box" pos="-0.15 -0.02 0.15" size="0.08 0.005 0.01" rgba="0.1 0.1 0.1 1" euler="0 0 -30"/>
+            <geom type="box" pos="0.15 -0.02 0.05" size="0.08 0.005 0.01" rgba="0.1 0.1 0.1 1" euler="0 0 10"/>
+            <geom type="box" pos="-0.15 -0.02 0.05" size="0.08 0.005 0.01" rgba="0.1 0.1 0.1 1" euler="0 0 -10"/>
+        </body>
+
+        <!-- Minecraft Painting: Skull and Roses (Living Room North Wall - Enlarged 3x) -->
+        <body name="painting_living_north" pos="0 2.94 1.8" euler="0 0 -90">
+            <!-- Frame -->
+            <geom type="box" size="0.03 0.9 0.9" rgba="0.4 0.25 0.1 1"/>
+            <!-- Canvas (Background - Dark Blue) -->
+            <geom type="box" pos="0.03 0 0" size="0.015 0.75 0.75" rgba="0.1 0.2 0.4 1"/>
+            <!-- Skull Head (White/Grey) -->
+            <geom type="box" pos="0.06 0 0.15" size="0.015 0.3 0.3" rgba="0.9 0.9 0.9 1"/>
+            <geom type="box" pos="0.06 0 -0.24" size="0.015 0.18 0.12" rgba="0.9 0.9 0.9 1"/> <!-- Jaw -->
+            <!-- Eye Sockets (Dark) -->
+            <geom type="box" pos="0.066 0.12 0.18" size="0.015 0.075 0.075" rgba="0.1 0.1 0.1 1"/>
+            <geom type="box" pos="0.066 -0.12 0.18" size="0.015 0.075 0.075" rgba="0.1 0.1 0.1 1"/>
+            <!-- Nose (Dark) -->
+            <geom type="box" pos="0.066 0 0.06" size="0.015 0.03 0.045" rgba="0.1 0.1 0.1 1"/>
+            <!-- Roses (Red/Green) -->
+            <geom type="box" pos="0.06 0.45 -0.45" size="0.015 0.12 0.12" rgba="0.8 0.1 0.1 1"/> <!-- Rose 1 -->
+            <geom type="box" pos="0.06 -0.45 -0.45" size="0.015 0.12 0.12" rgba="0.8 0.1 0.1 1"/> <!-- Rose 2 -->
+            <geom type="box" pos="0.045 0.54 -0.6" size="0.015 0.09 0.09" rgba="0.1 0.6 0.1 1"/> <!-- Leaves -->
+        </body>
+
+        <!-- TV Area -->
+        <body name="living_tv" pos="0 2.5 0">
+            <geom type="box" pos="0 0 0.25" size="1.0 0.2 0.25" rgba="0.95 0.95 0.95 1"/>
+            <geom type="box" pos="0 0 0.51" size="1.0 0.21 0.01" material="mat_living_wood"/>
+            <geom type="box" pos="0 -0.2 0.1" size="0.02 0.02 0.1" material="mat_living_wood"/>
+            <geom type="box" pos="0 0.35 1.2" size="0.8 0.02 0.45" material="mat_living_black"/>
+        </body>
+
+        <!-- Sofa Group -->
+        <body name="living_sofa_group" pos="0.5 -1.0 0">
+            <body name="living_sofa" pos="0 0 0" euler="0 0 180">
+                <geom type="mesh" mesh="mesh_dollhouse_sofa_visual" material="mat_dollhouse_sofa" contype="0" conaffinity="0" group="2"/>
+                <geom type="mesh" mesh="mesh_dollhouse_sofa_col_0" group="3"/>
+                <geom type="mesh" mesh="mesh_dollhouse_sofa_col_1" group="3"/>
+                <geom type="mesh" mesh="mesh_dollhouse_sofa_col_2" group="3"/>
+                <geom type="mesh" mesh="mesh_dollhouse_sofa_col_3" group="3"/>
+                <geom type="mesh" mesh="mesh_dollhouse_sofa_col_4" group="3"/>
+                <geom type="mesh" mesh="mesh_dollhouse_sofa_col_5" group="3"/>
+                <geom type="mesh" mesh="mesh_dollhouse_sofa_col_6" group="3"/>
+                <geom type="mesh" mesh="mesh_dollhouse_sofa_col_7" group="3"/>
+                <geom type="mesh" mesh="mesh_dollhouse_sofa_col_8" group="3"/>
+                <geom type="mesh" mesh="mesh_dollhouse_sofa_col_9" group="3"/>
+                <geom type="mesh" mesh="mesh_dollhouse_sofa_col_10" group="3"/>
+                <geom type="mesh" mesh="mesh_dollhouse_sofa_col_11" group="3"/>
+                <geom type="mesh" mesh="mesh_dollhouse_sofa_col_12" group="3"/>
+                <geom type="mesh" mesh="mesh_dollhouse_sofa_col_13" group="3"/>
+                <geom type="mesh" mesh="mesh_dollhouse_sofa_col_14" group="3"/>
+                <geom type="mesh" mesh="mesh_dollhouse_sofa_col_15" group="3"/>
+                <geom type="mesh" mesh="mesh_dollhouse_sofa_col_16" group="3"/>
+                <geom type="mesh" mesh="mesh_dollhouse_sofa_col_17" group="3"/>
+                <geom type="mesh" mesh="mesh_dollhouse_sofa_col_18" group="3"/>
+                <geom type="mesh" mesh="mesh_dollhouse_sofa_col_19" group="3"/>
+                <geom type="mesh" mesh="mesh_dollhouse_sofa_col_20" group="3"/>
+                <geom type="mesh" mesh="mesh_dollhouse_sofa_col_21" group="3"/>
+                <geom type="mesh" mesh="mesh_dollhouse_sofa_col_22" group="3"/>
+                <geom type="mesh" mesh="mesh_dollhouse_sofa_col_23" group="3"/>
+                <geom type="mesh" mesh="mesh_dollhouse_sofa_col_24" group="3"/>
+                <geom type="mesh" mesh="mesh_dollhouse_sofa_col_25" group="3"/>
+                <geom type="mesh" mesh="mesh_dollhouse_sofa_col_26" group="3"/>
+                <geom type="mesh" mesh="mesh_dollhouse_sofa_col_27" group="3"/>
+                <geom type="mesh" mesh="mesh_dollhouse_sofa_col_28" group="3"/>
+                <geom type="mesh" mesh="mesh_dollhouse_sofa_col_29" group="3"/>
+                <geom type="mesh" mesh="mesh_dollhouse_sofa_col_30" group="3"/>
+                <geom type="mesh" mesh="mesh_dollhouse_sofa_col_31" group="3"/>
+            </body>
+            <body name="living_coffee_table" pos="-0.5 1.2 0">
+                <geom material="mat_dollhouse_tablepurple" mesh="mesh_dollhouse_tablepurple_visual" type="mesh" contype="0" conaffinity="0" group="2"/>
+                <geom mesh="mesh_dollhouse_tablepurple_col_0" type="mesh" group="3"/>
+                <geom mesh="mesh_dollhouse_tablepurple_col_1" type="mesh" group="3"/>
+                <geom mesh="mesh_dollhouse_tablepurple_col_2" type="mesh" group="3"/>
+                <geom mesh="mesh_dollhouse_tablepurple_col_3" type="mesh" group="3"/>
+                <geom mesh="mesh_dollhouse_tablepurple_col_4" type="mesh" group="3"/>
+                <geom mesh="mesh_dollhouse_tablepurple_col_5" type="mesh" group="3"/>
+                <geom mesh="mesh_dollhouse_tablepurple_col_6" type="mesh" group="3"/>
+                <geom mesh="mesh_dollhouse_tablepurple_col_7" type="mesh" group="3"/>
+                <geom mesh="mesh_dollhouse_tablepurple_col_8" type="mesh" group="3"/>
+                <geom mesh="mesh_dollhouse_tablepurple_col_9" type="mesh" group="3"/>
+                <geom mesh="mesh_dollhouse_tablepurple_col_10" type="mesh" group="3"/>
+                <geom mesh="mesh_dollhouse_tablepurple_col_11" type="mesh" group="3"/>
+                <geom mesh="mesh_dollhouse_tablepurple_col_12" type="mesh" group="3"/>
+                <geom mesh="mesh_dollhouse_tablepurple_col_13" type="mesh" group="3"/>
+                <geom mesh="mesh_dollhouse_tablepurple_col_14" type="mesh" group="3"/>
+                <geom mesh="mesh_dollhouse_tablepurple_col_15" type="mesh" group="3"/>
+                <geom mesh="mesh_dollhouse_tablepurple_col_16" type="mesh" group="3"/>
+                <geom mesh="mesh_dollhouse_tablepurple_col_17" type="mesh" group="3"/>
+                <geom mesh="mesh_dollhouse_tablepurple_col_18" type="mesh" group="3"/>
+                <geom mesh="mesh_dollhouse_tablepurple_col_19" type="mesh" group="3"/>
+                <geom mesh="mesh_dollhouse_tablepurple_col_20" type="mesh" group="3"/>
+                <geom mesh="mesh_dollhouse_tablepurple_col_21" type="mesh" group="3"/>
+                <geom mesh="mesh_dollhouse_tablepurple_col_22" type="mesh" group="3"/>
+                <geom mesh="mesh_dollhouse_tablepurple_col_23" type="mesh" group="3"/>
+                <geom mesh="mesh_dollhouse_tablepurple_col_24" type="mesh" group="3"/>
+                <geom mesh="mesh_dollhouse_tablepurple_col_25" type="mesh" group="3"/>
+                <geom mesh="mesh_dollhouse_tablepurple_col_26" type="mesh" group="3"/>
+                <geom mesh="mesh_dollhouse_tablepurple_col_27" type="mesh" group="3"/>
+                <geom mesh="mesh_dollhouse_tablepurple_col_28" type="mesh" group="3"/>
+                <geom mesh="mesh_dollhouse_tablepurple_col_29" type="mesh" group="3"/>
+                <geom mesh="mesh_dollhouse_tablepurple_col_30" type="mesh" group="3"/>
+                <geom mesh="mesh_dollhouse_tablepurple_col_31" type="mesh" group="3"/>
+                
+                <!-- Fruit Bowl -->
+                <body name="fruit_bowl" pos="0.2 0 0.6">
+                    <!-- Bowl -->
+                    <geom type="cylinder" size="0.15 0.02" rgba="0.8 0.8 0.8 1"/>
+                    <geom type="cylinder" pos="0 0 0.02" size="0.14 0.01" rgba="0.9 0.9 0.9 1"/>
+                    
+                    <!-- Fruits (Non-spherical approximations) -->
+                    <!-- Apple (Red Box approximation) -->
+                    <geom type="box" pos="-0.05 0.05 0.05" size="0.03 0.03 0.03" rgba="0.8 0.2 0.2 1" euler="10 20 0"/>
+                    <geom type="cylinder" pos="-0.05 0.05 0.08" size="0.002 0.015" rgba="0.4 0.2 0.1 1"/> <!-- Stem -->
+                    
+                    <!-- Orange (Orange Box approximation) -->
+                    <geom type="box" pos="0.05 -0.02 0.04" size="0.03 0.03 0.025" rgba="1 0.6 0.1 1" euler="0 0 30"/>
+                    
+                    <!-- Banana (Yellow Cylinders/Boxes) -->
+                    <geom type="box" pos="0 0.08 0.03" size="0.02 0.08 0.02" rgba="0.9 0.9 0.2 1" euler="0 0 45"/>
+                    <geom type="box" pos="-0.02 0.06 0.03" size="0.02 0.08 0.02" rgba="0.9 0.9 0.2 1" euler="0 0 55"/>
+                </body>
+                <body name="living_table_vx300s" pos="0 0 0.574">
+                    <include file="../../robots/vx300s_cohesive/vx300s_left_cohesive.xml"/>
+                    <include file="../../robots/vx300s_cohesive/vx300s_right_cohesive.xml"/>
+                </body>
+            </body>
+        </body>
+
+
+        <!-- Furniture: Washing Machine -->
+        <!-- Positioned against North Wall, to the left of center (West side) -->
+        <!-- Living Room Center (0,0), North Wall y=3. Machine depth ~0.6m. Pos y ~ 2.7 -->
+        <!-- Adjusted Y to 2.55 to avoid wall clipping (Wall at 2.9, Back at 2.55+0.3=2.85) -->
+        <!-- Removed 180 rotation so Front (Local -Y) points to Room (-Y) -->
+        <body name="living_washing_machine" pos="-1.5 2.55 0">
+            <!-- Main Chassis (White Box) -->
+            <geom type="box" size="0.3 0.3 0.425" pos="0 0 0.425" material="mat_body"/>
+
+            <!-- === Front Details (y = -0.3 relative to body center) === -->
+            <!-- Since body is at 0 0 0.425, and local front is -y -->
+            
+            <body name="washing_machine_front" pos="0 0 0.425">
+                <!-- 1. DOOR ASSEMBLY -->
+                <!-- Outer Frame -->
+                <geom type="cylinder" size="0.26 0.01" pos="0 -0.301 0.02" euler="90 0 0" material="mat_body"/>
+                <!-- Chrome/Silver Ring -->
+                <geom type="cylinder" size="0.24 0.015" pos="0 -0.302 0.02" euler="90 0 0" material="mat_chrome"/>
+                <!-- Inner Dark Rim -->
+                <geom type="cylinder" size="0.20 0.02" pos="0 -0.303 0.02" euler="90 0 0" material="mat_dark_rim"/>
+                <!-- Glass Window -->
+                <geom type="sphere" size="0.19" pos="0 -0.28 0.02" material="mat_glass"/>
+
+                <!-- 2. CONTROL PANEL -->
+                <!-- Detergent Drawer -->
+                <geom name="wm_drawer" type="box" size="0.08 0.005 0.05" pos="-0.19 -0.302 0.35" material="mat_body"/>
+                <geom name="wm_drawer_handle" type="box" size="0.06 0.006 0.01" pos="-0.19 -0.303 0.37" material="mat_chrome"/>
+
+                <!-- Control Knob -->
+                <geom name="wm_knob" type="cylinder" size="0.025 0.015" pos="-0.02 -0.302 0.35" euler="90 0 0" material="mat_chrome"/>
+
+                <!-- Display Area -->
+                <geom name="wm_display" type="box" size="0.11 0.002 0.03" pos="0.16 -0.302 0.35" material="mat_display"/>
+                <!-- Small buttons -->
+                <geom name="wm_btn1" type="cylinder" size="0.005 0.003" pos="0.08 -0.303 0.31" euler="90 0 0" material="mat_chrome"/>
+                <geom name="wm_btn2" type="cylinder" size="0.005 0.003" pos="0.11 -0.303 0.31" euler="90 0 0" material="mat_chrome"/>
+                <geom name="wm_btn3" type="cylinder" size="0.005 0.003" pos="0.14 -0.303 0.31" euler="90 0 0" material="mat_chrome"/>
+                <geom name="wm_btn4" type="cylinder" size="0.005 0.003" pos="0.17 -0.303 0.31" euler="90 0 0" material="mat_chrome"/>
+
+                <!-- 3. BOTTOM FILTER -->
+                <geom name="wm_filter" type="box" size="0.07 0.002 0.06" pos="-0.2 -0.302 -0.33" material="mat_body"/>
+            </body>
+        </body>
+
+
+    </body>
+
+    <!-- ======================================================= -->
+    <!-- 1. MASTER BEDROOM (East/Right) - Cozy -->
+    <!-- Pos: (4.5, 0, 0) -->
+    <!-- ======================================================= -->
+    <body name="scene_master_bedroom" pos="4.5 0 0">
+        <light name="master_sun" pos="5 -5 5" dir="-0.5 0.5 -1" diffuse="0.8 0.75 0.7" castshadow="true"/>
+        <light name="master_indoor" pos="0 0 3" dir="0 0 -1" diffuse="0.4 0.38 0.35" castshadow="false"/>
+
+        <!-- Floor -->
+        <geom name="master_floor" class="floor_master" pos="0 0 0" size="2 3 0.05"/>
+
+        <!-- Walls -->
+        <geom name="master_wall_north" class="wall_master" pos="0 3 1.4" size="2 0.1 1.4"/>
+        
+        <!-- West Wall (Shared with Living) - Cut for Door (South) -->
+        <geom name="master_wall_west_1" class="wall_master" pos="-1.95 0.75 1.4" size="0.05 2.25 1.4"/> <!-- North of door -->
+        <!-- Door removed and walls removed for open passage -->
+        <geom name="master_wall_west_2" class="wall_master" pos="-1.95 -2.75 1.4" size="0.05 0.25 1.4"/> <!-- South of door -->
+        <geom name="master_wall_west_upper" class="wall_master" pos="-1.95 -2.0 2.6" size="0.05 0.5 0.2"/> <!-- Door header -->
+        
+        <geom name="master_wall_east_1" class="wall_master" pos="2 2.0 1.4" size="0.1 1.0 1.4"/>
+        <geom name="master_wall_east_2" class="wall_master" pos="2 -2.0 1.4" size="0.1 1.0 1.4"/>
+        <geom name="master_wall_east_under" class="wall_master" pos="2 0 0.5" size="0.1 1.0 0.5"/>
+        <geom name="master_wall_east_upper" class="wall_master" pos="2 0 2.6" size="0.1 1.0 0.2"/>
+        <geom name="master_wall_south" class="wall_master" pos="0 -3 1.4" size="2 0.1 1.4"/>
+
+        <!-- Window -->
+        <body name="master_window" pos="2 0 1.7">
+            <geom type="box" pos="0 0 0" size="0.05 1.0 0.7" material="mat_glass_window"/>
+        </body>
+
+        <!-- Decor -->
+        <body name="master_wall_decor" pos="-1.9 0 0">
+            <geom type="box" pos="0 0.5 1.4" size="0.05 1.5 1.4" rgba="0.85 0.75 0.65 1"/>
+            <body name="master_mirror" pos="0.06 1.0 1.6">
+                <geom type="box" size="0.01 0.2 0.4" rgba="0.9 0.9 0.95 0.9"/>
+                <geom type="box" pos="-0.01 0 0" size="0.01 0.22 0.42" rgba="0.6 0.5 0.4 1"/>
+            </body>
+            <body name="master_desk" pos="0.4 -0.5 0" euler="0 0 90">
+                <body name="studyTable_Main" pos="0 0 0" childclass="body_studyTable">
+                    <geom class="viz_stl_Wood_studyTable" type="mesh" mesh="studyTable_Main" euler="-90 0 180"/>
+                    <geom type="box" size=".6 .275 .025" pos="0 0 0.735" rgba="0.8 0.9 0.7 1.0" mass="40"/>
+                    <geom type="box" size="0.17 0.26 .05" pos="0.42 0 0.66" rgba="0.8 0.9 0.7 1.0"/>
+                    <geom type="box" size="0.17 0.26 .05" pos="-0.42 0 0.66" rgba="0.8 0.9 0.7 1.0"/>
+                    <geom type="box" size="0.025 0.025 0.305" pos="-0.565 0.235 0.305" rgba="0.8 0.9 0.7 1.0"/>
+                    <geom type="box" size="0.025 0.025 0.305" pos="-0.565 -0.235 0.305" rgba="0.8 0.9 0.7 1.0"/>
+                    <geom type="box" size="0.025 0.025 0.305" pos="0.565 0.235 0.305" rgba="0.8 0.9 0.7 1.0"/>
+                    <geom type="box" size="0.025 0.025 0.305" pos="0.565 -0.235 0.305" rgba="0.8 0.9 0.7 1.0"/>
+                    <geom type="box" size="0.6 0.01 0.175" pos="0 0.265 0.935" rgba="0.8 0.9 0.7 1.0"/>
+                    <geom type="box" size="0.6 0.11 0.01" pos="0 0.165 1.1" rgba="0.8 0.9 0.7 1.0"/>
+                    <geom type="box" size="0.01 0.11 0.175" pos="0.59 .165 .935" rgba="0.8 0.9 0.7 1.0"/>
+                    <geom type="box" size="0.01 0.11 0.175" pos="-0.59 .165 .935" rgba="0.8 0.9 0.7 1.0"/>
+                    <geom type="box" size="0.01 0.11 0.175" pos="0 .165 .935" rgba="0.8 0.9 0.7 1.0"/>
+                </body>
+                <body name="studyTable_Drawer" pos="0 0 0.655" childclass="drawer_studyTable">
+                    <geom class="viz_stl_Wood_studyTable" type="mesh" mesh="studyTable_Drawer_Wood" euler="-90 0 180"/>
+                    <geom class="viz_stl_Metal_studyTable" type="mesh" mesh="studyTable_Drawer_Handle" euler="-90 0 180"/>
+                    <geom type="box" size=".24 .26 .01" pos="0 0 -0.04" rgba="0.8 0.9 0.7 1.0" mass="2"/>
+                    <geom type="box" size=".24 .01 .05" pos="0 .25 0" rgba="0.8 0.9 0.7 1.0"/>
+                    <geom type="box" size=".24 .01 .05" pos="0 -.25 0" rgba="0.8 0.9 0.7 1.0"/>
+                    <geom type="box" size=".01 .26 .05" pos="-.23 0 0" rgba="0.8 0.9 0.7 1.0"/>
+                    <geom type="box" size=".01 .26 .05" pos=".23 0 0" rgba="0.8 0.9 0.7 1.0"/>
+                    <geom type="capsule" size=".014 .045" pos=".08203 -.315 .01" euler="90 0 0" rgba="0.8 0.9 0.7 1.0"/>
+                    <geom type="capsule" size=".014 .045" pos="-.08203 -.315 .01" euler="90 0 0" rgba="0.8 0.9 0.7 1.0"/>
+                    <geom type="capsule" size=".014 .08" pos="0 -.36 .01" euler="0 90 0" rgba="0.8 0.9 0.7 1.0"/>
+                    <joint name="studyTable_Drawer_Joint" type="slide" pos="0 0 0" axis="0 1 0" limited="true" range="-0.48 0"/>
+                </body>
+                <body name="studyTable_Slide" pos="-0.3 0.04 0.935" childclass="drawer_studyTable">
+                    <geom class="viz_stl_Wood_studyTable" type="mesh" mesh="studyTable_Slide_Wood" euler="-90 0 180"/>
+                    <geom class="viz_stl_Metal_studyTable" type="mesh" mesh="studyTable_Slide_Handle" euler="-90 0 180"/>
+                    <geom type="box" size=".3 .01 .175" pos="0 0 0" rgba="0.8 0.9 0.7 1.0" mass="1"/>
+                    <geom type="capsule" size=".014 .042" pos="0 -.065 .08302" euler="90 0 0" rgba="0.8 0.9 0.7 1.0"/>
+                    <geom type="capsule" size=".014 .042" pos="0 -.065 -.08302" euler="90 0 0" rgba="0.8 0.9 0.7 1.0"/>
+                    <geom type="capsule" size=".014 .08" pos="0 -.11 0" euler="0 0 0" rgba="0.8 0.9 0.7 1.0"/>
+                    <site name="slide_handle" type="sphere" size=".01" pos="0 -.11 0"/>
+                    <joint name="studyTable_Slide_Joint" type="slide" pos="0 0 0" axis="1 0 0" limited="true" range="0 .6"/>
+                </body>
+            </body>
+        </body>
+
+        <body name="master_chair" pos="-1.0 -0.5 0" euler="0 0 -30">
+            <geom type="cylinder" pos="0 0 0.28" size="0.19 0.025" material="mat_master_stool_wood" mass="2"/>
+            <geom type="cylinder" pos="0 0 0.315" size="0.175 0.012" material="mat_master_stool_cushion"/>
+            <geom type="capsule" fromto="0.15 0.15 0.03 0.15 0.15 0.245" size="0.02" material="mat_master_stool_wood"/>
+            <geom type="capsule" fromto="-0.15 0.15 0.03 -0.15 0.15 0.245" size="0.02" material="mat_master_stool_wood"/>
+            <geom type="capsule" fromto="0.15 -0.15 0.03 0.15 -0.15 0.245" size="0.02" material="mat_master_stool_wood"/>
+            <geom type="capsule" fromto="-0.15 -0.15 0.03 -0.15 -0.15 0.245" size="0.02" material="mat_master_stool_wood"/>
+            <geom type="capsule" fromto="-0.14 0 0.14 0.14 0 0.14" size="0.012" material="mat_master_stool_metal"/>
+            <geom type="capsule" fromto="0 -0.14 0.14 0 0.14 0.14" size="0.012" material="mat_master_stool_metal"/>
+        </body>
+
+        <body name="master_bed_zone" pos="0.5 0.8 0">
+            <geom type="box" pos="0 1.15 0.6" size="1.2 0.02 0.6" class="wood_light"/>
+            <body name="master_bed" pos="0 0 0">
+                <geom type="box" pos="0 0 0.2" size="0.9 1.1 0.2" class="furniture_cream"/>
+                <geom type="box" pos="0 -0.1 0.45" size="0.92 1.0 0.1" rgba="0.96 0.94 0.9 1"/>
+                <geom type="box" pos="-0.5 0.8 0.6" size="0.2 0.15 0.08" rgba="1 1 1 1" euler="10 0 0"/>
+                <geom type="box" pos="0.5 0.8 0.6" size="0.2 0.15 0.08" rgba="1 1 1 1" euler="10 0 0"/>
+                <geom type="box" pos="0 -0.8 0.46" size="0.93 0.3 0.01" rgba="0.8 0.75 0.7 1"/>
+            </body>
+            <body name="master_nightstand" pos="-1.3 1.0 0.3">
+                 <geom type="box" pos="0 0 0" size="0.3 0.2 0.02" class="wood_light"/>
+                 <geom type="box" pos="0 0.1 0.2" size="0.1 0.01 0.15" rgba="0.9 0.9 0.9 1" euler="-10 0 0"/>
+                 <geom type="cylinder" pos="0.15 0 0.1" size="0.04 0.1" rgba="0.95 0.9 0.85 1"/>
+            </body>
+        </body>
+        <geom name="master_rug" pos="0.5 -0.5 0.06" type="cylinder" size="0.8 0.01" rgba="0.92 0.9 0.88 1"/>
+        <body name="cozy_plant_win" pos="1.5 -1.5 0">
+            <geom type="cylinder" pos="0 0 0.15" size="0.12 0.15" rgba="1 1 1 1"/>
+            <geom class="plant" pos="0 0 0.5" size="0.015 0.35"/>
+            <geom type="box" pos="0 0 0.8" size="0.2 0.2 0.01" rgba="0.3 0.7 0.3 1" euler="30 0 0"/>
+            <geom type="box" pos="0 0 0.6" size="0.2 0.2 0.01" rgba="0.3 0.7 0.3 1" euler="-20 40 0"/>
+        </body>
+        <body name="cozy_plant_rug" pos="0 -1.2 0">
+            <geom type="cylinder" pos="0 0 0.15" size="0.15 0.15" rgba="1 1 1 1"/>
+            <geom class="plant" pos="0 0 0.4" size="0.02 0.25"/>
+            <geom type="box" pos="0.1 0 0.6" size="0.18 0.15 0.01" rgba="0.2 0.6 0.2 1" euler="0 0 45"/>
+            <geom type="box" pos="-0.1 0.1 0.5" size="0.18 0.15 0.01" rgba="0.2 0.6 0.2 1" euler="0 0 -45"/>
+        </body>
+    </body>
+
+    <!-- ======================================================= -->
+    <!-- 3. GUEST BEDROOM (West/Left) - Studio -->
+    <!-- Pos: (-7.5, -1.0, 0) -->
+    <!-- ======================================================= -->
+    <body name="scene_guest_bedroom" pos="-7.5 -1.0 0">
+        <light name="guest_sun" pos="-2 -2 4" dir="0.5 0.5 -1" diffuse="0.7 0.7 0.7" castshadow="true"/>
+        <light name="guest_indoor" pos="2 1 2.8" dir="0 0 -1" diffuse="0.6 0.6 0.55" castshadow="false" attenuation="1 0 0"/>
+        
+        <!-- Floor (Offset to center relative to body origin) -->
+        <geom name="guest_floor" class="floor_guest" pos="2.5 1 0" size="2.5 3 0.05"/>
+
+        <!-- Walls -->
+        <geom name="guest_wall_west_1" class="wall_guest" pos="0 -0.25 1.4" size="0.1 1.75 1.4"/>
+        <geom name="guest_wall_west_2" class="wall_guest" pos="0 3.25 1.4" size="0.1 0.75 1.4"/>
+        <geom name="guest_wall_west_under" class="wall_guest" pos="0 2 0.5" size="0.08 0.5 0.5"/>
+        <geom name="guest_wall_west_above" class="wall_guest" pos="0 2 2.6" size="0.1 0.5 0.2"/>
+        <geom name="guest_wall_north" class="wall_guest" pos="2.5 4 1.4" size="2.6 0.1 1.4"/>
+        
+        <!-- East Wall (Shared with Living) - Cut for Door (South) -->
+        <geom name="guest_wall_east_1" class="wall_guest" pos="4.95 1.75 1.4" size="0.05 2.25 1.4"/> <!-- North of door (Local Y > -0.5) -->
+        <geom name="guest_wall_east_2" class="wall_guest" pos="4.95 -1.75 1.4" size="0.05 0.25 1.4"/> <!-- South of door (Local Y < -1.5) -->
+        <geom name="guest_wall_east_header" class="wall_guest" pos="4.95 -1.0 2.6" size="0.05 0.5 0.2"/> <!-- Door Header -->
+        
+        <geom name="guest_wall_south" class="wall_guest" pos="2.5 -2 1.4" size="2.5 0.1 1.4"/>
+
+        <!-- Window -->
+        <geom name="guest_window" type="box" pos="0 2 1.8" size="0.05 0.5 0.8" material="mat_glass_window"/>
+
+        <!-- Bathroom Walls -->
+        <geom name="guest_bath_south" class="wall_guest" pos="4.25 2.5 1.4" size="0.75 0.05 1.4"/>
+        <geom name="guest_bath_west" class="wall_guest" pos="3.5 3.25 1.4" size="0.05 0.75 1.4"/>
+
+        <!-- Minecraft Painting: Skull and Roses -->
+        <body name="painting_minecraft_skull" pos="4.94 1.0 1.8" euler="0 0 180">
+            <!-- Frame -->
+            <geom type="box" size="0.01 0.3 0.3" rgba="0.4 0.25 0.1 1"/>
+            <!-- Canvas (Background - Dark Blue) -->
+            <geom type="box" pos="0.01 0 0" size="0.005 0.25 0.25" rgba="0.1 0.2 0.4 1"/>
+            <!-- Skull Head (White/Grey) -->
+            <geom type="box" pos="0.02 0 0.05" size="0.005 0.1 0.1" rgba="0.9 0.9 0.9 1"/>
+            <geom type="box" pos="0.02 0 -0.08" size="0.005 0.06 0.04" rgba="0.9 0.9 0.9 1"/> <!-- Jaw -->
+            <!-- Eye Sockets (Dark) -->
+            <geom type="box" pos="0.022 0.04 0.06" size="0.005 0.025 0.025" rgba="0.1 0.1 0.1 1"/>
+            <geom type="box" pos="0.022 -0.04 0.06" size="0.005 0.025 0.025" rgba="0.1 0.1 0.1 1"/>
+            <!-- Nose (Dark) -->
+            <geom type="box" pos="0.022 0 0.02" size="0.005 0.01 0.015" rgba="0.1 0.1 0.1 1"/>
+            <!-- Roses (Red/Green) -->
+            <geom type="box" pos="0.02 0.15 -0.15" size="0.005 0.04 0.04" rgba="0.8 0.1 0.1 1"/> <!-- Rose 1 -->
+            <geom type="box" pos="0.02 -0.15 -0.15" size="0.005 0.04 0.04" rgba="0.8 0.1 0.1 1"/> <!-- Rose 2 -->
+            <geom type="box" pos="0.015 0.18 -0.2" size="0.005 0.03 0.03" rgba="0.1 0.6 0.1 1"/> <!-- Leaves -->
+        </body>
+
+        <!-- Furniture: Bed -->
+        <body name="guest_bed" pos="1.2 3 0">
+            <geom class="furniture_guest_wood" pos="0 0 0.2" size="0.8 1.05 0.2"/>
+            <geom class="furniture_guest_wood" pos="0 1.0 0.5" size="0.8 0.05 0.3"/>
+            <geom type="box" pos="0 -0.05 0.45" size="0.75 0.95 0.1" rgba="0.4 0.4 0.45 1" material="mat_guest_fabric_dark"/>
+            <geom class="guest_bedding" pos="0 -0.2 0.56" size="0.76 0.7 0.05"/>
+            <geom class="guest_bedding" pos="-0.4 0.8 0.6" size="0.25 0.15 0.08" rgba="0.95 0.9 0.85 1"/>
+            <geom class="guest_bedding" pos="0.4 0.8 0.6" size="0.25 0.15 0.08" rgba="0.95 0.9 0.85 1"/>
+        </body>
+
+
+
+        <!-- Furniture: Refrigerator -->
+        <body name="guest_fridge" pos="0.45 -1.1 0" euler="0 0 90">
+             <!-- Main Chassis (The box behind the doors) -->
+             <geom type="box" size="0.45 0.29 0.9" pos="0 0.05 0.9" material="silver_metal"/>
+
+             <!-- === TOP SECTION: FRENCH DOORS === -->
+             
+             <!-- Left Door -->
+             <body name="door_left" pos="-0.45 -0.25 1.3">
+               <!-- Hinge joint -->
+               <joint name="joint_door_left" axis="0 0 1" range="0 135" damping="1.0"/>
+               
+               <!-- Door Panel -->
+               <geom type="box" size="0.22 0.04 0.49" pos="0.225 -0.04 0" material="silver_metal"/>
+               
+               <!-- Handle -->
+               <geom type="box" size="0.015 0.02 0.35" pos="0.40 -0.10 0" material="handle_metal"/>
+               <!-- Handle connectors -->
+               <geom type="box" size="0.005 0.02 0.01" pos="0.40 -0.06 0.25" material="handle_metal"/>
+               <geom type="box" size="0.005 0.02 0.01" pos="0.40 -0.06 -0.25" material="handle_metal"/>
+
+               <!-- Display Panel (On Left Door) -->
+               <geom type="box" size="0.06 0.005 0.12" pos="0.35 -0.081 0.1" material="display_glass"/>
+               <!-- Simulated text/graphics -->
+               <geom type="box" size="0.04 0.001 0.08" pos="0.35 -0.082 0.1" material="display_text"/>
+             </body>
+
+             <!-- Right Door -->
+             <body name="door_right" pos="0.45 -0.25 1.3">
+               <!-- Hinge joint (negative rotation to open outward) -->
+               <joint name="joint_door_right" axis="0 0 1" range="-135 0" damping="1.0"/>
+               
+               <!-- Door Panel -->
+               <geom type="box" size="0.22 0.04 0.49" pos="-0.225 -0.04 0" material="silver_metal"/>
+               
+               <!-- Handle -->
+               <geom type="box" size="0.015 0.02 0.35" pos="-0.40 -0.10 0" material="handle_metal"/>
+               <!-- Handle connectors -->
+               <geom type="box" size="0.005 0.02 0.01" pos="-0.40 -0.06 0.25" material="handle_metal"/>
+               <geom type="box" size="0.005 0.02 0.01" pos="-0.40 -0.06 -0.25" material="handle_metal"/>
+             </body>
+
+
+             <!-- === BOTTOM SECTION: DRAWERS === -->
+             
+             <!-- Upper Drawer -->
+             <body name="drawer_upper" pos="0 -0.25 0.6">
+               <joint name="joint_drawer_upper" type="slide" axis="0 -1 0" range="0 0.35" damping="5.0"/>
+               
+               <!-- Drawer Front Face -->
+               <geom type="box" size="0.445 0.04 0.195" pos="0 -0.04 0" material="silver_metal"/>
+               <!-- Inner container (visual) -->
+               <geom type="box" size="0.40 0.25 0.15" pos="0 0.25 0" material="dark_metal" contype="0" conaffinity="0"/>
+               
+               <!-- Handle Lip -->
+               <geom type="box" size="0.40 0.01 0.01" pos="0 -0.08 0.15" material="handle_metal"/>
+             </body>
+
+             <!-- Lower Drawer -->
+             <body name="drawer_lower" pos="0 -0.25 0.2">
+               <joint name="joint_drawer_lower" type="slide" axis="0 -1 0" range="0 0.35" damping="5.0"/>
+               
+               <!-- Drawer Front Face -->
+               <geom type="box" size="0.445 0.04 0.195" pos="0 -0.04 0" material="silver_metal"/>
+               <!-- Inner container -->
+               <geom type="box" size="0.40 0.25 0.15" pos="0 0.25 0" material="dark_metal" contype="0" conaffinity="0"/>
+               
+               <!-- Handle Lip -->
+               <geom type="box" size="0.40 0.01 0.01" pos="0 -0.08 0.15" material="handle_metal"/>
+             </body>
+        </body>
+
+        <!-- Furniture: Vanity Table (Expanded 2x Left) -->
+        <body name="guest_vanity" pos="0.4 0.1 0" euler="0 0 90">
+            <!-- Desk Tabletop (Double Width) -->
+            <geom type="box" pos="0 0 0.7" size="0.8 0.2 0.02" rgba="0.9 0.85 0.7 1"/>
+            <!-- Desk Legs/Cabinet (Left - White Cabinet - Moved Left) -->
+            <geom type="box" pos="-0.65 0 0.35" size="0.12 0.18 0.35" rgba="0.95 0.95 0.95 1"/>
+            <!-- Desk Leg (Right - Wood - Adjusted Pos) -->
+            <geom type="box" pos="0.75 0 0.35" size="0.02 0.18 0.35" rgba="0.9 0.85 0.7 1"/>
+            <!-- Back Panel (Widened) -->
+            <geom type="box" pos="0 0.19 0.5" size="0.78 0.01 0.2" rgba="0.9 0.85 0.7 1"/>
+            
+            <!-- Mirror Structure (Centered on new desk) -->
+            <body name="vanity_mirror_struct" pos="0 0.15 0.72">
+                <!-- Wood Backing (Widened) -->
+                <geom type="box" pos="0 0 0.3" size="0.5 0.01 0.3" rgba="0.9 0.85 0.7 1"/>
+                <!-- Mirror Surface (Widened) -->
+                <geom type="box" pos="0 -0.01 0.3" size="0.44 0.005 0.27" rgba="0.8 0.9 1 0.9"/>
+                <!-- Small Shelves (Moved to new edges) -->
+                <geom type="box" pos="0.6 0 0.1" size="0.08 0.04 0.01" rgba="0.9 0.85 0.7 1"/>
+                <geom type="box" pos="0.6 0 0.3" size="0.08 0.04 0.01" rgba="0.9 0.85 0.7 1"/>
+                <geom type="box" pos="-0.6 0 0.1" size="0.08 0.04 0.01" rgba="0.9 0.85 0.7 1"/>
+                <geom type="box" pos="-0.6 0 0.3" size="0.08 0.04 0.01" rgba="0.9 0.85 0.7 1"/>
+            </body>
+
+            <!-- Stool (Centered on new desk) -->
+            <body name="vanity_stool" pos="0 -0.4 0">
+                <geom type="box" pos="0 0 0.4" size="0.15 0.15 0.04" rgba="0.8 0.9 0.95 1"/> <!-- Cushion -->
+                <geom type="box" pos="0 0 0.2" size="0.12 0.12 0.2" rgba="0.9 0.85 0.7 1"/> <!-- Base -->
+            </body>
+        </body>
+
+        <!-- Furniture: Nightstand -->
+        <body name="guest_nightstand" pos="2.3 3.8 0">
+            <geom class="furniture_guest_wood" pos="0 0 0.3" size="0.2 0.2 0.3"/>
+            <geom class="metal" pos="0 0 0.6" size="0.02 0.1"/>
+            <geom type="cylinder" pos="0 0 0.75" size="0.1 0.08" rgba="0.9 0.9 0.8 0.8"/>
+            <light pos="0 0 0.7" dir="0 0 -1" diffuse="0.8 0.7 0.5" attenuation="2 0 0"/>
+        </body>
+
+        <!-- Furniture: Sofa -->
+        <body name="guest_sofa" pos="2.2 1.0 0" euler="0 0 0">
+            <geom type="mesh" mesh="mesh_dollhouse_sofa_visual" material="mat_dollhouse_sofa_beige" contype="0" conaffinity="0" group="2"/>
+            <geom type="mesh" mesh="mesh_dollhouse_sofa_col_0" group="3"/>
+            <geom type="mesh" mesh="mesh_dollhouse_sofa_col_1" group="3"/>
+            <geom type="mesh" mesh="mesh_dollhouse_sofa_col_2" group="3"/>
+            <geom type="mesh" mesh="mesh_dollhouse_sofa_col_3" group="3"/>
+            <geom type="mesh" mesh="mesh_dollhouse_sofa_col_4" group="3"/>
+            <geom type="mesh" mesh="mesh_dollhouse_sofa_col_5" group="3"/>
+            <geom type="mesh" mesh="mesh_dollhouse_sofa_col_6" group="3"/>
+            <geom type="mesh" mesh="mesh_dollhouse_sofa_col_7" group="3"/>
+            <geom type="mesh" mesh="mesh_dollhouse_sofa_col_8" group="3"/>
+            <geom type="mesh" mesh="mesh_dollhouse_sofa_col_9" group="3"/>
+            <geom type="mesh" mesh="mesh_dollhouse_sofa_col_10" group="3"/>
+            <geom type="mesh" mesh="mesh_dollhouse_sofa_col_11" group="3"/>
+            <geom type="mesh" mesh="mesh_dollhouse_sofa_col_12" group="3"/>
+            <geom type="mesh" mesh="mesh_dollhouse_sofa_col_13" group="3"/>
+            <geom type="mesh" mesh="mesh_dollhouse_sofa_col_14" group="3"/>
+            <geom type="mesh" mesh="mesh_dollhouse_sofa_col_15" group="3"/>
+            <geom type="mesh" mesh="mesh_dollhouse_sofa_col_16" group="3"/>
+            <geom type="mesh" mesh="mesh_dollhouse_sofa_col_17" group="3"/>
+            <geom type="mesh" mesh="mesh_dollhouse_sofa_col_18" group="3"/>
+            <geom type="mesh" mesh="mesh_dollhouse_sofa_col_19" group="3"/>
+            <geom type="mesh" mesh="mesh_dollhouse_sofa_col_20" group="3"/>
+            <geom type="mesh" mesh="mesh_dollhouse_sofa_col_21" group="3"/>
+            <geom type="mesh" mesh="mesh_dollhouse_sofa_col_22" group="3"/>
+            <geom type="mesh" mesh="mesh_dollhouse_sofa_col_23" group="3"/>
+            <geom type="mesh" mesh="mesh_dollhouse_sofa_col_24" group="3"/>
+            <geom type="mesh" mesh="mesh_dollhouse_sofa_col_25" group="3"/>
+            <geom type="mesh" mesh="mesh_dollhouse_sofa_col_26" group="3"/>
+            <geom type="mesh" mesh="mesh_dollhouse_sofa_col_27" group="3"/>
+            <geom type="mesh" mesh="mesh_dollhouse_sofa_col_28" group="3"/>
+            <geom type="mesh" mesh="mesh_dollhouse_sofa_col_29" group="3"/>
+            <geom type="mesh" mesh="mesh_dollhouse_sofa_col_30" group="3"/>
+            <geom type="mesh" mesh="mesh_dollhouse_sofa_col_31" group="3"/>
+        </body>
+
+        <!-- Kitchen & Bath -->
+        <body name="guest_bath_interior" pos="4.25 3.25 0">
+            <geom type="box" pos="0.4 0.4 0.05" size="0.35 0.35 0.05" rgba="0.9 0.9 1 1"/>
+            <geom class="glass" pos="0.05 0.4 1.0" size="0.01 0.35 1.0"/>
+            <geom class="metal" pos="0.7 0.4 1.8" size="0.02 0.1" euler="0 90 0"/>
+            <geom type="box" pos="0.5 -0.1 0.2" size="0.15 0.2 0.2" rgba="1 1 1 1"/>
+            <geom type="cylinder" pos="0.5 -0.2 0.25" size="0.15 0.05" rgba="1 1 1 1"/>
+            <geom type="cylinder" pos="-0.4 0.4 0.8" size="0.25 0.05" rgba="1 1 1 1"/>
+            <geom class="metal" pos="-0.4 0.4 0.9" size="0.01 0.05"/>
+        </body>
+
+        <!-- Furniture: Wall Mounted TV -->
+        <!-- Positioned on Guest Bedroom South Wall (y=-2), facing North -->
+        <!-- Sofa is at y=2 facing South. TV should be opposite. -->
+        <!-- Wall Inner Face at y=-1.9. TV at y=-1.8. -->
+        <!-- Orientation: Facing +Y (North). Default TV faces -Y. Rotate 180 deg. -->
+        <body name="guest_tv" pos="2.8 -1.8 1.5" euler="0 0 180">
+             <!-- Screen Panel (Black Glass) -->
+             <geom type="box" size="0.6 0.01 0.34" pos="0 0 0" material="mat_tv_screen"/>
+             
+             <!-- Bezel/Frame (Thin black border) -->
+             <geom type="box" size="0.605 0.008 0.345" pos="0 0.002 0" material="mat_tv_bezel"/>
+             
+             <!-- Back Panel (Thicker bottom) -->
+             <geom type="box" size="0.5 0.03 0.2" pos="0 0.04 0" rgba="0.1 0.1 0.1 1"/>
+             
+             <!-- Logo (Small text at bottom center) -->
+             <geom type="box" size="0.03 0.001 0.005" pos="0 -0.011 -0.33" material="mat_tv_logo"/>
+        </body>
+
+
+    </body>
+
+  </worldbody>
+
+    <!-- Actuators for Doors -->
+    <actuator>
+        <position name="actuator_door_east" joint="joint_door_east" kp="100" ctrlrange="-1.57 0"/>
+        <position name="actuator_door_west" joint="joint_door_west" kp="100" ctrlrange="0 1.57"/>
+        
+        <!-- Fridge Controls -->
+        <position name="act_door_left" joint="joint_door_left" kp="100" ctrlrange="0 135"/>
+        <position name="act_door_right" joint="joint_door_right" kp="100" ctrlrange="-135 0"/>
+        <position name="act_drawer_upper" joint="joint_drawer_upper" kp="200" ctrlrange="0 0.4"/>
+        <position name="act_drawer_lower" joint="joint_drawer_lower" kp="200" ctrlrange="0 0.35"/>
+        
+
+
+
+
+        <!-- Robot Controls -->
+        <motor name="act_fl" joint="joint_fl" gear="50" ctrlrange="-1 1"/>
+        <motor name="act_fr" joint="joint_fr" gear="50" ctrlrange="-1 1"/>
+        <motor name="act_bl" joint="joint_bl" gear="50" ctrlrange="-1 1"/>
+        <motor name="act_br" joint="joint_br" gear="50" ctrlrange="-1 1"/>
+
+        <position ctrllimited="true" ctrlrange="-3.14158 3.14158" joint="vx300s_left/waist" kp="800"  user="1" forcelimited="true" forcerange="-150 150"/>
+        <position ctrllimited="true" ctrlrange="-1.85005 1.25664" joint="vx300s_left/shoulder" kp="1600"  user="1" forcelimited="true" forcerange="-300 300"/>
+        <position ctrllimited="true" ctrlrange="-1.76278 1.6057" joint="vx300s_left/elbow" kp="800"  user="1" forcelimited="true" forcerange="-100 100"/>
+        <position ctrllimited="true" ctrlrange="-3.14158 3.14158" joint="vx300s_left/forearm_roll" kp="10"  user="1" forcelimited="true" forcerange="-100 100"/>
+        <position ctrllimited="true" ctrlrange="-1.8675 2.23402" joint="vx300s_left/wrist_angle" kp="50"  user="1"/>
+        <position ctrllimited="true" ctrlrange="-3.14158 3.14158" joint="vx300s_left/wrist_rotate" kp="20"  user="1"/>
+        <position ctrllimited="true" ctrlrange="0.021 0.057" joint="vx300s_left/left_finger" kp="200"  user="1"/>
+        <position ctrllimited="true" ctrlrange="-0.057 -0.021" joint="vx300s_left/right_finger" kp="200"  user="1"/>
+
+        <position ctrllimited="true" ctrlrange="-3.14158 3.14158" joint="vx300s_right/waist" kp="800"  user="1" forcelimited="true" forcerange="-150 150"/>
+        <position ctrllimited="true" ctrlrange="-1.85005 1.25664" joint="vx300s_right/shoulder" kp="1600"  user="1" forcelimited="true" forcerange="-300 300"/>
+        <position ctrllimited="true" ctrlrange="-1.76278 1.6057" joint="vx300s_right/elbow" kp="800"  user="1" forcelimited="true" forcerange="-100 100"/>
+        <position ctrllimited="true" ctrlrange="-3.14158 3.14158" joint="vx300s_right/forearm_roll" kp="10"  user="1" forcelimited="true" forcerange="-100 100"/>
+        <position ctrllimited="true" ctrlrange="-1.8675 2.23402" joint="vx300s_right/wrist_angle" kp="50"  user="1"/>
+        <position ctrllimited="true" ctrlrange="-3.14158 3.14158" joint="vx300s_right/wrist_rotate" kp="20"  user="1"/>
+        <position ctrllimited="true" ctrlrange="0.021 0.057" joint="vx300s_right/left_finger" kp="200"  user="1"/>
+        <position ctrllimited="true" ctrlrange="-0.057 -0.021" joint="vx300s_right/right_finger" kp="200"  user="1"/>
+
+    </actuator>
+
+    <!-- Sensors -->
+    <!-- <sensor>
+        <rangefinder name="lidar_0" site="s_lidar_0"/>
+        ...
+    </sensor> -->
+
+
+
+ 
+
+
+</mujoco>

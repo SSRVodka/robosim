@@ -1,0 +1,4 @@
+<mujocoinclude>
+  <velocity name="rv_actuator_left" joint="rv_left_wheel_joint" kv="10" ctrlrange="-10 10"/>
+  <velocity name="rv_actuator_right" joint="rv_right_wheel_joint" kv="10" ctrlrange="-10 10"/>
+</mujocoinclude>

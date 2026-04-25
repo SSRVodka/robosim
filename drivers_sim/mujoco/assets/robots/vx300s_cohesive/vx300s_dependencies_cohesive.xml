@@ -1,0 +1,15 @@
+<mujocoinclude>
+    <asset>
+        <mesh name="vx300s_1_base" file="../../robots/vx300s_cohesive/vx300s_1_base.stl" scale="0.001 0.001 0.001" />
+        <mesh name="vx300s_2_shoulder" file="../../robots/vx300s_cohesive/vx300s_2_shoulder.stl" scale="0.001 0.001 0.001" />
+        <mesh name="vx300s_3_upper_arm" file="../../robots/vx300s_cohesive/vx300s_3_upper_arm.stl" scale="0.001 0.001 0.001" />
+        <mesh name="vx300s_4_upper_forearm" file="../../robots/vx300s_cohesive/vx300s_4_upper_forearm.stl" scale="0.001 0.001 0.001" />
+        <mesh name="vx300s_5_lower_forearm" file="../../robots/vx300s_cohesive/vx300s_5_lower_forearm.stl" scale="0.001 0.001 0.001" />
+        <mesh name="vx300s_6_wrist" file="../../robots/vx300s_cohesive/vx300s_6_wrist.stl" scale="0.001 0.001 0.001" />
+        <mesh name="vx300s_7_gripper" file="../../robots/vx300s_cohesive/vx300s_7_gripper.stl" scale="0.001 0.001 0.001" />
+        <mesh name="vx300s_8_gripper_prop" file="../../robots/vx300s_cohesive/vx300s_8_gripper_prop.stl" scale="0.001 0.001 0.001" />
+        <mesh name="vx300s_9_gripper_bar" file="../../robots/vx300s_cohesive/vx300s_9_gripper_bar.stl" scale="0.001 0.001 0.001" />
+        <mesh name="vx300s_10_gripper_finger_left" file="../../robots/vx300s_cohesive/vx300s_10_custom_finger_left.stl" scale="0.001 0.001 0.001" />
+        <mesh name="vx300s_10_gripper_finger_right" file="../../robots/vx300s_cohesive/vx300s_10_custom_finger_right.stl" scale="0.001 0.001 0.001" />
+    </asset>
+</mujocoinclude>

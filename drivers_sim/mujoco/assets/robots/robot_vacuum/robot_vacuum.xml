@@ -1,0 +1,22 @@
+<mujoco model="robot_vacuum_standalone">
+  <include file="robot_vacuum_defaults.xml"/>
+
+  <asset>
+    <include file="robot_vacuum_assets.xml"/>
+  </asset>
+
+  <worldbody>
+    <body name="robot_vacuum_root">
+      <freejoint/>
+      <include file="robot_vacuum_body.xml"/>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <include file="robot_vacuum_actuators.xml"/>
+  </actuator>
+
+  <sensor>
+    <include file="robot_vacuum_sensors.xml"/>
+  </sensor>
+</mujoco>
