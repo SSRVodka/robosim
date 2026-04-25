@@ -222,3 +222,6 @@ install
 log
 models
 refs
+
+#mujoco scenes：
+drivers_sim/mujoco/assets/worlds/two_bedroom_apartment/
