@@ -23,7 +23,7 @@
 拉下本仓库并准备环境。以 miniforge 管理虚拟环境为例：
 
 ```bash
-git clone --recurisve https://github.com/SSRVodka/robosim.git
+git clone --recursive https://github.com/SSRVodka/robosim.git
 pushd robosim
 mamba env create -f environment.yml
 mamba activate robosim
