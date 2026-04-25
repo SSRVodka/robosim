@@ -61,3 +61,4 @@ python3 -m robosim.server --port 50051 [ --backend <gazebo|mujoco> ] [ --headles
 
 精简版简化了资源目录的放置方法。按照模拟器类型区分存放目录，`drivers_sim/gazebo-11/assets` 存放 Gazebo Classic 的资源，`drivers_sim/mujoco/assets` 存放 MuJoCo 的资源。
 
+MuJoCo 场景资产清单、依赖关系和直接启动命令见 `drivers_sim/mujoco/assets/README.md`。
