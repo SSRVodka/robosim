@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import os
+import queue
 import threading
 import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
+from math import pi
 from pathlib import Path
-from typing import Iterator
+from typing import TYPE_CHECKING, Iterator
 
 import mujoco
 import mujoco.viewer
@@ -21,10 +24,21 @@ from control_stubs.sensing_pb2 import SensorType
 from robosim.core.backend import SimulatorBackend
 from robosim.core.capabilities import Capability
 
+if TYPE_CHECKING:
+    from robosim.navigation.mujoco_map import GridBuildOptions
+    from robosim.navigation.path_follower import (
+        NavigationOutcome,
+        NavigationParams,
+        NavigationStep,
+    )
+
 JOINT_SENSOR_NAME = "joint_states"
+ROBOT_VACUUM_SCAN_NAME = "robot_vacuum_scan"
+ROBOT_VACUUM_SCAN_PREFIX = "rv_scan_"
 DEFAULT_CAMERA_WIDTH = 320
 DEFAULT_CAMERA_HEIGHT = 240
 STREAM_INTERVAL_SEC = 0.05
+NAV_FEEDBACK_INTERVAL_SEC = 0.25
 POSITION_KP = 200.0
 POSITION_KD = 30.0
 VELOCITY_KP = 40.0
@@ -74,6 +88,34 @@ class SensorInfo:
     sensor_type: SensorType
     source: str
     source_id: int | None = None
+
+
+def _env_float(name: str, default: float) -> float:
+    value = os.getenv(name)
+    if value is None or value.strip() == "":
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        return default
+
+
+def _env_csv(name: str) -> tuple[str, ...]:
+    value = os.getenv(name, "")
+    return tuple(item.strip() for item in value.split(",") if item.strip())
+
+
+def _env_bounds(name: str) -> tuple[float, float, float, float] | None:
+    value = os.getenv(name)
+    if value is None or value.strip() == "":
+        return None
+    parts = [item.strip() for item in value.split(",") if item.strip()]
+    if len(parts) != 4:
+        return None
+    try:
+        return tuple(float(item) for item in parts)  # type: ignore[return-value]
+    except ValueError:
+        return None
 
 
 class MuJoCoBackend(SimulatorBackend):
@@ -374,6 +416,12 @@ class MuJoCoBackend(SimulatorBackend):
                 source="sensor",
                 source_id=sensor_id,
             )
+        if any(name.startswith(ROBOT_VACUUM_SCAN_PREFIX) for name in sensors):
+            sensors[ROBOT_VACUUM_SCAN_NAME] = SensorInfo(
+                name=ROBOT_VACUUM_SCAN_NAME,
+                sensor_type=SensorType.LIDAR,
+                source="rangefinder_scan",
+            )
         for camera_id in range(self._model.ncam):
             camera = self._model.camera(camera_id)
             sensors[camera.name] = SensorInfo(
@@ -400,7 +448,18 @@ class MuJoCoBackend(SimulatorBackend):
                 caps |= Capability.SENSOR_JOINT
             elif sensor.sensor_type == SensorType.IMU:
                 caps |= Capability.SENSOR_IMU
+            elif sensor.sensor_type == SensorType.LIDAR:
+                caps |= Capability.SENSOR_LIDAR
+        if self._supports_robot_vacuum_navigation():
+            caps |= Capability.NAVIGATION
         return caps
+
+    def _supports_robot_vacuum_navigation(self) -> bool:
+        return (
+            ROBOT_VACUUM_SCAN_NAME in self._sensors
+            and "rv_left_wheel_joint" in self._joint_infos_by_name
+            and "rv_right_wheel_joint" in self._joint_infos_by_name
+        )
 
     def get_robot_state(self) -> common_pb2.JointState:
         with self._state_lock:
@@ -587,6 +646,7 @@ class MuJoCoBackend(SimulatorBackend):
     def get_sensors(self, names: list[str]) -> sensing_pb2.SensorData:
         requested = set(names) if names else set(self._sensors)
         images: list[sensing_pb2.CameraImage] = []
+        lidars: list[sensing_pb2.LidarScan] = []
         joints: list[sensing_pb2.JointData] = []
         forces: list[sensing_pb2.WrenchData] = []
         torques: list[sensing_pb2.WrenchData] = []
@@ -604,10 +664,17 @@ class MuJoCoBackend(SimulatorBackend):
                 if sensor.source == "camera":
                     images.append(self._render_camera_locked(sensor))
                     continue
+                if sensor.source == "rangefinder_scan":
+                    lidars.append(self._build_robot_vacuum_scan_locked())
+                    continue
                 if sensor.source == "sensor" and sensor.source_id is not None:
                     sensor_slice = self._sensor_values(sensor.source_id)
                     header = self._build_header(frame_id="world")
-                    if sensor.sensor_type == SensorType.FORCE:
+                    if sensor.sensor_type == SensorType.LIDAR:
+                        lidars.append(
+                            self._build_rangefinder_lidar_locked(sensor, sensor_slice)
+                        )
+                    elif sensor.sensor_type == SensorType.FORCE:
                         forces.append(
                             sensing_pb2.WrenchData(
                                 header=header,
@@ -624,7 +691,13 @@ class MuJoCoBackend(SimulatorBackend):
                             )
                         )
 
-        return sensing_pb2.SensorData(images=images, joints=joints, forces=forces, torques=torques)
+        return sensing_pb2.SensorData(
+            images=images,
+            lidars=lidars,
+            joints=joints,
+            forces=forces,
+            torques=torques,
+        )
 
     def stream_sensors(self, names: list[str]) -> Iterator[sensing_pb2.SensorData]:
         while not self._stop_event.is_set():
@@ -660,25 +733,301 @@ class MuJoCoBackend(SimulatorBackend):
                 renderer.close()
             self._renderers.clear()
 
+    # def get_robot_pose_in_map(self) -> common_pb2.PoseStamped:
+    #     raise NotImplementedError("Navigation not supported for MuJoCo")
+    #Eddy:Extension of Navigation which is based on two_bedroom_apartment
     def get_robot_pose_in_map(self) -> common_pb2.PoseStamped:
-        raise NotImplementedError("Navigation not supported for MuJoCo")
+        with self._state_lock:
+            body_id = self._robot_root_body_id
+            position = self._data.xpos[body_id].copy()
+            orientation = self._data.xquat[body_id].copy()
 
-    def navigate_to(self, goal: mobility_ai_pb2.NavGoal) -> Iterator[mobility_ai_pb2.TaskFeedback]:
-        raise NotImplementedError("Navigation not supported for MuJoCo")
+        return common_pb2.PoseStamped(
+            header=self._build_header(frame_id="world"),
+            pose=common_pb2.Pose(
+                position=self._build_point(position),
+                orientation=self._build_quaternion(orientation),
+            ),
+        )
+
+
+    def navigate_to(
+        self,
+        goal: mobility_ai_pb2.NavGoal,
+    ) -> Iterator[mobility_ai_pb2.TaskFeedback]:
+        if not self._supports_robot_vacuum_navigation():
+            raise NotImplementedError("Navigation requires robot vacuum lidar and wheel joints")
+
+        target_frame = goal.target_frame or "world"
+        if target_frame not in ("world", "map"):
+            raise ValueError(f"Unsupported navigation target_frame: {target_frame}")
+
+        from robosim.navigation.backend_client import BackendRobosimClient
+        from robosim.navigation.geometry import Point2D
+        from robosim.navigation.mujoco_map import build_occupancy_grid
+        from robosim.navigation.path_follower import (
+            NavigationOutcome,
+            navigate_with_lidar_safety,
+        )
+
+        task_id = f"mujoco-nav-{int(time.time() * 1000)}"
+        target = Point2D(
+            float(goal.target_pose.position.x),
+            float(goal.target_pose.position.y),
+        )
+        max_velocity = float(goal.max_velocity)
+        params = self._build_navigation_params(max_velocity)
+        grid_options = self._build_navigation_grid_options()
+
+        yield self._make_feedback(
+            task_id=task_id,
+            status_code=common_pb2.STATUS_RUNNING,
+            message="Building navigation grid",
+            feedback_text=(
+                f"target=({target.x:.3f}, {target.y:.3f}), frame={target_frame}"
+            ),
+        )
+
+        built_grid = build_occupancy_grid(self._scene_path, grid_options)
+        yield self._make_feedback(
+            task_id=task_id,
+            status_code=common_pb2.STATUS_RUNNING,
+            message="Navigation started",
+            feedback_text=(
+                f"grid={built_grid.grid.width}x{built_grid.grid.height}, "
+                f"ignored={built_grid.stats.skipped_ignored_geoms}"
+            ),
+        )
+
+        feedback_queue: queue.Queue[
+            mobility_ai_pb2.TaskFeedback | NavigationOutcome | BaseException
+        ] = queue.Queue()
+        cancel_event = threading.Event()
+        nav_client = BackendRobosimClient(self)
+        last_feedback_at = 0.0
+        last_state = ""
+        last_replans = -1
+
+        def on_step(step: NavigationStep) -> None:
+            nonlocal last_feedback_at, last_state, last_replans
+            now = time.monotonic()
+            if (
+                now - last_feedback_at < NAV_FEEDBACK_INTERVAL_SEC
+                and step.state == last_state
+                and step.replans == last_replans
+            ):
+                return
+            last_feedback_at = now
+            last_state = step.state
+            last_replans = step.replans
+            feedback_queue.put(self._make_navigation_step_feedback(task_id, step))
+
+        def worker() -> None:
+            try:
+                outcome = navigate_with_lidar_safety(
+                    client=nav_client,
+                    grid=built_grid.grid,
+                    target=target,
+                    params=params,
+                    feedback=on_step,
+                    should_cancel=cancel_event.is_set,
+                )
+            except BaseException as exc:  # noqa: BLE001
+                feedback_queue.put(exc)
+            else:
+                feedback_queue.put(outcome)
+
+        nav_thread = threading.Thread(
+            target=worker,
+            name="mujoco_navigation_worker",
+            daemon=True,
+        )
+        nav_thread.start()
+
+        try:
+            while True:
+                try:
+                    item = feedback_queue.get(timeout=0.1)
+                except queue.Empty:
+                    if not nav_thread.is_alive():
+                        yield self._make_feedback(
+                            task_id=task_id,
+                            status_code=common_pb2.STATUS_FAILURE,
+                            message="Navigation worker exited without outcome",
+                        )
+                        break
+                    continue
+
+                if isinstance(item, mobility_ai_pb2.TaskFeedback):
+                    yield item
+                    continue
+                if isinstance(item, NavigationOutcome):
+                    yield self._make_navigation_outcome_feedback(task_id, item)
+                    break
+                raise item
+        finally:
+            if nav_thread.is_alive():
+                cancel_event.set()
+                nav_thread.join(timeout=2.0)
+                self.emergency_stop()
+
+    def _build_navigation_params(self, max_velocity: float) -> "NavigationParams":
+        from robosim.navigation.path_follower import NavigationParams
+
+        normal_linear = _env_float("ROBOSIM_NAV_NORMAL_LINEAR", 0.14)
+        if max_velocity > 0.0:
+            normal_linear = min(max_velocity, _env_float("ROBOSIM_NAV_MAX_LINEAR", 0.30))
+        slow_linear = min(
+            _env_float("ROBOSIM_NAV_SLOW_LINEAR", 0.04),
+            max(0.02, normal_linear * 0.5),
+        )
+        return NavigationParams(
+            timeout=_env_float("ROBOSIM_NAV_TIMEOUT", 60.0),
+            arrive_tolerance=_env_float("ROBOSIM_NAV_ARRIVE_TOLERANCE", 0.12),
+            waypoint_tolerance=_env_float("ROBOSIM_NAV_WAYPOINT_TOLERANCE", 0.18),
+            lookahead_distance=_env_float("ROBOSIM_NAV_LOOKAHEAD_DISTANCE", 0.35),
+            direct_goal_distance=_env_float("ROBOSIM_NAV_DIRECT_GOAL_DISTANCE", 0.55),
+            stop_distance=_env_float("ROBOSIM_NAV_STOP_DISTANCE", 0.30),
+            slow_distance=_env_float("ROBOSIM_NAV_SLOW_DISTANCE", 0.75),
+            side_distance=_env_float("ROBOSIM_NAV_SIDE_DISTANCE", 0.40),
+            normal_linear=normal_linear,
+            slow_linear=slow_linear,
+            max_angular=_env_float("ROBOSIM_NAV_MAX_ANGULAR", 1.2),
+            goal_gain=_env_float("ROBOSIM_NAV_GOAL_GAIN", 1.6),
+            avoid_gain=_env_float("ROBOSIM_NAV_AVOID_GAIN", 1.0),
+            turn_speed=_env_float("ROBOSIM_NAV_TURN_SPEED", 0.8),
+            replan_after=_env_float("ROBOSIM_NAV_REPLAN_AFTER", 0.8),
+            replan_cooldown=_env_float("ROBOSIM_NAV_REPLAN_COOLDOWN", 4.0),
+            progress_timeout=_env_float("ROBOSIM_NAV_PROGRESS_TIMEOUT", 3.0),
+            progress_epsilon=_env_float("ROBOSIM_NAV_PROGRESS_EPSILON", 0.03),
+            dynamic_mark_distance=_env_float("ROBOSIM_NAV_DYNAMIC_MARK_DISTANCE", 1.2),
+            dynamic_min_distance=_env_float("ROBOSIM_NAV_DYNAMIC_MIN_DISTANCE", 0.22),
+            dynamic_mark_half_angle_deg=_env_float(
+                "ROBOSIM_NAV_DYNAMIC_MARK_HALF_ANGLE_DEG",
+                120.0,
+            ),
+            dynamic_obstacle_radius=_env_float(
+                "ROBOSIM_NAV_DYNAMIC_OBSTACLE_RADIUS",
+                0.45,
+            ),
+        )
+
+    def _build_navigation_grid_options(self) -> "GridBuildOptions":
+        from robosim.navigation.mujoco_map import GridBuildOptions
+
+        return GridBuildOptions(
+            resolution=_env_float("ROBOSIM_NAV_GRID_RESOLUTION", 0.10),
+            robot_radius=_env_float("ROBOSIM_NAV_ROBOT_RADIUS", 0.18),
+            safety_margin=_env_float("ROBOSIM_NAV_SAFETY_MARGIN", 0.08),
+            bounds_padding=_env_float("ROBOSIM_NAV_BOUNDS_PADDING", 0.20),
+            bounds=_env_bounds("ROBOSIM_NAV_BOUNDS"),
+            ignored_geom_names=_env_csv("ROBOSIM_NAV_IGNORE_GEOM_NAMES"),
+            ignored_geom_prefixes=_env_csv("ROBOSIM_NAV_IGNORE_GEOM_PREFIXES"),
+        )
+
+    @staticmethod
+    def _make_feedback(
+        task_id: str,
+        status_code: common_pb2.StatusCode,
+        message: str,
+        eta: int = 0,
+        feedback_text: str = "",
+    ) -> mobility_ai_pb2.TaskFeedback:
+        feedback = mobility_ai_pb2.TaskFeedback()
+        feedback.task_id = task_id
+        feedback.status.code = status_code
+        feedback.status.message = message
+        feedback.eta = eta
+        feedback.feedback_text = feedback_text
+        return feedback
+
+    def _make_navigation_step_feedback(
+        self,
+        task_id: str,
+        step: "NavigationStep",
+    ) -> mobility_ai_pb2.TaskFeedback:
+        speed_for_eta = max(abs(step.linear), 0.05)
+        eta = int(max(0.0, step.goal_distance / speed_for_eta))
+        return self._make_feedback(
+            task_id=task_id,
+            status_code=common_pb2.STATUS_RUNNING,
+            message=(
+                f"{step.state}: distance={step.goal_distance:.3f}m, "
+                f"front={step.scan.front:.3f}m, replans={step.replans}"
+            ),
+            eta=eta,
+            feedback_text=(
+                f"x={step.pose.x:.3f}, y={step.pose.y:.3f}, "
+                f"yaw={step.pose.yaw:.3f}, path={step.target_index + 1}/"
+                f"{step.path_points}, linear={step.linear:.3f}, "
+                f"angular={step.angular:.3f}"
+            ),
+        )
+
+    def _make_navigation_outcome_feedback(
+        self,
+        task_id: str,
+        outcome: "NavigationOutcome",
+    ) -> mobility_ai_pb2.TaskFeedback:
+        if outcome.cancelled:
+            status_code = common_pb2.STATUS_PREEMPTED
+            message = "Navigation cancelled"
+        elif outcome.ok:
+            status_code = common_pb2.STATUS_SUCCESS
+            message = "Navigation succeeded"
+        else:
+            status_code = common_pb2.STATUS_FAILURE
+            message = "Navigation failed"
+        return self._make_feedback(
+            task_id=task_id,
+            status_code=status_code,
+            message=(
+                f"{message}: final_distance={outcome.final_distance:.3f}m, "
+                f"replans={outcome.replans}"
+            ),
+            feedback_text=(
+                f"final_x={outcome.final_pose.x:.3f}, "
+                f"final_y={outcome.final_pose.y:.3f}, "
+                f"track_steps={outcome.track_steps}, "
+                f"slow_steps={outcome.slow_steps}, "
+                f"blocked_steps={outcome.blocked_steps}"
+            ),
+        )
 
     def _apply_controls_locked(self) -> None:
         gravity = self._gravity_compensation_locked()
         self._data.ctrl[:] = 0
         self._data.qfrc_applied[:] = 0
+
         for info in self._joint_infos:
             if not info.controllable:
                 continue
-            torque = float(gravity[info.qvel_adr])
+
             mode_target = self._control_targets.get(info.name)
+
+            # If this joint has a MuJoCo actuator and the command is velocity mode,
+            # prefer the native actuator path. This is important for wheel joints.
+            if mode_target is not None:
+                mode, target = mode_target
+
+                if (
+                    mode == core_pb2.JointCommand.ControlMode.VELOCITY
+                    and info.actuator_id is not None
+                ):
+                    target = float(target)
+                    if info.actuator_ctrlrange is not None:
+                        low, high = info.actuator_ctrlrange
+                        target = max(low, min(high, target))
+                    self._data.ctrl[info.actuator_id] = target
+                    continue
+
+            torque = float(gravity[info.qvel_adr])
+
             if mode_target is not None:
                 mode, target = mode_target
                 qpos = float(self._data.qpos[info.qpos_adr])
                 qvel = float(self._data.qvel[info.qvel_adr])
+
                 if mode == core_pb2.JointCommand.ControlMode.POSITION:
                     torque += POSITION_KP * (target - qpos) - POSITION_KD * qvel
                 elif mode == core_pb2.JointCommand.ControlMode.VELOCITY:
@@ -687,7 +1036,9 @@ class MuJoCoBackend(SimulatorBackend):
                     torque += target
                 else:
                     raise ValueError(f"Unsupported control mode: {mode}")
+
             self._data.qfrc_applied[info.qvel_adr] = torque
+
 
     def _gravity_compensation_locked(self) -> np.ndarray:
         self._gravity_data.qpos[:] = self._data.qpos
@@ -819,6 +1170,70 @@ class MuJoCoBackend(SimulatorBackend):
         adr = int(self._model.sensor_adr[sensor_id])
         dim = int(self._model.sensor_dim[sensor_id])
         return self._data.sensordata[adr : adr + dim].copy()
+
+    def _build_robot_vacuum_scan_locked(self) -> sensing_pb2.LidarScan:
+        scan_items: list[tuple[float, float]] = []
+        for sensor in self._sensors.values():
+            if sensor.source != "sensor" or sensor.source_id is None:
+                continue
+            if sensor.sensor_type != SensorType.LIDAR:
+                continue
+            if not sensor.name.startswith(ROBOT_VACUUM_SCAN_PREFIX):
+                continue
+            values = self._sensor_values(sensor.source_id)
+            scan_items.append(
+                (self._rangefinder_angle(sensor.name), self._rangefinder_value(values))
+            )
+
+        scan_items.sort(key=lambda item: item[0])
+        angles = [item[0] for item in scan_items]
+        ranges = [item[1] for item in scan_items]
+        angle_increment = angles[1] - angles[0] if len(angles) > 1 else 0.0
+
+        return sensing_pb2.LidarScan(
+            header=self._build_header(frame_id=self._model.body(self._robot_root_body_id).name),
+            name=ROBOT_VACUUM_SCAN_NAME,
+            angle_min=angles[0] if angles else 0.0,
+            angle_max=angles[-1] if angles else 0.0,
+            angle_increment=angle_increment,
+            ranges=ranges,
+            intensities=[],
+        )
+
+    def _build_rangefinder_lidar_locked(
+        self, sensor: SensorInfo, values: np.ndarray
+    ) -> sensing_pb2.LidarScan:
+        angle = self._rangefinder_angle(sensor.name)
+        return sensing_pb2.LidarScan(
+            header=self._build_header(frame_id=sensor.name),
+            name=sensor.name,
+            angle_min=angle,
+            angle_max=angle,
+            angle_increment=0.0,
+            ranges=[self._rangefinder_value(values)],
+            intensities=[],
+        )
+
+    def _rangefinder_angle(self, sensor_name: str) -> float:
+        if sensor_name.startswith(ROBOT_VACUUM_SCAN_PREFIX):
+            suffix = sensor_name.removeprefix(ROBOT_VACUUM_SCAN_PREFIX)
+            try:
+                return float(suffix) * pi / 180.0
+            except ValueError:
+                return 0.0
+        if sensor_name.endswith("_left"):
+            return 30.0 * pi / 180.0
+        if sensor_name.endswith("_right"):
+            return -30.0 * pi / 180.0
+        return 0.0
+
+    def _rangefinder_value(self, values: np.ndarray) -> float:
+        if len(values) == 0:
+            return float("inf")
+        value = float(values[0])
+        if not np.isfinite(value) or value < 0.0:
+            return float("inf")
+        return value
 
     def _render_camera_locked(self, sensor: SensorInfo) -> sensing_pb2.CameraImage:
         assert sensor.source_id is not None
@@ -1014,6 +1429,7 @@ class MuJoCoBackend(SimulatorBackend):
             int(mujoco.mjtSensor.mjSENS_TORQUE): SensorType.TORQUE,
             int(mujoco.mjtSensor.mjSENS_ACCELEROMETER): SensorType.IMU,
             int(mujoco.mjtSensor.mjSENS_GYRO): SensorType.IMU,
+            int(mujoco.mjtSensor.mjSENS_RANGEFINDER): SensorType.LIDAR,
         }
         return mapping.get(sensor_type)
 
