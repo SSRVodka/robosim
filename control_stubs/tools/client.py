@@ -138,14 +138,14 @@ class MobilityStub:
 
     def navigate_to(
         self,
-        target_pose: tuple[float, float, float, float, float, float],
+        target_pose: tuple[float, float, float, float, float, float, float],
         target_frame: str = "map",
         max_velocity: float = 0.0,
     ) -> Iterator[mobility_ai_pb2.TaskFeedback]:
-        px, py, pz, qx, qy, qz = target_pose
+        px, py, pz, qx, qy, qz, qw = target_pose
         pose = common_pb2.Pose(
             position=common_pb2.Point(x=px, y=py, z=pz),
-            orientation=common_pb2.Quaternion(x=qx, y=qy, z=qz, w=1.0),
+            orientation=common_pb2.Quaternion(x=qx, y=qy, z=qz, w=qw),
         )
         req = mobility_ai_pb2.NavGoal(
             target_pose=pose,
