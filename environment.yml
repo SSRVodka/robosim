@@ -2,6 +2,8 @@ name: robosim
 channels:
   - robostack-humble
   - conda-forge
+  - aihabitat
+
 
 dependencies:
   - python=3.12

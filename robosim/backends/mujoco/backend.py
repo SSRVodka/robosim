@@ -43,6 +43,7 @@ POSITION_KP = 200.0
 POSITION_KD = 30.0
 VELOCITY_KP = 40.0
 EE_DLS_DAMPING = 1e-4
+ACTUATOR_MODE_TOL = 1e-9
 
 
 @dataclass(slots=True)
@@ -61,6 +62,7 @@ class JointInfo:
     controllable: bool
     actuator_id: int | None = None
     actuator_ctrlrange: tuple[float, float] | None = None
+    actuator_control_mode: int | None = None
 
 
 @dataclass(slots=True)
@@ -145,6 +147,7 @@ class MuJoCoBackend(SimulatorBackend):
             info.name for info in self._joint_infos if info.controllable
         ]
         self._control_targets: dict[str, tuple[core_pb2.JointCommand.ControlMode, float]] = {}
+        self._position_velocity_targets: dict[str, float] = {}
         self._joint_groups = self._build_joint_groups()
         self._joint_to_groups = self._build_joint_to_groups()
         self._sensors = self._build_sensors()
@@ -277,9 +280,7 @@ class MuJoCoBackend(SimulatorBackend):
         return result
 
     def _build_body_children(self) -> dict[int, list[int]]:
-        children: dict[int, list[int]] = {
-            body_id: [] for body_id in range(self._model.nbody)
-        }
+        children: dict[int, list[int]] = {body_id: [] for body_id in range(self._model.nbody)}
         for body_id in range(1, self._model.nbody):
             parent_id = int(self._model.body_parentid[body_id])
             children[parent_id].append(body_id)
@@ -292,7 +293,7 @@ class MuJoCoBackend(SimulatorBackend):
         return mapping
 
     def _build_joint_infos(self) -> list[JointInfo]:
-        actuator_by_joint_id: dict[int, tuple[int, tuple[float, float]]] = {}
+        actuator_by_joint_id: dict[int, tuple[int, tuple[float, float], int | None]] = {}
         for actuator_id in range(self._model.nu):
             trn_type = int(self._model.actuator_trntype[actuator_id])
             if trn_type != int(mujoco.mjtTrn.mjTRN_JOINT):
@@ -302,6 +303,7 @@ class MuJoCoBackend(SimulatorBackend):
             actuator_by_joint_id[joint_id] = (
                 actuator_id,
                 (float(ctrlrange[0]), float(ctrlrange[1])),
+                self._infer_actuator_control_mode(actuator_id),
             )
 
         joint_infos: list[JointInfo] = []
@@ -337,9 +339,27 @@ class MuJoCoBackend(SimulatorBackend):
                     controllable=self._is_robot_joint_type(joint_type),
                     actuator_id=actuator[0] if actuator else None,
                     actuator_ctrlrange=actuator[1] if actuator else None,
+                    actuator_control_mode=actuator[2] if actuator else None,
                 )
             )
         return joint_infos
+
+    def _infer_actuator_control_mode(self, actuator_id: int) -> int | None:
+        gain = self._model.actuator_gainprm[actuator_id]
+        bias = self._model.actuator_biasprm[actuator_id]
+        if abs(float(gain[0])) <= ACTUATOR_MODE_TOL:
+            return None
+        if (
+            abs(float(bias[1]) + float(gain[0])) <= ACTUATOR_MODE_TOL
+            and abs(float(bias[2])) <= ACTUATOR_MODE_TOL
+        ):
+            return int(core_pb2.JointCommand.ControlMode.POSITION)
+        if (
+            abs(float(bias[1])) <= ACTUATOR_MODE_TOL
+            and abs(float(bias[2]) + float(gain[0])) <= ACTUATOR_MODE_TOL
+        ):
+            return int(core_pb2.JointCommand.ControlMode.VELOCITY)
+        return None
 
     def _build_joint_groups(self) -> dict[str, JointModelGroup]:
         if self._srdf_path is None:
@@ -575,6 +595,21 @@ class MuJoCoBackend(SimulatorBackend):
                 info = self._joint_infos_by_name.get(joint_name)
                 if info is None or not info.controllable:
                     raise ValueError(f"Joint '{joint_name}' is not controllable")
+                previous = self._control_targets.get(joint_name)
+                if (
+                    mode == core_pb2.JointCommand.ControlMode.VELOCITY
+                    and info.actuator_control_mode
+                    == int(core_pb2.JointCommand.ControlMode.POSITION)
+                ):
+                    if previous is None or previous[0] != mode:
+                        self._position_velocity_targets[joint_name] = (
+                            self._clamp_actuator_target(
+                                info,
+                                float(self._data.qpos[info.qpos_adr]),
+                            )
+                        )
+                else:
+                    self._position_velocity_targets.pop(joint_name, None)
                 self._control_targets[joint_name] = (mode, float(target))
 
     def servo_control_stream(
@@ -614,7 +649,6 @@ class MuJoCoBackend(SimulatorBackend):
                         dtype=np.float64,
                     ),
                 )
-
 
                 self.set_joint_target(
                     joint_names,
@@ -671,9 +705,7 @@ class MuJoCoBackend(SimulatorBackend):
                     sensor_slice = self._sensor_values(sensor.source_id)
                     header = self._build_header(frame_id="world")
                     if sensor.sensor_type == SensorType.LIDAR:
-                        lidars.append(
-                            self._build_rangefinder_lidar_locked(sensor, sensor_slice)
-                        )
+                        lidars.append(self._build_rangefinder_lidar_locked(sensor, sensor_slice))
                     elif sensor.sensor_type == SensorType.FORCE:
                         forces.append(
                             sensing_pb2.WrenchData(
@@ -717,6 +749,7 @@ class MuJoCoBackend(SimulatorBackend):
     def emergency_stop(self) -> None:
         with self._state_lock:
             self._control_targets.clear()
+            self._position_velocity_targets.clear()
             self._data.ctrl[:] = 0
             self._data.qfrc_applied[:] = 0
             self._data.xfrc_applied[:] = 0
@@ -735,7 +768,7 @@ class MuJoCoBackend(SimulatorBackend):
 
     # def get_robot_pose_in_map(self) -> common_pb2.PoseStamped:
     #     raise NotImplementedError("Navigation not supported for MuJoCo")
-    #Eddy:Extension of Navigation which is based on two_bedroom_apartment
+    # Eddy:Extension of Navigation which is based on two_bedroom_apartment
     def get_robot_pose_in_map(self) -> common_pb2.PoseStamped:
         with self._state_lock:
             body_id = self._robot_root_body_id
@@ -749,7 +782,6 @@ class MuJoCoBackend(SimulatorBackend):
                 orientation=self._build_quaternion(orientation),
             ),
         )
-
 
     def navigate_to(
         self,
@@ -783,9 +815,7 @@ class MuJoCoBackend(SimulatorBackend):
             task_id=task_id,
             status_code=common_pb2.STATUS_RUNNING,
             message="Building navigation grid",
-            feedback_text=(
-                f"target=({target.x:.3f}, {target.y:.3f}), frame={target_frame}"
-            ),
+            feedback_text=(f"target=({target.x:.3f}, {target.y:.3f}), frame={target_frame}"),
         )
 
         built_grid = build_occupancy_grid(self._scene_path, grid_options)
@@ -1013,12 +1043,12 @@ class MuJoCoBackend(SimulatorBackend):
                 if (
                     mode == core_pb2.JointCommand.ControlMode.VELOCITY
                     and info.actuator_id is not None
+                    and info.actuator_control_mode == int(mode)
                 ):
-                    target = float(target)
-                    if info.actuator_ctrlrange is not None:
-                        low, high = info.actuator_ctrlrange
-                        target = max(low, min(high, target))
-                    self._data.ctrl[info.actuator_id] = target
+                    self._data.ctrl[info.actuator_id] = self._clamp_actuator_target(
+                        info,
+                        float(target),
+                    )
                     continue
 
             torque = float(gravity[info.qvel_adr])
@@ -1029,16 +1059,60 @@ class MuJoCoBackend(SimulatorBackend):
                 qvel = float(self._data.qvel[info.qvel_adr])
 
                 if mode == core_pb2.JointCommand.ControlMode.POSITION:
+                    if info.actuator_id is not None and info.actuator_control_mode == int(mode):
+                        self._data.ctrl[info.actuator_id] = self._clamp_actuator_target(
+                            info,
+                            float(target),
+                        )
+                        torque -= POSITION_KD * qvel
+                        self._data.qfrc_applied[info.qvel_adr] = torque
+                        continue
                     torque += POSITION_KP * (target - qpos) - POSITION_KD * qvel
                 elif mode == core_pb2.JointCommand.ControlMode.VELOCITY:
+                    if self._apply_position_actuator_velocity_target_locked(
+                        info,
+                        qpos,
+                        float(target),
+                    ):
+                        self._data.qfrc_applied[info.qvel_adr] = torque
+                        continue
                     torque += VELOCITY_KP * (target - qvel)
                 elif mode == core_pb2.JointCommand.ControlMode.TORQUE:
+                    self._neutralize_position_actuator_locked(info, qpos)
                     torque += target
                 else:
                     raise ValueError(f"Unsupported control mode: {mode}")
 
             self._data.qfrc_applied[info.qvel_adr] = torque
 
+    def _apply_position_actuator_velocity_target_locked(
+        self, info: JointInfo, qpos: float, velocity: float
+    ) -> bool:
+        if info.actuator_id is None or info.actuator_control_mode != int(
+            core_pb2.JointCommand.ControlMode.POSITION
+        ):
+            return False
+        target = self._position_velocity_targets.get(info.name, qpos)
+        target = self._clamp_actuator_target(
+            info,
+            target + velocity * float(self._model.opt.timestep),
+        )
+        self._position_velocity_targets[info.name] = target
+        self._data.ctrl[info.actuator_id] = target
+        return True
+
+    def _neutralize_position_actuator_locked(self, info: JointInfo, qpos: float) -> None:
+        if info.actuator_id is None or info.actuator_control_mode != int(
+            core_pb2.JointCommand.ControlMode.POSITION
+        ):
+            return
+        self._data.ctrl[info.actuator_id] = self._clamp_actuator_target(info, qpos)
+
+    def _clamp_actuator_target(self, info: JointInfo, target: float) -> float:
+        if info.actuator_ctrlrange is None:
+            return target
+        low, high = info.actuator_ctrlrange
+        return max(low, min(high, target))
 
     def _gravity_compensation_locked(self) -> np.ndarray:
         self._gravity_data.qpos[:] = self._data.qpos
@@ -1066,14 +1140,22 @@ class MuJoCoBackend(SimulatorBackend):
         return candidates[0]
 
     def _set_idle_hold_targets_locked(self) -> None:
+        self._position_velocity_targets.clear()
         self._control_targets = {
             info.name: (
                 core_pb2.JointCommand.ControlMode.POSITION,
                 float(self._data.qpos[info.qpos_adr]),
             )
             for info in self._joint_infos
-            if info.controllable
+            if info.controllable and self._should_idle_hold_joint(info)
         }
+
+    def _should_idle_hold_joint(self, info: JointInfo) -> bool:
+        if info.joint_type != int(mujoco.mjtJoint.mjJNT_HINGE):
+            return True
+        if self._model.jnt_limited[info.joint_id]:
+            return True
+        return info.actuator_control_mode == int(core_pb2.JointCommand.ControlMode.POSITION)
 
     def _apply_default_configuration_locked(self) -> None:
         preferred_states = ("home", "ready", "default")
@@ -1096,6 +1178,33 @@ class MuJoCoBackend(SimulatorBackend):
             applied = True
         if applied:
             self._data.qvel[:] = 0
+            self._seed_position_actuator_controls_locked()
+            return
+        if self._apply_named_keyframe_locked(preferred_states):
+            self._seed_position_actuator_controls_locked()
+
+    def _apply_named_keyframe_locked(self, preferred_states: tuple[str, ...]) -> bool:
+        for state_name in preferred_states:
+            key_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_KEY, state_name)
+            if key_id < 0:
+                continue
+            mujoco.mj_resetDataKeyframe(self._model, self._data, key_id)
+            if self._model.nu:
+                self._data.ctrl[:] = self._model.key_ctrl[key_id]
+            self._data.qvel[:] = 0
+            return True
+        return False
+
+    def _seed_position_actuator_controls_locked(self) -> None:
+        for info in self._joint_infos:
+            if info.actuator_id is None or info.actuator_control_mode != int(
+                core_pb2.JointCommand.ControlMode.POSITION
+            ):
+                continue
+            self._data.ctrl[info.actuator_id] = self._clamp_actuator_target(
+                info,
+                float(self._data.qpos[info.qpos_adr]),
+            )
 
     def _solve_end_effector_twist(
         self, parent_group: str, linear: np.ndarray, angular: np.ndarray
@@ -1329,9 +1438,7 @@ class MuJoCoBackend(SimulatorBackend):
             resolve(name)
         return resolved
 
-    def _parse_srdf_group_states(
-        self, root: ET.Element
-    ) -> dict[str, dict[str, dict[str, float]]]:
+    def _parse_srdf_group_states(self, root: ET.Element) -> dict[str, dict[str, dict[str, float]]]:
         result: dict[str, dict[str, dict[str, float]]] = {}
         for state in root.findall("group_state"):
             group_name = state.attrib.get("group")
