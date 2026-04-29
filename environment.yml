@@ -2,8 +2,6 @@ name: robosim
 channels:
   - robostack-humble
   - conda-forge
-  - aihabitat
-
 
 dependencies:
   - python=3.12
@@ -29,11 +27,6 @@ dependencies:
 
   # MuJoCo stack
   - mujoco>=3.6
-
-  #Habitat-Sim stack
-  - cmake>=3.22
-  - habitat-sim
-  - withbullet
 
   # Agent stack (optional)
   - openai
