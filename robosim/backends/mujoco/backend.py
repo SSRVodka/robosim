@@ -47,6 +47,7 @@ class JointInfo:
     controllable: bool
     actuator_id: int | None = None
     actuator_ctrlrange: tuple[float, float] | None = None
+    joint_actuator_forcerange: tuple[float, float] | None = None
 
 
 @dataclass(slots=True)
@@ -94,7 +95,7 @@ class MuJoCoBackend(SimulatorBackend):
         self._srdf_path = self._find_srdf_path()
         self._robot_name = self._infer_robot_name()
         self._robot_root_body_id = self._find_robot_root_body()
-        self._robot_body_ids = self._collect_subtree_body_ids(self._robot_root_body_id)
+        self._robot_body_ids = self._collect_robot_body_ids()
         self._joint_infos = self._build_joint_infos()
         self._joint_infos_by_name = {info.name: info for info in self._joint_infos}
         self._body_children = self._build_body_children()
@@ -227,6 +228,23 @@ class MuJoCoBackend(SimulatorBackend):
             raise RuntimeError("Unable to identify robot root body in MuJoCo scene")
         return best_body_id
 
+    def _collect_robot_body_ids(self) -> set[int]:
+        body_ids: set[int] = set()
+        for body_id in range(1, self._model.nbody):
+            if int(self._model.body_parentid[body_id]) != 0:
+                continue
+            subtree_ids = self._collect_subtree_body_ids(body_id)
+            has_robot_joint = any(
+                int(self._model.jnt_bodyid[joint_id]) in subtree_ids
+                and self._is_robot_joint_type(int(self._model.jnt_type[joint_id]))
+                for joint_id in range(self._model.njnt)
+            )
+            if has_robot_joint:
+                body_ids.update(subtree_ids)
+        if not body_ids:
+            raise RuntimeError("Unable to identify robot bodies in MuJoCo scene")
+        return body_ids
+
     def _collect_subtree_body_ids(self, body_id: int) -> set[int]:
         result = {body_id}
         for child_id in range(1, self._model.nbody):
@@ -279,6 +297,10 @@ class MuJoCoBackend(SimulatorBackend):
                 upper_limit = float(self._model.jnt_range[joint_id][1])
 
             actuator = actuator_by_joint_id.get(joint_id)
+            joint_actuator_forcerange = None
+            if int(self._model.jnt_actfrclimited[joint_id]):
+                force_range = self._model.jnt_actfrcrange[joint_id]
+                joint_actuator_forcerange = (float(force_range[0]), float(force_range[1]))
             joint_infos.append(
                 JointInfo(
                     name=self._model.joint(joint_id).name,
@@ -295,6 +317,7 @@ class MuJoCoBackend(SimulatorBackend):
                     controllable=self._is_robot_joint_type(joint_type),
                     actuator_id=actuator[0] if actuator else None,
                     actuator_ctrlrange=actuator[1] if actuator else None,
+                    joint_actuator_forcerange=joint_actuator_forcerange,
                 )
             )
         return joint_infos
@@ -687,7 +710,13 @@ class MuJoCoBackend(SimulatorBackend):
                     torque += target
                 else:
                     raise ValueError(f"Unsupported control mode: {mode}")
-            self._data.qfrc_applied[info.qvel_adr] = torque
+            if info.joint_actuator_forcerange is not None:
+                lower, upper = info.joint_actuator_forcerange
+                torque = min(max(torque, lower), upper)
+            if info.actuator_id is not None:
+                self._data.ctrl[info.actuator_id] = torque
+            else:
+                self._data.qfrc_applied[info.qvel_adr] = torque
 
     def _gravity_compensation_locked(self) -> np.ndarray:
         self._gravity_data.qpos[:] = self._data.qpos
