@@ -138,18 +138,11 @@ class MobilityStub:
 
     def navigate_to(
         self,
-        target_pose: tuple[float, float, float, float, float, float]
-        | tuple[float, float, float, float, float, float, float],
+        target_pose: tuple[float, float, float, float, float, float, float],
         target_frame: str = "map",
         max_velocity: float = 0.0,
     ) -> Iterator[mobility_ai_pb2.TaskFeedback]:
-        if len(target_pose) == 6:
-            px, py, pz, qx, qy, qz = target_pose
-            qw = 1.0
-        elif len(target_pose) == 7:
-            px, py, pz, qx, qy, qz, qw = target_pose
-        else:
-            raise ValueError("target_pose must have 6 or 7 values")
+        px, py, pz, qx, qy, qz, qw = target_pose
         pose = common_pb2.Pose(
             position=common_pb2.Point(x=px, y=py, z=pz),
             orientation=common_pb2.Quaternion(x=qx, y=qy, z=qz, w=qw),
