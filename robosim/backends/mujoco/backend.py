@@ -35,6 +35,9 @@ ROOT_ORIENTATION_KP = 800.0
 ROOT_ORIENTATION_KD = 80.0
 ROOT_FORCE_LIMIT = 5000.0
 ROOT_TORQUE_LIMIT = 1000.0
+IDLE_HOLD_VELOCITY_EPS = 1e-6
+EE_JOINT_VELOCITY_LIMIT = 0.5
+FREE_BASE_JOINT_VELOCITY_LIMIT = 1.0
 
 
 @dataclass(slots=True)
@@ -112,6 +115,7 @@ class MuJoCoBackend(SimulatorBackend):
             info.name for info in self._joint_infos if info.controllable
         ]
         self._control_targets: dict[str, tuple[core_pb2.JointCommand.ControlMode, float]] = {}
+        self._idle_hold_joint_names: set[str] = set()
         self._joint_groups = self._build_joint_groups()
         self._joint_to_groups = self._build_joint_to_groups()
         self._sensors = self._build_sensors()
@@ -165,6 +169,7 @@ class MuJoCoBackend(SimulatorBackend):
                     mujoco.mj_step1(self._model, self._data)
                     self._apply_controls_locked()
                     mujoco.mj_step2(self._model, self._data)
+                    self._stabilize_idle_holds_locked()
                     self._sync_viewer_locked()
 
             delay = self._model.opt.timestep - (time.time() - step_start)
@@ -571,7 +576,19 @@ class MuJoCoBackend(SimulatorBackend):
                 info = self._joint_infos_by_name.get(joint_name)
                 if info is None or not info.controllable:
                     raise ValueError(f"Joint '{joint_name}' is not controllable")
-                self._control_targets[joint_name] = (mode, float(target))
+                target_value = float(target)
+                if (
+                    mode == core_pb2.JointCommand.ControlMode.VELOCITY
+                    and abs(target_value) <= IDLE_HOLD_VELOCITY_EPS
+                ):
+                    self._control_targets[joint_name] = (
+                        core_pb2.JointCommand.ControlMode.POSITION,
+                        float(self._data.qpos[info.qpos_adr]),
+                    )
+                    self._idle_hold_joint_names.add(joint_name)
+                else:
+                    self._control_targets[joint_name] = (mode, target_value)
+                    self._idle_hold_joint_names.discard(joint_name)
 
     def servo_control_stream(
         self, request_iterator: Iterator[core_pb2.ServoCommand]
@@ -786,6 +803,70 @@ class MuJoCoBackend(SimulatorBackend):
             for info in self._joint_infos
             if info.controllable
         }
+        self._idle_hold_joint_names = set(self._control_targets)
+
+    def _stabilize_idle_holds_locked(self) -> None:
+        if self._root_hold_joint is None:
+            return
+        self._stabilize_root_hold_locked()
+        for info in self._joint_infos:
+            if not info.controllable:
+                continue
+            if info.name in self._idle_hold_joint_names:
+                mode_target = self._control_targets.get(info.name)
+                if mode_target is not None:
+                    mode, target = mode_target
+                    if mode == core_pb2.JointCommand.ControlMode.POSITION:
+                        self._data.qpos[info.qpos_adr] = target
+                        self._data.qvel[info.qvel_adr] = 0.0
+                        continue
+            mode_target = self._control_targets.get(info.name)
+            if mode_target is not None:
+                mode, target = mode_target
+                if mode == core_pb2.JointCommand.ControlMode.VELOCITY:
+                    velocity = float(
+                        np.clip(
+                            target,
+                            -FREE_BASE_JOINT_VELOCITY_LIMIT,
+                            FREE_BASE_JOINT_VELOCITY_LIMIT,
+                        )
+                    )
+                    self._data.qpos[info.qpos_adr] = float(
+                        np.clip(
+                            self._data.qpos[info.qpos_adr]
+                            + velocity * self._model.opt.timestep,
+                            info.lower_limit,
+                            info.upper_limit,
+                        )
+                    )
+                    self._data.qvel[info.qvel_adr] = velocity
+                    continue
+            self._data.qvel[info.qvel_adr] = float(
+                np.clip(
+                    self._data.qvel[info.qvel_adr],
+                    -FREE_BASE_JOINT_VELOCITY_LIMIT,
+                    FREE_BASE_JOINT_VELOCITY_LIMIT,
+                )
+            )
+            self._data.qpos[info.qpos_adr] = float(
+                np.clip(
+                    self._data.qpos[info.qpos_adr],
+                    info.lower_limit,
+                    info.upper_limit,
+                )
+            )
+        mujoco.mj_forward(self._model, self._data)
+
+    def _stabilize_root_hold_locked(self) -> None:
+        if self._root_hold_joint is None or self._root_hold_qpos is None:
+            return
+        info = self._root_hold_joint
+        qpos_start = info.qpos_adr
+        qpos_stop = qpos_start + info.qpos_dim
+        qvel_start = info.qvel_adr
+        qvel_stop = qvel_start + info.qvel_dim
+        self._data.qpos[qpos_start:qpos_stop] = self._root_hold_qpos
+        self._data.qvel[qvel_start:qvel_stop] = 0.0
 
     def _set_root_hold_target_locked(self) -> None:
         if self._root_hold_joint is None:
@@ -901,6 +982,7 @@ class MuJoCoBackend(SimulatorBackend):
         rhs = jacobian.T @ target_twist
         # resolve $(J^T J + \lambda I) \cdot qvel = J^T \cdot \tau_{desired}$
         qvel = np.linalg.solve(lhs, rhs)
+        qvel = np.clip(qvel, -EE_JOINT_VELOCITY_LIMIT, EE_JOINT_VELOCITY_LIMIT)
         return group.joint_names, [float(value) for value in qvel]
 
     # NOTE: only one end effector is supported for now

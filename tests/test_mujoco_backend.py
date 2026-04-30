@@ -214,6 +214,40 @@ def test_free_base_g1_idle_loop_holds_root_pose() -> None:
     assert later_z == pytest.approx(initial_z, abs=0.03)
 
 
+def test_free_base_g1_twist_servo_does_not_flail_idle_joints() -> None:
+    backend = MuJoCoBackend(str(G1_29DOF_SCENE_PATH), headless=True)
+    try:
+        command = core_pb2.ServoCommand(
+            twist_cmd=core_pb2.TwistCommand(
+                twist=common_pb2.TwistStamped(
+                    twist=common_pb2.Twist(linear=common_pb2.Point(x=0.02))
+                ),
+                target_ee=core_pb2.EESpec(
+                    name="left_wrist_yaw_link",
+                    parent_jmg_name="left_arm",
+                    group_name="left_arm",
+                ),
+            )
+        )
+        next(backend.servo_control_stream(iter([command])))
+        time.sleep(0.2)
+
+        state = backend.get_robot_state()
+        velocities = dict(zip(state.name, state.velocity, strict=True))
+    finally:
+        backend.shutdown()
+
+    idle_joint_names = [
+        name
+        for name in velocities
+        if not name.startswith("left_shoulder")
+        and not name.startswith("left_elbow")
+        and not name.startswith("left_wrist")
+    ]
+    assert max(abs(velocities[name]) for name in idle_joint_names) < 1e-6
+    assert max(abs(value) for value in velocities.values()) <= 1.05
+
+
 def test_servo_control_stream_accepts_twist(backend: MuJoCoBackend) -> None:
     command = core_pb2.ServoCommand(
         twist_cmd=core_pb2.TwistCommand(
