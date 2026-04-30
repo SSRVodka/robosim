@@ -29,6 +29,12 @@ POSITION_KP = 200.0
 POSITION_KD = 30.0
 VELOCITY_KP = 40.0
 EE_DLS_DAMPING = 1e-4
+ROOT_POSITION_KP = 3000.0
+ROOT_POSITION_KD = 250.0
+ROOT_ORIENTATION_KP = 800.0
+ROOT_ORIENTATION_KD = 80.0
+ROOT_FORCE_LIMIT = 5000.0
+ROOT_TORQUE_LIMIT = 1000.0
 
 
 @dataclass(slots=True)
@@ -98,6 +104,8 @@ class MuJoCoBackend(SimulatorBackend):
         self._robot_body_ids = self._collect_robot_body_ids()
         self._joint_infos = self._build_joint_infos()
         self._joint_infos_by_name = {info.name: info for info in self._joint_infos}
+        self._root_hold_joint = self._find_root_hold_joint()
+        self._root_hold_qpos: np.ndarray | None = None
         self._body_children = self._build_body_children()
         self._body_joint_name = self._build_body_joint_name_map()
         self._controllable_joint_names = [
@@ -116,6 +124,7 @@ class MuJoCoBackend(SimulatorBackend):
 
         self._apply_default_configuration_locked()
         mujoco.mj_forward(self._model, self._data)
+        self._set_root_hold_target_locked()
         self._set_idle_hold_targets_locked()
         self._step_thread = threading.Thread(
             target=self._simulation_loop,
@@ -176,15 +185,26 @@ class MuJoCoBackend(SimulatorBackend):
                 raise NotImplementedError("Ball joints are not supported yet")
 
     def _find_srdf_path(self) -> Path | None:
-        candidates: list[Path] = []
-        for xml_path in self._included_xml_paths(self._scene_path):
+        included_paths = self._included_xml_paths(self._scene_path)
+        exact_candidates: list[Path] = []
+        for xml_path in included_paths:
             candidate = xml_path.with_suffix(".srdf")
             if candidate.exists():
-                candidates.append(candidate)
-        direct_candidates = sorted(self._scene_path.parent.glob("*.srdf"))
-        if direct_candidates:
-            candidates.extend(direct_candidates)
-        return candidates[0] if candidates else None
+                exact_candidates.append(candidate)
+        if exact_candidates:
+            return exact_candidates[0]
+
+        model_names = {
+            model_name
+            for xml_path in included_paths
+            if (model_name := ET.parse(xml_path).getroot().attrib.get("model"))
+        }
+        for candidate in sorted(self._scene_path.parent.glob("*.srdf")):
+            root = ET.parse(candidate).getroot()
+            srdf_name = root.attrib.get("name")
+            if srdf_name in model_names or candidate.stem in model_names:
+                return candidate
+        return None
 
     def _included_xml_paths(self, xml_path: Path) -> list[Path]:
         xml_root = ET.parse(xml_path).getroot()
@@ -206,6 +226,9 @@ class MuJoCoBackend(SimulatorBackend):
             model_name = ET.parse(xml_path).getroot().attrib.get("model")
             if model_name:
                 return model_name
+        scene_model_name = ET.parse(self._scene_path).getroot().attrib.get("model")
+        if scene_model_name:
+            return scene_model_name
         return self._model.body(self._find_robot_root_body()).name
 
     def _find_robot_root_body(self) -> int:
@@ -266,6 +289,15 @@ class MuJoCoBackend(SimulatorBackend):
         for info in self._joint_infos:
             mapping[info.body_name] = info.name
         return mapping
+
+    def _find_root_hold_joint(self) -> JointInfo | None:
+        for info in self._joint_infos:
+            if (
+                info.body_id == self._robot_root_body_id
+                and info.joint_type == int(mujoco.mjtJoint.mjJNT_FREE)
+            ):
+                return info
+        return None
 
     def _build_joint_infos(self) -> list[JointInfo]:
         actuator_by_joint_id: dict[int, tuple[int, tuple[float, float]]] = {}
@@ -661,6 +693,7 @@ class MuJoCoBackend(SimulatorBackend):
             self._paused = False
             self._apply_default_configuration_locked()
             mujoco.mj_forward(self._model, self._data)
+            self._set_root_hold_target_locked()
             self._set_idle_hold_targets_locked()
             self._sync_viewer_locked()
 
@@ -693,6 +726,7 @@ class MuJoCoBackend(SimulatorBackend):
         gravity = self._gravity_compensation_locked()
         self._data.ctrl[:] = 0
         self._data.qfrc_applied[:] = 0
+        self._apply_root_hold_locked(gravity)
         for info in self._joint_infos:
             if not info.controllable:
                 continue
@@ -752,6 +786,55 @@ class MuJoCoBackend(SimulatorBackend):
             for info in self._joint_infos
             if info.controllable
         }
+
+    def _set_root_hold_target_locked(self) -> None:
+        if self._root_hold_joint is None:
+            self._root_hold_qpos = None
+            return
+        start = self._root_hold_joint.qpos_adr
+        stop = start + self._root_hold_joint.qpos_dim
+        self._root_hold_qpos = self._data.qpos[start:stop].copy()
+
+    def _apply_root_hold_locked(self, gravity: np.ndarray) -> None:
+        if self._root_hold_joint is None or self._root_hold_qpos is None:
+            return
+        info = self._root_hold_joint
+        qpos_error = np.zeros(self._model.nv, dtype=np.float64)
+        current_qpos = self._data.qpos.copy()
+        target_qpos = current_qpos.copy()
+        qpos_start = info.qpos_adr
+        qpos_stop = qpos_start + info.qpos_dim
+        target_qpos[qpos_start:qpos_stop] = self._root_hold_qpos
+        mujoco.mj_differentiatePos(
+            self._model,
+            qpos_error,
+            1.0,
+            current_qpos,
+            target_qpos,
+        )
+
+        qvel_start = info.qvel_adr
+        self._data.qfrc_applied[qvel_start : qvel_start + info.qvel_dim] += gravity[
+            qvel_start : qvel_start + info.qvel_dim
+        ]
+        linear = (
+            ROOT_POSITION_KP * qpos_error[qvel_start : qvel_start + 3]
+            - ROOT_POSITION_KD * self._data.qvel[qvel_start : qvel_start + 3]
+        )
+        angular = (
+            ROOT_ORIENTATION_KP * qpos_error[qvel_start + 3 : qvel_start + 6]
+            - ROOT_ORIENTATION_KD * self._data.qvel[qvel_start + 3 : qvel_start + 6]
+        )
+        self._data.qfrc_applied[qvel_start : qvel_start + 3] += np.clip(
+            linear,
+            -ROOT_FORCE_LIMIT,
+            ROOT_FORCE_LIMIT,
+        )
+        self._data.qfrc_applied[qvel_start + 3 : qvel_start + 6] += np.clip(
+            angular,
+            -ROOT_TORQUE_LIMIT,
+            ROOT_TORQUE_LIMIT,
+        )
 
     def _apply_default_configuration_locked(self) -> None:
         preferred_states = ("home", "ready", "default")

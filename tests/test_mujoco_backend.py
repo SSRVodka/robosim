@@ -9,6 +9,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import mujoco
 
 from control_stubs import common_pb2
 from control_stubs import robot_core_pb2 as core_pb2
@@ -17,6 +18,10 @@ from robosim.backends.mujoco.backend import MuJoCoBackend
 SCENE_PATH = (
     Path(__file__).resolve().parent.parent
     / "drivers_sim/mujoco/assets/robots/franka_panda/scene.xml"
+)
+G1_29DOF_SCENE_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "drivers_sim/mujoco/assets/robots/unitree_g1/g1_29dof.xml"
 )
 
 
@@ -189,6 +194,24 @@ def test_idle_loop_holds_initial_configuration(backend: MuJoCoBackend) -> None:
         for reference, current in zip(initial, later, strict=True)
     )
     assert max_drift < 0.01
+
+
+def test_free_base_g1_idle_loop_holds_root_pose() -> None:
+    backend = MuJoCoBackend(str(G1_29DOF_SCENE_PATH), headless=True)
+    try:
+        assert backend.robot_name == "g1_29dof"
+        pelvis_id = mujoco.mj_name2id(
+            backend._model,
+            mujoco.mjtObj.mjOBJ_BODY,
+            "pelvis",
+        )
+        initial_z = float(backend._data.xpos[pelvis_id][2])
+        time.sleep(0.5)
+        later_z = float(backend._data.xpos[pelvis_id][2])
+    finally:
+        backend.shutdown()
+
+    assert later_z == pytest.approx(initial_z, abs=0.03)
 
 
 def test_servo_control_stream_accepts_twist(backend: MuJoCoBackend) -> None:

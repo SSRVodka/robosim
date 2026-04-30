@@ -170,7 +170,11 @@ def select_servo_bindings(
             if group.joint_names and group.name != (twist_group.name if twist_group else None)
         ]
         if candidates:
-            joint_group = min(candidates, key=lambda group: (len(group.joint_names), group.name))
+            ee_candidates = [group for group in candidates if group.end_effectors]
+            joint_group = min(
+                ee_candidates or candidates,
+                key=lambda group: (len(group.joint_names), group.name),
+            )
 
     if target_ee is None and joint_group is None:
         raise ValueError(
