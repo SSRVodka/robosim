@@ -41,7 +41,7 @@ class MobilityServicer(mobility_pb2_grpc.MobilityServiceServicer):
     def NavigateTo(
         self, request: mobility_pb2.NavGoal, context: grpc.ServicerContext
     ) -> Iterator[mobility_pb2.TaskFeedback]:
-        _logger.info("NavigateTo called: goal=%s", request.goal_pose)
+        _logger.info("NavigateTo called: target=%s", request.target_pose)
         try:
             yield from self._backend.navigate_to(request)
             _logger.info("NavigateTo completed")
