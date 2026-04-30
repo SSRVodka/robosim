@@ -133,6 +133,10 @@ python3 -m control_stubs.tools.servo_keyboard --jmg panda_arm --ee hand
 python3 -m control_stubs.tools.servo_keyboard --help
 ```
 
+> [!TIP]
+>
+> 对于unitree_g1，`drivers_sim/mujoco/assets/robots/unitree_g1/scene.xml`为上半身双臂模型。如需测试29dof的全身模型，请使用`python3 -m robosim.server --port 50051 --backend mujoco --no-headless --scene assets/robots/unitree_g1/g1_29dof.xml`来启动 robosim。
+
 #### C. 简单的测试 LeRobot 数据采集 & 重放 demo（命令行）
 
 确保您的 shell 在仓库根目录下。
