@@ -29,6 +29,7 @@ POSITION_KP = 200.0
 POSITION_KD = 30.0
 VELOCITY_KP = 40.0
 EE_DLS_DAMPING = 1e-4
+ACTUATOR_MODE_TOL = 1e-9
 
 
 @dataclass(slots=True)
@@ -104,6 +105,7 @@ class MuJoCoBackend(SimulatorBackend):
             info.name for info in self._joint_infos if info.controllable
         ]
         self._control_targets: dict[str, tuple[core_pb2.JointCommand.ControlMode, float]] = {}
+        self._position_velocity_targets: dict[str, float] = {}
         self._joint_groups = self._build_joint_groups()
         self._joint_to_groups = self._build_joint_to_groups()
         self._sensors = self._build_sensors()
@@ -253,9 +255,7 @@ class MuJoCoBackend(SimulatorBackend):
         return result
 
     def _build_body_children(self) -> dict[int, list[int]]:
-        children: dict[int, list[int]] = {
-            body_id: [] for body_id in range(self._model.nbody)
-        }
+        children: dict[int, list[int]] = {body_id: [] for body_id in range(self._model.nbody)}
         for body_id in range(1, self._model.nbody):
             parent_id = int(self._model.body_parentid[body_id])
             children[parent_id].append(body_id)
@@ -268,7 +268,7 @@ class MuJoCoBackend(SimulatorBackend):
         return mapping
 
     def _build_joint_infos(self) -> list[JointInfo]:
-        actuator_by_joint_id: dict[int, tuple[int, tuple[float, float]]] = {}
+        actuator_by_joint_id: dict[int, tuple[int, tuple[float, float], int | None]] = {}
         for actuator_id in range(self._model.nu):
             trn_type = int(self._model.actuator_trntype[actuator_id])
             if trn_type != int(mujoco.mjtTrn.mjTRN_JOINT):
@@ -278,6 +278,7 @@ class MuJoCoBackend(SimulatorBackend):
             actuator_by_joint_id[joint_id] = (
                 actuator_id,
                 (float(ctrlrange[0]), float(ctrlrange[1])),
+                self._infer_actuator_control_mode(actuator_id),
             )
 
         joint_infos: list[JointInfo] = []
@@ -321,6 +322,23 @@ class MuJoCoBackend(SimulatorBackend):
                 )
             )
         return joint_infos
+
+    def _infer_actuator_control_mode(self, actuator_id: int) -> int | None:
+        gain = self._model.actuator_gainprm[actuator_id]
+        bias = self._model.actuator_biasprm[actuator_id]
+        if abs(float(gain[0])) <= ACTUATOR_MODE_TOL:
+            return None
+        if (
+            abs(float(bias[1]) + float(gain[0])) <= ACTUATOR_MODE_TOL
+            and abs(float(bias[2])) <= ACTUATOR_MODE_TOL
+        ):
+            return int(core_pb2.JointCommand.ControlMode.POSITION)
+        if (
+            abs(float(bias[1])) <= ACTUATOR_MODE_TOL
+            and abs(float(bias[2]) + float(gain[0])) <= ACTUATOR_MODE_TOL
+        ):
+            return int(core_pb2.JointCommand.ControlMode.VELOCITY)
+        return None
 
     def _build_joint_groups(self) -> dict[str, JointModelGroup]:
         if self._srdf_path is None:
@@ -539,6 +557,21 @@ class MuJoCoBackend(SimulatorBackend):
                 info = self._joint_infos_by_name.get(joint_name)
                 if info is None or not info.controllable:
                     raise ValueError(f"Joint '{joint_name}' is not controllable")
+                previous = self._control_targets.get(joint_name)
+                if (
+                    mode == core_pb2.JointCommand.ControlMode.VELOCITY
+                    and info.actuator_control_mode
+                    == int(core_pb2.JointCommand.ControlMode.POSITION)
+                ):
+                    if previous is None or previous[0] != mode:
+                        self._position_velocity_targets[joint_name] = (
+                            self._clamp_actuator_target(
+                                info,
+                                float(self._data.qpos[info.qpos_adr]),
+                            )
+                        )
+                else:
+                    self._position_velocity_targets.pop(joint_name, None)
                 self._control_targets[joint_name] = (mode, float(target))
 
     def servo_control_stream(
@@ -578,7 +611,6 @@ class MuJoCoBackend(SimulatorBackend):
                         dtype=np.float64,
                     ),
                 )
-
 
                 self.set_joint_target(
                     joint_names,
@@ -630,7 +662,9 @@ class MuJoCoBackend(SimulatorBackend):
                 if sensor.source == "sensor" and sensor.source_id is not None:
                     sensor_slice = self._sensor_values(sensor.source_id)
                     header = self._build_header(frame_id="world")
-                    if sensor.sensor_type == SensorType.FORCE:
+                    if sensor.sensor_type == SensorType.LIDAR:
+                        lidars.append(self._build_rangefinder_lidar_locked(sensor, sensor_slice))
+                    elif sensor.sensor_type == SensorType.FORCE:
                         forces.append(
                             sensing_pb2.WrenchData(
                                 header=header,
@@ -667,6 +701,7 @@ class MuJoCoBackend(SimulatorBackend):
     def emergency_stop(self) -> None:
         with self._state_lock:
             self._control_targets.clear()
+            self._position_velocity_targets.clear()
             self._data.ctrl[:] = 0
             self._data.qfrc_applied[:] = 0
             self._data.xfrc_applied[:] = 0
@@ -683,11 +718,263 @@ class MuJoCoBackend(SimulatorBackend):
                 renderer.close()
             self._renderers.clear()
 
+    # def get_robot_pose_in_map(self) -> common_pb2.PoseStamped:
+    #     raise NotImplementedError("Navigation not supported for MuJoCo")
+    # Eddy:Extension of Navigation which is based on two_bedroom_apartment
     def get_robot_pose_in_map(self) -> common_pb2.PoseStamped:
-        raise NotImplementedError("Navigation not supported for MuJoCo")
+        with self._state_lock:
+            body_id = self._robot_root_body_id
+            position = self._data.xpos[body_id].copy()
+            orientation = self._data.xquat[body_id].copy()
 
-    def navigate_to(self, goal: mobility_ai_pb2.NavGoal) -> Iterator[mobility_ai_pb2.TaskFeedback]:
-        raise NotImplementedError("Navigation not supported for MuJoCo")
+        return common_pb2.PoseStamped(
+            header=self._build_header(frame_id="world"),
+            pose=common_pb2.Pose(
+                position=self._build_point(position),
+                orientation=self._build_quaternion(orientation),
+            ),
+        )
+
+    def navigate_to(
+        self,
+        goal: mobility_ai_pb2.NavGoal,
+    ) -> Iterator[mobility_ai_pb2.TaskFeedback]:
+        if not self._supports_robot_vacuum_navigation():
+            raise NotImplementedError("Navigation requires robot vacuum lidar and wheel joints")
+
+        target_frame = goal.target_frame or "world"
+        if target_frame not in ("world", "map"):
+            raise ValueError(f"Unsupported navigation target_frame: {target_frame}")
+
+        from robosim.navigation.backend_client import BackendRobosimClient
+        from robosim.navigation.geometry import Point2D
+        from robosim.navigation.mujoco_map import build_occupancy_grid
+        from robosim.navigation.path_follower import (
+            NavigationOutcome,
+            navigate_with_lidar_safety,
+        )
+
+        task_id = f"mujoco-nav-{int(time.time() * 1000)}"
+        target = Point2D(
+            float(goal.target_pose.position.x),
+            float(goal.target_pose.position.y),
+        )
+        max_velocity = float(goal.max_velocity)
+        params = self._build_navigation_params(max_velocity)
+        grid_options = self._build_navigation_grid_options()
+
+        yield self._make_feedback(
+            task_id=task_id,
+            status_code=common_pb2.STATUS_RUNNING,
+            message="Building navigation grid",
+            feedback_text=(f"target=({target.x:.3f}, {target.y:.3f}), frame={target_frame}"),
+        )
+
+        built_grid = build_occupancy_grid(self._scene_path, grid_options)
+        yield self._make_feedback(
+            task_id=task_id,
+            status_code=common_pb2.STATUS_RUNNING,
+            message="Navigation started",
+            feedback_text=(
+                f"grid={built_grid.grid.width}x{built_grid.grid.height}, "
+                f"ignored={built_grid.stats.skipped_ignored_geoms}"
+            ),
+        )
+
+        feedback_queue: queue.Queue[
+            mobility_ai_pb2.TaskFeedback | NavigationOutcome | BaseException
+        ] = queue.Queue()
+        cancel_event = threading.Event()
+        nav_client = BackendRobosimClient(self)
+        last_feedback_at = 0.0
+        last_state = ""
+        last_replans = -1
+
+        def on_step(step: NavigationStep) -> None:
+            nonlocal last_feedback_at, last_state, last_replans
+            now = time.monotonic()
+            if (
+                now - last_feedback_at < NAV_FEEDBACK_INTERVAL_SEC
+                and step.state == last_state
+                and step.replans == last_replans
+            ):
+                return
+            last_feedback_at = now
+            last_state = step.state
+            last_replans = step.replans
+            feedback_queue.put(self._make_navigation_step_feedback(task_id, step))
+
+        def worker() -> None:
+            try:
+                outcome = navigate_with_lidar_safety(
+                    client=nav_client,
+                    grid=built_grid.grid,
+                    target=target,
+                    params=params,
+                    feedback=on_step,
+                    should_cancel=cancel_event.is_set,
+                )
+            except BaseException as exc:  # noqa: BLE001
+                feedback_queue.put(exc)
+            else:
+                feedback_queue.put(outcome)
+
+        nav_thread = threading.Thread(
+            target=worker,
+            name="mujoco_navigation_worker",
+            daemon=True,
+        )
+        nav_thread.start()
+
+        try:
+            while True:
+                try:
+                    item = feedback_queue.get(timeout=0.1)
+                except queue.Empty:
+                    if not nav_thread.is_alive():
+                        yield self._make_feedback(
+                            task_id=task_id,
+                            status_code=common_pb2.STATUS_FAILURE,
+                            message="Navigation worker exited without outcome",
+                        )
+                        break
+                    continue
+
+                if isinstance(item, mobility_ai_pb2.TaskFeedback):
+                    yield item
+                    continue
+                if isinstance(item, NavigationOutcome):
+                    yield self._make_navigation_outcome_feedback(task_id, item)
+                    break
+                raise item
+        finally:
+            if nav_thread.is_alive():
+                cancel_event.set()
+                nav_thread.join(timeout=2.0)
+                self.emergency_stop()
+
+    def _build_navigation_params(self, max_velocity: float) -> "NavigationParams":
+        from robosim.navigation.path_follower import NavigationParams
+
+        normal_linear = _env_float("ROBOSIM_NAV_NORMAL_LINEAR", 0.14)
+        if max_velocity > 0.0:
+            normal_linear = min(max_velocity, _env_float("ROBOSIM_NAV_MAX_LINEAR", 0.30))
+        slow_linear = min(
+            _env_float("ROBOSIM_NAV_SLOW_LINEAR", 0.04),
+            max(0.02, normal_linear * 0.5),
+        )
+        return NavigationParams(
+            timeout=_env_float("ROBOSIM_NAV_TIMEOUT", 60.0),
+            arrive_tolerance=_env_float("ROBOSIM_NAV_ARRIVE_TOLERANCE", 0.12),
+            waypoint_tolerance=_env_float("ROBOSIM_NAV_WAYPOINT_TOLERANCE", 0.18),
+            lookahead_distance=_env_float("ROBOSIM_NAV_LOOKAHEAD_DISTANCE", 0.35),
+            direct_goal_distance=_env_float("ROBOSIM_NAV_DIRECT_GOAL_DISTANCE", 0.55),
+            stop_distance=_env_float("ROBOSIM_NAV_STOP_DISTANCE", 0.30),
+            slow_distance=_env_float("ROBOSIM_NAV_SLOW_DISTANCE", 0.75),
+            side_distance=_env_float("ROBOSIM_NAV_SIDE_DISTANCE", 0.40),
+            normal_linear=normal_linear,
+            slow_linear=slow_linear,
+            max_angular=_env_float("ROBOSIM_NAV_MAX_ANGULAR", 1.2),
+            goal_gain=_env_float("ROBOSIM_NAV_GOAL_GAIN", 1.6),
+            avoid_gain=_env_float("ROBOSIM_NAV_AVOID_GAIN", 1.0),
+            turn_speed=_env_float("ROBOSIM_NAV_TURN_SPEED", 0.8),
+            replan_after=_env_float("ROBOSIM_NAV_REPLAN_AFTER", 0.8),
+            replan_cooldown=_env_float("ROBOSIM_NAV_REPLAN_COOLDOWN", 4.0),
+            progress_timeout=_env_float("ROBOSIM_NAV_PROGRESS_TIMEOUT", 3.0),
+            progress_epsilon=_env_float("ROBOSIM_NAV_PROGRESS_EPSILON", 0.03),
+            dynamic_mark_distance=_env_float("ROBOSIM_NAV_DYNAMIC_MARK_DISTANCE", 1.2),
+            dynamic_min_distance=_env_float("ROBOSIM_NAV_DYNAMIC_MIN_DISTANCE", 0.22),
+            dynamic_mark_half_angle_deg=_env_float(
+                "ROBOSIM_NAV_DYNAMIC_MARK_HALF_ANGLE_DEG",
+                120.0,
+            ),
+            dynamic_obstacle_radius=_env_float(
+                "ROBOSIM_NAV_DYNAMIC_OBSTACLE_RADIUS",
+                0.45,
+            ),
+        )
+
+    def _build_navigation_grid_options(self) -> "GridBuildOptions":
+        from robosim.navigation.mujoco_map import GridBuildOptions
+
+        return GridBuildOptions(
+            resolution=_env_float("ROBOSIM_NAV_GRID_RESOLUTION", 0.10),
+            robot_radius=_env_float("ROBOSIM_NAV_ROBOT_RADIUS", 0.18),
+            safety_margin=_env_float("ROBOSIM_NAV_SAFETY_MARGIN", 0.08),
+            bounds_padding=_env_float("ROBOSIM_NAV_BOUNDS_PADDING", 0.20),
+            bounds=_env_bounds("ROBOSIM_NAV_BOUNDS"),
+            ignored_geom_names=_env_csv("ROBOSIM_NAV_IGNORE_GEOM_NAMES"),
+            ignored_geom_prefixes=_env_csv("ROBOSIM_NAV_IGNORE_GEOM_PREFIXES"),
+        )
+
+    @staticmethod
+    def _make_feedback(
+        task_id: str,
+        status_code: common_pb2.StatusCode,
+        message: str,
+        eta: int = 0,
+        feedback_text: str = "",
+    ) -> mobility_ai_pb2.TaskFeedback:
+        feedback = mobility_ai_pb2.TaskFeedback()
+        feedback.task_id = task_id
+        feedback.status.code = status_code
+        feedback.status.message = message
+        feedback.eta = eta
+        feedback.feedback_text = feedback_text
+        return feedback
+
+    def _make_navigation_step_feedback(
+        self,
+        task_id: str,
+        step: "NavigationStep",
+    ) -> mobility_ai_pb2.TaskFeedback:
+        speed_for_eta = max(abs(step.linear), 0.05)
+        eta = int(max(0.0, step.goal_distance / speed_for_eta))
+        return self._make_feedback(
+            task_id=task_id,
+            status_code=common_pb2.STATUS_RUNNING,
+            message=(
+                f"{step.state}: distance={step.goal_distance:.3f}m, "
+                f"front={step.scan.front:.3f}m, replans={step.replans}"
+            ),
+            eta=eta,
+            feedback_text=(
+                f"x={step.pose.x:.3f}, y={step.pose.y:.3f}, "
+                f"yaw={step.pose.yaw:.3f}, path={step.target_index + 1}/"
+                f"{step.path_points}, linear={step.linear:.3f}, "
+                f"angular={step.angular:.3f}"
+            ),
+        )
+
+    def _make_navigation_outcome_feedback(
+        self,
+        task_id: str,
+        outcome: "NavigationOutcome",
+    ) -> mobility_ai_pb2.TaskFeedback:
+        if outcome.cancelled:
+            status_code = common_pb2.STATUS_PREEMPTED
+            message = "Navigation cancelled"
+        elif outcome.ok:
+            status_code = common_pb2.STATUS_SUCCESS
+            message = "Navigation succeeded"
+        else:
+            status_code = common_pb2.STATUS_FAILURE
+            message = "Navigation failed"
+        return self._make_feedback(
+            task_id=task_id,
+            status_code=status_code,
+            message=(
+                f"{message}: final_distance={outcome.final_distance:.3f}m, "
+                f"replans={outcome.replans}"
+            ),
+            feedback_text=(
+                f"final_x={outcome.final_pose.x:.3f}, "
+                f"final_y={outcome.final_pose.y:.3f}, "
+                f"track_steps={outcome.track_steps}, "
+                f"slow_steps={outcome.slow_steps}, "
+                f"blocked_steps={outcome.blocked_steps}"
+            ),
+        )
 
     def _apply_controls_locked(self) -> None:
         gravity = self._gravity_compensation_locked()
@@ -698,15 +985,50 @@ class MuJoCoBackend(SimulatorBackend):
                 continue
             torque = float(gravity[info.qvel_adr])
             mode_target = self._control_targets.get(info.name)
+
+            # If this joint has a MuJoCo actuator and the command is velocity mode,
+            # prefer the native actuator path. This is important for wheel joints.
+            if mode_target is not None:
+                mode, target = mode_target
+
+                if (
+                    mode == core_pb2.JointCommand.ControlMode.VELOCITY
+                    and info.actuator_id is not None
+                    and info.actuator_control_mode == int(mode)
+                ):
+                    self._data.ctrl[info.actuator_id] = self._clamp_actuator_target(
+                        info,
+                        float(target),
+                    )
+                    continue
+
+            torque = float(gravity[info.qvel_adr])
+
             if mode_target is not None:
                 mode, target = mode_target
                 qpos = float(self._data.qpos[info.qpos_adr])
                 qvel = float(self._data.qvel[info.qvel_adr])
                 if mode == core_pb2.JointCommand.ControlMode.POSITION:
+                    if info.actuator_id is not None and info.actuator_control_mode == int(mode):
+                        self._data.ctrl[info.actuator_id] = self._clamp_actuator_target(
+                            info,
+                            float(target),
+                        )
+                        torque -= POSITION_KD * qvel
+                        self._data.qfrc_applied[info.qvel_adr] = torque
+                        continue
                     torque += POSITION_KP * (target - qpos) - POSITION_KD * qvel
                 elif mode == core_pb2.JointCommand.ControlMode.VELOCITY:
+                    if self._apply_position_actuator_velocity_target_locked(
+                        info,
+                        qpos,
+                        float(target),
+                    ):
+                        self._data.qfrc_applied[info.qvel_adr] = torque
+                        continue
                     torque += VELOCITY_KP * (target - qvel)
                 elif mode == core_pb2.JointCommand.ControlMode.TORQUE:
+                    self._neutralize_position_actuator_locked(info, qpos)
                     torque += target
                 else:
                     raise ValueError(f"Unsupported control mode: {mode}")
@@ -717,6 +1039,35 @@ class MuJoCoBackend(SimulatorBackend):
                 self._data.ctrl[info.actuator_id] = torque
             else:
                 self._data.qfrc_applied[info.qvel_adr] = torque
+
+    def _apply_position_actuator_velocity_target_locked(
+        self, info: JointInfo, qpos: float, velocity: float
+    ) -> bool:
+        if info.actuator_id is None or info.actuator_control_mode != int(
+            core_pb2.JointCommand.ControlMode.POSITION
+        ):
+            return False
+        target = self._position_velocity_targets.get(info.name, qpos)
+        target = self._clamp_actuator_target(
+            info,
+            target + velocity * float(self._model.opt.timestep),
+        )
+        self._position_velocity_targets[info.name] = target
+        self._data.ctrl[info.actuator_id] = target
+        return True
+
+    def _neutralize_position_actuator_locked(self, info: JointInfo, qpos: float) -> None:
+        if info.actuator_id is None or info.actuator_control_mode != int(
+            core_pb2.JointCommand.ControlMode.POSITION
+        ):
+            return
+        self._data.ctrl[info.actuator_id] = self._clamp_actuator_target(info, qpos)
+
+    def _clamp_actuator_target(self, info: JointInfo, target: float) -> float:
+        if info.actuator_ctrlrange is None:
+            return target
+        low, high = info.actuator_ctrlrange
+        return max(low, min(high, target))
 
     def _gravity_compensation_locked(self) -> np.ndarray:
         self._gravity_data.qpos[:] = self._data.qpos
@@ -744,14 +1095,22 @@ class MuJoCoBackend(SimulatorBackend):
         return candidates[0]
 
     def _set_idle_hold_targets_locked(self) -> None:
+        self._position_velocity_targets.clear()
         self._control_targets = {
             info.name: (
                 core_pb2.JointCommand.ControlMode.POSITION,
                 float(self._data.qpos[info.qpos_adr]),
             )
             for info in self._joint_infos
-            if info.controllable
+            if info.controllable and self._should_idle_hold_joint(info)
         }
+
+    def _should_idle_hold_joint(self, info: JointInfo) -> bool:
+        if info.joint_type != int(mujoco.mjtJoint.mjJNT_HINGE):
+            return True
+        if self._model.jnt_limited[info.joint_id]:
+            return True
+        return info.actuator_control_mode == int(core_pb2.JointCommand.ControlMode.POSITION)
 
     def _apply_default_configuration_locked(self) -> None:
         preferred_states = ("home", "ready", "default")
@@ -774,6 +1133,33 @@ class MuJoCoBackend(SimulatorBackend):
             applied = True
         if applied:
             self._data.qvel[:] = 0
+            self._seed_position_actuator_controls_locked()
+            return
+        if self._apply_named_keyframe_locked(preferred_states):
+            self._seed_position_actuator_controls_locked()
+
+    def _apply_named_keyframe_locked(self, preferred_states: tuple[str, ...]) -> bool:
+        for state_name in preferred_states:
+            key_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_KEY, state_name)
+            if key_id < 0:
+                continue
+            mujoco.mj_resetDataKeyframe(self._model, self._data, key_id)
+            if self._model.nu:
+                self._data.ctrl[:] = self._model.key_ctrl[key_id]
+            self._data.qvel[:] = 0
+            return True
+        return False
+
+    def _seed_position_actuator_controls_locked(self) -> None:
+        for info in self._joint_infos:
+            if info.actuator_id is None or info.actuator_control_mode != int(
+                core_pb2.JointCommand.ControlMode.POSITION
+            ):
+                continue
+            self._data.ctrl[info.actuator_id] = self._clamp_actuator_target(
+                info,
+                float(self._data.qpos[info.qpos_adr]),
+            )
 
     def _solve_end_effector_twist(
         self, parent_group: str, linear: np.ndarray, angular: np.ndarray
@@ -943,9 +1329,7 @@ class MuJoCoBackend(SimulatorBackend):
             resolve(name)
         return resolved
 
-    def _parse_srdf_group_states(
-        self, root: ET.Element
-    ) -> dict[str, dict[str, dict[str, float]]]:
+    def _parse_srdf_group_states(self, root: ET.Element) -> dict[str, dict[str, dict[str, float]]]:
         result: dict[str, dict[str, dict[str, float]]] = {}
         for state in root.findall("group_state"):
             group_name = state.attrib.get("group")

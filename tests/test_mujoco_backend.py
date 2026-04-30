@@ -18,6 +18,12 @@ SCENE_PATH = (
     Path(__file__).resolve().parent.parent
     / "drivers_sim/mujoco/assets/robots/franka_panda/scene.xml"
 )
+OLDROOM_SCENE_PATH = (
+    Path(__file__).resolve().parent.parent / "drivers_sim/mujoco/assets/worlds/oldroom/scene.xml"
+)
+BEDROOM_SCENE_PATH = (
+    Path(__file__).resolve().parent.parent / "drivers_sim/mujoco/assets/worlds/bedroom/scene.xml"
+)
 
 
 @pytest.fixture
@@ -116,9 +122,7 @@ def test_camera_rendering_remains_valid_across_threads(backend: MuJoCoBackend) -
     assert float(first_frame.std()) > 20.0
     assert float(second_frame.mean()) > 20.0
     assert float(second_frame.std()) > 20.0
-    assert np.mean(
-        np.abs(second_frame.astype(np.int16) - first_frame.astype(np.int16))
-    ) < 10.0
+    assert np.mean(np.abs(second_frame.astype(np.int16) - first_frame.astype(np.int16))) < 10.0
 
 
 def test_set_joint_target_and_reset_world(backend: MuJoCoBackend) -> None:
@@ -185,10 +189,148 @@ def test_idle_loop_holds_initial_configuration(backend: MuJoCoBackend) -> None:
     later = backend.get_robot_state().position[:7]
 
     max_drift = max(
-        abs(current - reference)
-        for reference, current in zip(initial, later, strict=True)
+        abs(current - reference) for reference, current in zip(initial, later, strict=True)
     )
     assert max_drift < 0.01
+
+
+def test_oldroom_vx300s_home_starts_stable() -> None:
+    backend = MuJoCoBackend(str(OLDROOM_SCENE_PATH), headless=True)
+    try:
+        time.sleep(0.3)
+        with backend._state_lock:
+            data = backend._data
+            model = backend._model
+            arm_qpos = data.qpos[13:29].copy()
+            max_qacc = float(np.max(np.abs(data.qacc)))
+            arm_contacts = []
+            for contact_id in range(data.ncon):
+                contact = data.contact[contact_id]
+                geom1 = model.geom(contact.geom1).name
+                geom2 = model.geom(contact.geom2).name
+                if "vx300s" in geom1 or "vx300s" in geom2:
+                    arm_contacts.append((geom1, geom2))
+
+        expected = np.array(
+            [
+                0.0,
+                -0.96,
+                1.16,
+                0.0,
+                -0.3,
+                0.0,
+                0.03,
+                -0.03,
+                0.0,
+                -0.96,
+                1.16,
+                0.0,
+                -0.3,
+                0.0,
+                0.03,
+                -0.03,
+            ]
+        )
+        assert arm_qpos == pytest.approx(expected, abs=1e-4)
+        assert max_qacc < 1e-3
+        assert arm_contacts == []
+    finally:
+        backend.shutdown()
+
+
+def test_oldroom_position_actuated_arm_velocity_hold_is_stable() -> None:
+    backend = MuJoCoBackend(str(OLDROOM_SCENE_PATH), headless=True)
+    arm_names = [
+        "vx300s_left/waist",
+        "vx300s_left/shoulder",
+        "vx300s_left/elbow",
+        "vx300s_left/forearm_roll",
+        "vx300s_left/wrist_angle",
+        "vx300s_left/wrist_rotate",
+    ]
+    try:
+        initial = backend.get_robot_state()
+        initial_positions = dict(zip(initial.name, initial.position, strict=True))
+
+        backend.set_joint_target(
+            names=arm_names,
+            data=[0.0] * len(arm_names),
+            mode=core_pb2.JointCommand.ControlMode.VELOCITY,
+            group="left_arm",
+        )
+        time.sleep(0.3)
+
+        state = backend.get_robot_state()
+        positions = dict(zip(state.name, state.position, strict=True))
+        with backend._state_lock:
+            max_qacc = float(np.max(np.abs(backend._data.qacc)))
+
+        for name in arm_names:
+            assert positions[name] == pytest.approx(initial_positions[name], abs=1e-3)
+        assert np.isfinite(max_qacc)
+        assert max_qacc < 1e-3
+    finally:
+        backend.shutdown()
+
+
+def test_oldroom_position_actuated_arm_twist_servo_is_stable() -> None:
+    backend = MuJoCoBackend(str(OLDROOM_SCENE_PATH), headless=True)
+    try:
+        spec = backend.get_robot_spec()
+        group_names = {jmg.name for jmg in spec.joint_model_groups}
+        ee_names = {ee.name for jmg in spec.joint_model_groups for ee in jmg.end_effectors}
+        for group_name, ee_name in (("left_arm", "left_ee"), ("right_arm", "right_ee")):
+            command = core_pb2.ServoCommand(
+                twist_cmd=core_pb2.TwistCommand(
+                    twist=common_pb2.TwistStamped(),
+                    target_ee=core_pb2.EESpec(name=ee_name, parent_jmg_name=group_name),
+                )
+            )
+            command.twist_cmd.twist.twist.linear.z = 0.01
+
+            states = backend.servo_control_stream(iter([command]))
+            state = next(states)
+            assert state.name
+            assert group_name in group_names
+            assert ee_name in ee_names
+            time.sleep(0.15)
+
+            command.twist_cmd.twist.twist.linear.z = 0.0
+            next(backend.servo_control_stream(iter([command])))
+            time.sleep(0.05)
+
+            with backend._state_lock:
+                arm_qacc = backend._data.qacc[12:28].copy()
+            assert np.all(np.isfinite(arm_qacc))
+            assert float(np.max(np.abs(arm_qacc))) < 10.0
+    finally:
+        backend.shutdown()
+
+
+def test_bedroom_smart_car_wheels_start_stable() -> None:
+    backend = MuJoCoBackend(str(BEDROOM_SCENE_PATH), headless=True)
+    try:
+        wheel_names = ("joint_fl", "joint_fr", "joint_bl", "joint_br")
+        assert all(name not in backend._control_targets for name in wheel_names)
+
+        time.sleep(0.6)
+        with backend._state_lock:
+            data = backend._data
+            model = backend._model
+            car_joint_id = model.joint("car_joint").id
+            car_qpos_adr = int(model.jnt_qposadr[car_joint_id])
+            wheel_dofs = [int(model.jnt_dofadr[model.joint(name).id]) for name in wheel_names]
+            car_z = float(data.qpos[car_qpos_adr + 2])
+            wheel_qvel = data.qvel[wheel_dofs].copy()
+            max_qacc = float(np.max(np.abs(data.qacc)))
+
+        assert car_z == pytest.approx(0.08, abs=5e-3)
+        assert np.all(np.isfinite(wheel_qvel))
+        assert float(np.max(np.abs(wheel_qvel))) < 0.05
+        assert np.isfinite(max_qacc)
+        assert max_qacc < 1e-2
+    finally:
+        backend.shutdown()
 
 
 def test_servo_control_stream_accepts_twist(backend: MuJoCoBackend) -> None:
@@ -211,6 +353,5 @@ def test_get_end_effector_state(backend: MuJoCoBackend) -> None:
     assert ee_state.pose_stamped.header.frame_id == "world"
     orientation = ee_state.pose_stamped.pose.orientation
     assert any(
-        abs(value) > 0.0
-        for value in (orientation.x, orientation.y, orientation.z, orientation.w)
+        abs(value) > 0.0 for value in (orientation.x, orientation.y, orientation.z, orientation.w)
     )
