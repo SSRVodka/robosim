@@ -60,8 +60,10 @@ robosim/
 ├── backends/
 │   ├── gazebo/            # Gazebo 后端实现
 │   │   └── backend.py     # 主后端类
-│   └── mujoco/            # MuJoCo 后端实现
-│       └── backend.py      # 主后端类
+│   ├── mujoco/            # MuJoCo 后端实现
+│   │   └── backend.py     # 主后端类
+│   └── habitat/           # Habitat-Sim 渲染后端实现
+│       └── backend.py     # 主后端类
 ├── grpc_server/           # gRPC 服务实现
 │   ├── simulation.py
 │   ├── sensing.py
@@ -142,6 +144,13 @@ robosim/
 - camera 通过 `mujoco.Renderer` 做 offscreen rendering；
 - MuJoCo 的 offscreen renderer 绑定创建它的线程；后端按“线程 + 分辨率”缓存 renderer，避免录制线程和 gRPC 请求线程跨线程复用 EGL/OpenGL 上下文导致黑帧/花屏；
 - 当前 gRPC 扩充了力/力矩传感器类型与数据结构，以避免 MuJoCo 现有传感器语义丢失。
+
+## 关于 HabitatSimBackend
+
+- Habitat-Sim 后端当前是 render-only backend，不实现关节控制、末端执行器读取或导航；
+- 后端初始化时创建一个 RGB camera sensor，默认名为 `habitat_rgb`，并通过 `SensingService` 暴露为 `CameraImage`；
+- `--scene` 传入 Habitat-Sim 支持的场景文件；未传入时使用 Habitat-Sim 的 `NONE` scene，主要用于接口连通性测试；
+- `habitat_sim` 是可选依赖，仅当选择 `--backend habitat` 时才会导入。`robosim.backends` 也采用懒加载，避免未安装 ROS、MuJoCo 或 Habitat-Sim 时影响其他后端的导入。
 
 ## 关于 LeRobot 数据录制
 

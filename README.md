@@ -3,7 +3,7 @@
 
 ### Supported Features
 
-- [x] 支持 Gazebo / MuJoCo 模拟器后端；
+- [x] 支持 Gazebo / MuJoCo 模拟器后端；支持 Habitat-Sim 渲染后端；
 
 - [x] 支持动态的传感器发现、机器人关节和定义发现；
 
@@ -49,7 +49,7 @@ popd
 最后启动 robosim（`[]` 表示可选项，`<>` 表示必填项）。更多参数用法请使用 `--help`：
 
 ```bash
-python3 -m robosim.server [--help] [--host <gRPC-listen-host>] [--port <gRPC-listen-port>] [--backend <gazebo|mujoco>] [--headless | --no-headless]
+python3 -m robosim.server [--help] [--host <gRPC-listen-host>] [--port <gRPC-listen-port>] [--backend <gazebo|mujoco|habitat>] [--scene <scene-path>] [--headless | --no-headless]
 ```
 
 > [!WARNING]
@@ -70,6 +70,25 @@ python3 -m robosim.server [--help] [--host <gRPC-listen-host>] [--port <gRPC-lis
 > ```
 >
 > 然后再启动 robosim。
+
+如果选择 Habitat-Sim 后端，需要先在当前 Python 环境中安装 `habitat_sim`。该后端目前仅提供渲染能力，不控制机器人：
+
+```bash
+python3 -m robosim.server --port 50051 --backend habitat --scene <your-scene.glb>
+```
+
+在没有 NVIDIA GPU 但有本机显示器的环境中，使用普通显示版 Habitat-Sim 和 Mesa 软件渲染：
+
+```bash
+LIBGL_ALWAYS_SOFTWARE=1 MESA_GL_VERSION_OVERRIDE=4.1 DISPLAY=:0 \
+python3 -m robosim.server \
+  --port 50051 \
+  --backend habitat \
+  --scene drivers_sim/mujoco/assets/worlds/two_bedroom_apartment/BEDROOM_NEO/model.obj \
+  --no-headless
+```
+
+`--no-headless` 会打开 Habitat-Sim viewer 窗口。`--headless` 模式仍通过 sensing gRPC 接口读取 `habitat_rgb` 相机图像，但需要可用 EGL/GPU 渲染上下文。
 
 现在，你的环境已经准备好了！
 

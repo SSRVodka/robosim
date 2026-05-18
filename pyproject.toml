@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "robosim"
 version = "0.1.0"
 description = "Meta Simulator Framework"
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 dependencies = [
     "grpcio==1.78.1",
     "protobuf==6.33.5",

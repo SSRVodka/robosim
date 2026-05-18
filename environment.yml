@@ -1,10 +1,11 @@
 name: robosim
 channels:
+  - aihabitat-nightly
   - robostack-humble
   - conda-forge
 
 dependencies:
-  - python=3.12
+  - python=3.10
   - grpcio=1.78.1
   - protobuf
   - grpcio-tools
@@ -28,6 +29,9 @@ dependencies:
   # MuJoCo stack
   - mujoco>=3.6
 
+  # Habitat-Sim stack
+  - habitat-sim
+
   # Agent stack (optional)
   - openai
   - pyyaml
@@ -46,7 +50,7 @@ dependencies:
   - aiofiles
 
   # Data collector
-  - lerobot>=0.5
+  - lerobot>=0.4,<0.5
 
   # Dev tools
   - pip
