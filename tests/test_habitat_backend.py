@@ -23,25 +23,29 @@ class FakeCameraSensorSpec:
     def __init__(self) -> None:
         self.uuid = ""
         self.sensor_type = None
-        self.resolution = []
-        self.position = []
+        self.resolution: list[int] = []
+        self.position: list[float] = []
 
 
 class FakeAgentConfiguration:
     def __init__(self) -> None:
-        self.sensor_specifications = []
+        self.sensor_specifications: list[FakeCameraSensorSpec] = []
 
 
 class FakeConfiguration:
-    def __init__(self, sim_cfg, agent_cfgs) -> None:
+    def __init__(
+        self,
+        sim_cfg: FakeSimulatorConfiguration,
+        agent_cfgs: list[FakeAgentConfiguration],
+    ) -> None:
         self.sim_cfg = sim_cfg
         self.agent_cfgs = agent_cfgs
 
 
 class FakeSimulator:
-    last_config = None
+    last_config: FakeConfiguration | None = None
 
-    def __init__(self, config) -> None:
+    def __init__(self, config: FakeConfiguration) -> None:
         self.config = config
         self.closed = False
         self.reset_count = 0
@@ -112,6 +116,7 @@ def test_habitat_backend_lists_and_renders_camera(fake_habitat_sim) -> None:
         assert image.data == np.full((4, 6, 3), [10, 20, 30], dtype=np.uint8).tobytes()
 
         config = FakeSimulator.last_config
+        assert config is not None
         assert config.sim_cfg.scene_id == "/tmp/example.glb"
         assert config.sim_cfg.enable_physics is False
     finally:
@@ -123,6 +128,7 @@ def test_habitat_backend_reset_delegates_to_simulator(fake_habitat_sim) -> None:
 
     try:
         backend.reset_world(seed=123, randomization_params={"ignored": 1.0})
+        assert backend._sim is not None
         assert backend._sim.reset_count == 1
     finally:
         backend.shutdown()

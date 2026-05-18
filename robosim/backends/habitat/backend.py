@@ -95,8 +95,8 @@ class HabitatSimBackend(SimulatorBackend):
         self,
         request_iterator: Iterator[core_pb2.ServoCommand],
     ) -> Iterator[common_pb2.JointState]:
-        for _ in request_iterator:
-            raise NotImplementedError("Robot servo control is not supported for Habitat-Sim")
+        del request_iterator
+        raise NotImplementedError("Robot servo control is not supported for Habitat-Sim")
 
     def get_end_effector_state(self, group: str) -> core_pb2.EndEffectorState:
         del group
@@ -222,6 +222,8 @@ class HabitatSimBackend(SimulatorBackend):
         return habitat_sim.Simulator(habitat_sim.Configuration(sim_cfg, [agent_cfg]))
 
     def _render_camera(self) -> sensing_pb2.CameraImage:
+        if self._sim is None:
+            raise RuntimeError("Habitat-Sim simulator is not available")
         observations = self._sim.get_sensor_observations()
         if self._camera.name not in observations:
             raise RuntimeError(f"Habitat-Sim did not return sensor '{self._camera.name}'")
