@@ -71,7 +71,8 @@ python3 -m robosim.server [--help] [--host <gRPC-listen-host>] [--port <gRPC-lis
 >
 > 然后再启动 robosim。
 
-如果选择 Habitat-Sim 后端，需要先在当前 Python 环境中安装 `habitat_sim`。该后端目前仅提供渲染能力，不控制机器人：
+如果选择 Habitat-Sim 后端，需要先在当前 Python 环境中安装 `habitat_sim`。不传入
+`--robot-name` 时，该后端提供渲染能力，不控制机器人：
 
 ```bash
 python3 -m robosim.server --port 50051 --backend habitat --scene <your-scene.glb>
@@ -89,6 +90,30 @@ python3 -m robosim.server \
 ```
 
 `--no-headless` 会打开 Habitat-Sim viewer 窗口。`--headless` 模式仍通过 sensing gRPC 接口读取 `habitat_rgb` 相机图像，但需要可用 EGL/GPU 渲染上下文。
+
+也可以用 Habitat-Sim 的 articulated object API 加载 Panda 机器人：
+
+```bash
+python3 -m robosim.server \
+  --port 50051 \
+  --backend habitat \
+  --robot-name panda \
+  --headless
+```
+
+Panda 模式会加载仓库中的 Panda URDF，并暴露 `panda_arm`、`panda_hand`、
+`panda_arm_hand` 三个 joint model group。为了能在无 GPU 环境中运行，Panda 模式默认关闭
+Habitat camera renderer，只提供 joint state/spec 和 POSITION joint target。在有 GPU/EGL 的
+机器上可以显式打开渲染：
+
+```bash
+python3 -m robosim.server \
+  --port 50051 \
+  --backend habitat \
+  --robot-name panda \
+  --habitat-enable-camera \
+  --headless
+```
 
 现在，你的环境已经准备好了！
 

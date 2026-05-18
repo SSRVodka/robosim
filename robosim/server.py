@@ -164,6 +164,7 @@ async def serve_async(
     port: int = 50051,
     scene: str | None = None,
     headless: bool = True,
+    habitat_enable_camera: bool | None = None,
 ) -> None:
     """Run the gRPC server asynchronously."""
     backend: SimulatorBackend | None = None
@@ -220,7 +221,12 @@ async def serve_async(
         elif backend_type == "habitat":
             from robosim.backends import HabitatSimBackend
 
-            backend = HabitatSimBackend(scene_path=scene, headless=headless)
+            backend = HabitatSimBackend(
+                scene_path=scene,
+                headless=headless,
+                robot_name=robot_name if robot_name != "robot" else None,
+                enable_camera=habitat_enable_camera,
+            )
         else:
             raise ValueError(f"Unknown backend type: {backend_type}")
 
@@ -285,6 +291,15 @@ def main() -> None:
         default=True,
         help="Run simulator without viewer where supported",
     )
+    parser.add_argument(
+        "--habitat-enable-camera",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Enable Habitat camera rendering explicitly. Useful for rendering Panda "
+            "on a GPU/EGL machine; Panda keeps it disabled by default for CPU-only runs."
+        ),
+    )
     args = parser.parse_args()
 
     asyncio.run(
@@ -294,6 +309,7 @@ def main() -> None:
             port=args.port,
             scene=args.scene,
             headless=args.headless,
+            habitat_enable_camera=args.habitat_enable_camera,
         )
     )
 
