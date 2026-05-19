@@ -4,11 +4,15 @@ set -euo pipefail
 ENV_NAME="${ROBOSIM_ENV_NAME:-robosim}"
 HABITAT_REPO="${HABITAT_SIM_REPO:-https://github.com/facebookresearch/habitat-sim.git}"
 HABITAT_REF="${HABITAT_SIM_REF:-main}"
-BUILD_DIR="${HABITAT_SIM_BUILD_DIR:-$(mktemp -d)}"
-KEEP_BUILD_DIR="${KEEP_HABITAT_BUILD_DIR:-0}"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
+BUILD_DIR="${HABITAT_SIM_BUILD_DIR:-${REPO_ROOT}/.tmp/habitat-sim}"
+KEEP_BUILD_DIR="${KEEP_HABITAT_BUILD_DIR:-1}"
+SOURCE_DIR="${BUILD_DIR}/habitat-sim"
+CLEAN_ON_SUCCESS=0
 
 if [[ "${KEEP_BUILD_DIR}" != "1" ]]; then
-  trap 'rm -rf "${BUILD_DIR}"' EXIT
+  CLEAN_ON_SUCCESS=1
 fi
 
 if [[ -n "${CONDA_PREFIX:-}" && -x "${CONDA_PREFIX}/bin/python" ]]; then
@@ -25,15 +29,26 @@ fi
 
 echo "Using Python:"
 "${PYTHON_BIN[@]}" --version
+echo "Using Habitat-Sim build directory: ${BUILD_DIR}"
 
 mkdir -p "${BUILD_DIR}"
-cd "${BUILD_DIR}"
 
-if [[ ! -d habitat-sim ]]; then
-  git clone --recursive --branch "${HABITAT_REF}" "${HABITAT_REPO}" habitat-sim
+if [[ -d "${SOURCE_DIR}/.git" ]]; then
+  echo "Reusing existing Habitat-Sim checkout: ${SOURCE_DIR}"
+  git -C "${SOURCE_DIR}" fetch origin --tags
+  git -C "${SOURCE_DIR}" checkout "${HABITAT_REF}"
+  if git -C "${SOURCE_DIR}" rev-parse --verify "origin/${HABITAT_REF}" >/dev/null 2>&1; then
+    git -C "${SOURCE_DIR}" pull --ff-only origin "${HABITAT_REF}"
+  fi
+elif [[ -e "${SOURCE_DIR}" ]]; then
+  echo "Found existing path that is not a git checkout: ${SOURCE_DIR}" >&2
+  echo "Move or remove it, then rerun this script." >&2
+  exit 1
+else
+  git clone --recursive --branch "${HABITAT_REF}" "${HABITAT_REPO}" "${SOURCE_DIR}"
 fi
 
-cd habitat-sim
+cd "${SOURCE_DIR}"
 git submodule update --init --recursive
 
 "${PYTHON_BIN[@]}" -m pip install "setuptools>=71,<81"
@@ -45,3 +60,7 @@ HABITAT_WITH_BULLET="${HABITAT_WITH_BULLET:-ON}" \
 "${PYTHON_BIN[@]}" -m pip install . --no-build-isolation
 
 "${PYTHON_BIN[@]}" -c "import habitat_sim; print('habitat-sim import OK')"
+
+if [[ "${CLEAN_ON_SUCCESS}" == "1" ]]; then
+  rm -rf "${BUILD_DIR}"
+fi
