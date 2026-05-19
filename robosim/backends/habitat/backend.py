@@ -12,9 +12,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator
 
+from control_stubs.sensing_pb2 import SensorType
+
 from control_stubs import common_pb2, mobility_ai_pb2, sensing_pb2
 from control_stubs import robot_core_pb2 as core_pb2
-from control_stubs.sensing_pb2 import SensorType
 from robosim.core.backend import SimulatorBackend
 from robosim.core.capabilities import Capability
 
@@ -24,7 +25,16 @@ DEFAULT_CAMERA_HEIGHT = 480
 DEFAULT_CAMERA_POSITION = (0.0, 1.5, 0.0)
 PANDA_CAMERA_POSITION = (0.0, 1.0, 2.2)
 STREAM_INTERVAL_SEC = 0.05
+SERVO_DT_SEC = 0.05
+EE_DLS_DAMPING = 1e-4
+EE_FD_STEP = 1e-4
+EE_MAX_JOINT_VELOCITY = 1.0
 SUPPORTED_VIEWER_SCENE_SUFFIXES = {".glb", ".gltf", ".obj", ".ply"}
+DRIVERS_SIM_ROOT_ENV = "ROBOSIM_DRIVERS_SIM_ROOT"
+PANDA_EE_NAME = "hand"
+PANDA_EE_PARENT_GROUP = "panda_arm"
+PANDA_EE_JOINT_NAME = "panda_joint7"
+CAMERA_OBJECT_NAMES = {DEFAULT_CAMERA_NAME, "camera", "habitat_camera"}
 PANDA_DEFAULT_JOINT_POSITIONS = {
     "panda_joint1": 0.0,
     "panda_joint2": -0.785,
@@ -59,6 +69,7 @@ class CameraConfig:
 @dataclass(slots=True)
 class HabitatJointInfo:
     name: str
+    link_id: int
     position_index: int
     type: str
     lower_limit: float
@@ -84,8 +95,15 @@ class HabitatSimBackend(SimulatorBackend):
         self._scene_path = self._resolve_scene_path(scene_path)
         self._headless_mode = headless
         self._requested_robot_name = robot_name
+        if self._requested_robot_name is not None and not self._uses_panda_robot:
+            raise ValueError(
+                "Habitat-Sim backend currently supports only robot_name='panda'. "
+                f"Got {self._requested_robot_name!r}."
+            )
         self._enable_camera_override = enable_camera
         self._camera = camera or self._default_camera()
+        self._camera_world_position = tuple(self._camera.position)
+        self._camera_world_orientation = (0.0, 0.0, 0.0, 1.0)
         self._seq = 0
         self._closed = False
         self._viewer: subprocess.Popen[bytes] | None = None
@@ -165,7 +183,13 @@ class HabitatSimBackend(SimulatorBackend):
                                 joint_values=ready,
                             )
                         ],
-                        end_effectors=[core_pb2.EESpec(name="hand", parent_jmg_name="panda_arm")],
+                        end_effectors=[
+                            core_pb2.EESpec(
+                                name=PANDA_EE_NAME,
+                                parent_jmg_name=PANDA_EE_PARENT_GROUP,
+                                parent_link=PANDA_EE_JOINT_NAME,
+                            )
+                        ],
                     ),
                     core_pb2.JointModelGroupSpec(
                         name="panda_hand",
@@ -189,9 +213,12 @@ class HabitatSimBackend(SimulatorBackend):
         del group
         if self._robot is None:
             raise NotImplementedError("Robot joint control is not supported for Habitat-Sim")
-        if mode != core_pb2.JointCommand.POSITION:
+        if mode not in (
+            core_pb2.JointCommand.POSITION,
+            core_pb2.JointCommand.VELOCITY,
+        ):
             raise NotImplementedError(
-                "Habitat-Sim Panda support currently accepts POSITION commands only"
+                "Habitat-Sim Panda support currently accepts POSITION or VELOCITY commands only"
             )
         if len(names) != len(data):
             raise ValueError("Joint command names and data must have the same length")
@@ -202,19 +229,66 @@ class HabitatSimBackend(SimulatorBackend):
             info = joints_by_name.get(name)
             if info is None:
                 raise ValueError(f"Unknown Habitat-Sim joint '{name}'")
-            positions[info.position_index] = min(max(value, info.lower_limit), info.upper_limit)
+            if mode == core_pb2.JointCommand.POSITION:
+                target = value
+            else:
+                target = positions[info.position_index] + value * SERVO_DT_SEC
+            positions[info.position_index] = min(max(target, info.lower_limit), info.upper_limit)
         self._robot.joint_positions = positions
 
     def servo_control_stream(
         self,
         request_iterator: Iterator[core_pb2.ServoCommand],
     ) -> Iterator[common_pb2.JointState]:
-        del request_iterator
-        raise NotImplementedError("Robot servo control is not supported for Habitat-Sim")
+        if self._robot is None:
+            raise NotImplementedError("Robot servo control is not supported for Habitat-Sim")
+        for request in request_iterator:
+            if request.HasField("joint_cmd"):
+                joint_cmd = request.joint_cmd
+                self.set_joint_target(
+                    list(joint_cmd.name),
+                    list(joint_cmd.data),
+                    joint_cmd.mode,
+                    joint_cmd.group.jmg_name if joint_cmd.HasField("group") else None,
+                )
+            elif request.HasField("twist_cmd"):
+                twist_cmd = request.twist_cmd
+                parent_group = twist_cmd.target_ee.parent_jmg_name or twist_cmd.target_ee.group_name
+                if parent_group != PANDA_EE_PARENT_GROUP:
+                    raise ValueError(
+                        f"Habitat-Sim Panda supports twist servo only for {PANDA_EE_PARENT_GROUP!r}"
+                    )
+                joint_names, joint_velocities = self._solve_end_effector_twist(
+                    linear=[
+                        twist_cmd.twist.twist.linear.x,
+                        twist_cmd.twist.twist.linear.y,
+                        twist_cmd.twist.twist.linear.z,
+                    ],
+                    angular=[
+                        twist_cmd.twist.twist.angular.x,
+                        twist_cmd.twist.twist.angular.y,
+                        twist_cmd.twist.twist.angular.z,
+                    ],
+                )
+                self.set_joint_target(
+                    joint_names,
+                    joint_velocities,
+                    core_pb2.JointCommand.VELOCITY,
+                    PANDA_EE_PARENT_GROUP,
+                )
+            yield self.get_robot_state()
 
     def get_end_effector_state(self, group: str) -> core_pb2.EndEffectorState:
-        del group
-        raise NotImplementedError("End-effector state is not supported for Habitat-Sim")
+        if self._robot is None or group != PANDA_EE_PARENT_GROUP:
+            raise NotImplementedError(
+                f"Habitat-Sim Panda exposes only the {PANDA_EE_PARENT_GROUP!r} end effector"
+            )
+        return core_pb2.EndEffectorState(
+            pose_stamped=common_pb2.PoseStamped(
+                header=self._build_header(frame_id="world"),
+                pose=self._get_end_effector_pose(),
+            )
+        )
 
     def list_sensors(self) -> sensing_pb2.SensorMetaList:
         if not self._camera_enabled:
@@ -262,6 +336,27 @@ class HabitatSimBackend(SimulatorBackend):
         del seed, randomization_params
         if self._sim is not None and hasattr(self._sim, "reset"):
             self._sim.reset()
+            if self._camera_enabled:
+                self._apply_camera_pose()
+
+    def set_object_pose(self, object_name: str, pose: common_pb2.Pose) -> None:
+        if object_name not in CAMERA_OBJECT_NAMES:
+            raise NotImplementedError(
+                "Habitat-Sim currently supports SetObjectPose only for "
+                f"{sorted(CAMERA_OBJECT_NAMES)}"
+            )
+        self._camera_world_position = (
+            pose.position.x,
+            pose.position.y,
+            pose.position.z,
+        )
+        self._camera_world_orientation = (
+            pose.orientation.x,
+            pose.orientation.y,
+            pose.orientation.z,
+            pose.orientation.w,
+        )
+        self._apply_camera_pose()
 
     def emergency_stop(self) -> None:
         return None
@@ -308,6 +403,11 @@ class HabitatSimBackend(SimulatorBackend):
 
     def _validate_display_scene(self) -> None:
         scene_path = Path(self._scene_path)
+        if self._scene_path == "NONE":
+            raise ValueError(
+                "Habitat-Sim display viewer requires a mesh scene. "
+                "Pass --scene with a .glb, .gltf, .obj, or .ply file."
+            )
         if scene_path.suffix.lower() == ".xml" and self._looks_like_mjcf(scene_path):
             raise ValueError(
                 "Habitat-Sim viewer cannot load MuJoCo MJCF XML scenes. "
@@ -343,10 +443,13 @@ class HabitatSimBackend(SimulatorBackend):
             sensor_spec.uuid = self._camera.name
             sensor_spec.sensor_type = habitat_sim.SensorType.COLOR
             sensor_spec.resolution = [self._camera.height, self._camera.width]
-            sensor_spec.position = list(self._camera.position)
+            sensor_spec.position = [0.0, 0.0, 0.0]
             agent_cfg.sensor_specifications = [sensor_spec]
 
-        return habitat_sim.Simulator(habitat_sim.Configuration(sim_cfg, [agent_cfg]))
+        sim = habitat_sim.Simulator(habitat_sim.Configuration(sim_cfg, [agent_cfg]))
+        if self._camera_enabled:
+            self._apply_camera_pose(sim)
+        return sim
 
     @property
     def _camera_enabled(self) -> bool:
@@ -363,6 +466,55 @@ class HabitatSimBackend(SimulatorBackend):
             return CameraConfig(position=PANDA_CAMERA_POSITION)
         return CameraConfig()
 
+    def _apply_camera_pose(self, sim: Any | None = None) -> None:
+        sim = sim if sim is not None else self._sim
+        if sim is None:
+            return
+        agent = self._get_agent(sim)
+        if agent is None:
+            return
+
+        habitat_sim = self._habitat_sim
+        state_cls = getattr(habitat_sim, "AgentState", None)
+        state = state_cls() if state_cls is not None else self._current_agent_state(agent)
+        if state is None:
+            return
+
+        state.position = list(self._camera_world_position)
+        rotation = self._habitat_quaternion(self._camera_world_orientation)
+        if rotation is not None:
+            state.rotation = rotation
+        else:
+            state.rotation = self._camera_world_orientation
+
+        if hasattr(agent, "set_state"):
+            agent.set_state(state)
+        elif hasattr(sim, "set_agent_state"):
+            sim.set_agent_state(state.position, state.rotation)
+
+    def _get_agent(self, sim: Any) -> Any | None:
+        if hasattr(sim, "get_agent"):
+            return sim.get_agent(0)
+        if hasattr(sim, "initialize_agent"):
+            return sim.initialize_agent(0)
+        return None
+
+    def _current_agent_state(self, agent: Any) -> Any | None:
+        state = getattr(agent, "state", None)
+        if state is not None:
+            return state
+        get_state = getattr(agent, "get_state", None)
+        if callable(get_state):
+            return get_state()
+        return None
+
+    def _habitat_quaternion(self, xyzw: tuple[float, float, float, float]) -> Any | None:
+        try:
+            from habitat_sim.utils.common import quat_from_coeffs
+        except ImportError:
+            return None
+        return quat_from_coeffs(list(xyzw))
+
     def _load_robot(self) -> Any | None:
         if not self._uses_panda_robot:
             return None
@@ -378,10 +530,16 @@ class HabitatSimBackend(SimulatorBackend):
         return robot
 
     def _prepare_panda_urdf(self) -> Path:
-        source = Path(
-            "drivers_sim/gazebo-11/assets/robots/franka_panda/"
+        source = self._drivers_sim_root() / Path(
+            "gazebo-11/assets/robots/franka_panda/"
             "panda_description/urdf/panda.urdf"
-        ).resolve()
+        )
+        if not source.exists():
+            raise FileNotFoundError(
+                "Could not find Panda URDF for Habitat-Sim. Expected "
+                f"{source}. Set {DRIVERS_SIM_ROOT_ENV} to the drivers_sim asset root "
+                "if assets live outside the robosim repository."
+            )
         mesh_root = source.parents[1]
         text = source.read_text()
         text = text.replace("package://franka_panda_desc/", f"{mesh_root}/")
@@ -396,6 +554,21 @@ class HabitatSimBackend(SimulatorBackend):
         self._robot_urdf_path = Path(handle.name)
         return self._robot_urdf_path
 
+    def _drivers_sim_root(self) -> Path:
+        env_root = os.environ.get(DRIVERS_SIM_ROOT_ENV)
+        if env_root:
+            return Path(env_root).expanduser().resolve()
+
+        repo_root = Path(__file__).resolve().parents[3]
+        candidates = [
+            repo_root / "drivers_sim",
+            repo_root.parent / "drivers_sim",
+        ]
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate.resolve()
+        return candidates[0].resolve()
+
     def _build_robot_joint_infos(self, robot: Any) -> list[HabitatJointInfo]:
         lower_limits, upper_limits = robot.joint_position_limits
         infos: list[HabitatJointInfo] = []
@@ -408,6 +581,7 @@ class HabitatSimBackend(SimulatorBackend):
             infos.append(
                 HabitatJointInfo(
                     name=name,
+                    link_id=int(link_id),
                     position_index=offset,
                     type=self._habitat_joint_type_name(robot.get_link_joint_type(link_id)),
                     lower_limit=float(lower_limits[offset]),
@@ -434,6 +608,180 @@ class HabitatSimBackend(SimulatorBackend):
         if name in PANDA_HAND_JOINTS:
             groups.extend(["panda_hand", "panda_arm_hand"])
         return groups
+
+    def _solve_end_effector_twist(
+        self,
+        linear: list[float],
+        angular: list[float],
+    ) -> tuple[list[str], list[float]]:
+        import numpy as np
+
+        if self._robot is None:
+            raise RuntimeError("Habitat-Sim robot is not available")
+
+        target_linear = np.asarray(linear, dtype=np.float64)
+        target_angular = np.asarray(angular, dtype=np.float64)
+        joint_infos = [info for info in self._joint_infos if info.name in PANDA_ARM_JOINTS]
+        if not joint_infos:
+            raise RuntimeError("Panda arm joints are not available")
+
+        original_positions = list(self._robot.joint_positions)
+        jacobian = np.zeros((3, len(joint_infos)), dtype=np.float64)
+        try:
+            for column, info in enumerate(joint_infos):
+                center = original_positions[info.position_index]
+                plus = min(center + EE_FD_STEP, info.upper_limit)
+                minus = max(center - EE_FD_STEP, info.lower_limit)
+                if plus == minus:
+                    continue
+
+                positions = list(original_positions)
+                positions[info.position_index] = plus
+                self._robot.joint_positions = positions
+                plus_pos = np.asarray(self._get_end_effector_position(), dtype=np.float64)
+
+                positions = list(original_positions)
+                positions[info.position_index] = minus
+                self._robot.joint_positions = positions
+                minus_pos = np.asarray(self._get_end_effector_position(), dtype=np.float64)
+
+                jacobian[:, column] = (plus_pos - minus_pos) / (plus - minus)
+        finally:
+            self._robot.joint_positions = original_positions
+
+        if np.linalg.norm(target_linear) == 0.0 and np.linalg.norm(target_angular) > 0.0:
+            return (
+                [info.name for info in joint_infos],
+                self._angular_fallback_joint_velocities(joint_infos, target_angular),
+            )
+
+        lhs = jacobian.T @ jacobian + EE_DLS_DAMPING * np.eye(len(joint_infos))
+        rhs = jacobian.T @ target_linear
+        velocities = np.linalg.solve(lhs, rhs)
+        velocities = np.clip(velocities, -EE_MAX_JOINT_VELOCITY, EE_MAX_JOINT_VELOCITY)
+        return [info.name for info in joint_infos], [float(value) for value in velocities]
+
+    def _angular_fallback_joint_velocities(
+        self,
+        joint_infos: list[HabitatJointInfo],
+        angular: Any,
+    ) -> list[float]:
+        import numpy as np
+
+        velocities = np.zeros(len(joint_infos), dtype=np.float64)
+        joint_index_by_name = {info.name: index for index, info in enumerate(joint_infos)}
+        fallback_map = {
+            "panda_joint5": float(angular[0]),
+            "panda_joint6": float(angular[1]),
+            "panda_joint7": float(angular[2]),
+        }
+        for name, velocity in fallback_map.items():
+            index = joint_index_by_name.get(name)
+            if index is not None:
+                velocities[index] = velocity
+        return [
+            float(value)
+            for value in np.clip(velocities, -EE_MAX_JOINT_VELOCITY, EE_MAX_JOINT_VELOCITY)
+        ]
+
+    def _get_end_effector_pose(self) -> common_pb2.Pose:
+        link_id = self._end_effector_link_id()
+        node = self._robot.get_link_scene_node(link_id)
+        transform = self._node_absolute_transform(node)
+        position = self._transform_translation(transform)
+        orientation = self._transform_quaternion(transform)
+        return common_pb2.Pose(
+            position=common_pb2.Point(x=position[0], y=position[1], z=position[2]),
+            orientation=common_pb2.Quaternion(
+                x=orientation[0],
+                y=orientation[1],
+                z=orientation[2],
+                w=orientation[3],
+            ),
+        )
+
+    def _get_end_effector_position(self) -> tuple[float, float, float]:
+        pose = self._get_end_effector_pose()
+        return pose.position.x, pose.position.y, pose.position.z
+
+    def _end_effector_link_id(self) -> int:
+        for info in self._joint_infos:
+            if info.name == PANDA_EE_JOINT_NAME:
+                return info.link_id
+        for info in reversed(self._joint_infos):
+            if info.name in PANDA_ARM_JOINTS:
+                return info.link_id
+        raise RuntimeError("Could not resolve Panda end-effector link")
+
+    def _node_absolute_transform(self, node: Any) -> Any:
+        transform = getattr(node, "absolute_transformation", None)
+        if callable(transform):
+            return transform()
+        if transform is not None:
+            return transform
+        transform = getattr(node, "transformation", None)
+        if callable(transform):
+            return transform()
+        if transform is not None:
+            return transform
+        return node
+
+    def _transform_translation(self, transform: Any) -> tuple[float, float, float]:
+        translation = getattr(transform, "translation", None)
+        if callable(translation):
+            translation = translation()
+        if translation is not None:
+            return self._vector3_tuple(translation)
+        if hasattr(transform, "__getitem__"):
+            try:
+                return float(transform[0][3]), float(transform[1][3]), float(transform[2][3])
+            except (TypeError, IndexError, KeyError):
+                pass
+        return 0.0, 0.0, 0.0
+
+    def _transform_quaternion(self, transform: Any) -> tuple[float, float, float, float]:
+        rotation = getattr(transform, "rotation", None)
+        if callable(rotation):
+            rotation = rotation()
+        quaternion = getattr(rotation, "to_quaternion", None) if rotation is not None else None
+        if callable(quaternion):
+            return self._quaternion_tuple(quaternion())
+        quaternion = getattr(transform, "rotation", None)
+        if quaternion is not None and not callable(quaternion):
+            return self._quaternion_tuple(quaternion)
+        return 0.0, 0.0, 0.0, 1.0
+
+    def _vector3_tuple(self, value: Any) -> tuple[float, float, float]:
+        if all(hasattr(value, axis) for axis in ("x", "y", "z")):
+            coords = []
+            for axis in ("x", "y", "z"):
+                coord = getattr(value, axis)
+                coords.append(float(coord() if callable(coord) else coord))
+            return coords[0], coords[1], coords[2]
+        return float(value[0]), float(value[1]), float(value[2])
+
+    def _quaternion_tuple(self, value: Any) -> tuple[float, float, float, float]:
+        vector = getattr(value, "vector", None)
+        scalar = getattr(value, "scalar", None)
+        if callable(vector):
+            vector = vector()
+        if callable(scalar):
+            scalar = scalar()
+        if vector is not None and scalar is not None:
+            xyz = self._vector3_tuple(vector)
+            return xyz[0], xyz[1], xyz[2], float(scalar)
+        if all(hasattr(value, field) for field in ("x", "y", "z", "w")):
+            coords = []
+            for field in ("x", "y", "z", "w"):
+                coord = getattr(value, field)
+                coords.append(float(coord() if callable(coord) else coord))
+            return coords[0], coords[1], coords[2], coords[3]
+        try:
+            if len(value) == 4:
+                return float(value[0]), float(value[1]), float(value[2]), float(value[3])
+        except TypeError:
+            pass
+        return 0.0, 0.0, 0.0, 1.0
 
     def _render_camera(self) -> sensing_pb2.CameraImage:
         if self._sim is None:
@@ -473,7 +821,18 @@ class HabitatSimBackend(SimulatorBackend):
         if scene_path is None:
             return "NONE"
         path = Path(scene_path)
-        return str(path.resolve()) if path.exists() else scene_path
+        if path.exists():
+            return str(path.resolve())
+
+        drivers_root = self._drivers_sim_root()
+        if path.parts and path.parts[0] == "drivers_sim":
+            drivers_candidate = drivers_root.parent / path
+        else:
+            drivers_candidate = drivers_root / path
+        if drivers_candidate.exists():
+            return str(drivers_candidate.resolve())
+
+        return scene_path
 
     def _import_habitat_sim(self) -> Any:
         try:

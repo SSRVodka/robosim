@@ -75,6 +75,21 @@ class SimulationServicer(sim_pb2_grpc.SimulationServiceServicer):
     def SetObjectPose(
         self, request: sim_pb2.ObjectState, context: grpc.ServicerContext
     ) -> common_pb2.Status:
-        _logger.warning("SetObjectPose not implemented")
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        return common_pb2.Status(code=common_pb2.STATUS_FAILURE, message="Not implemented")
+        _logger.info("SetObjectPose called: object_name=%s", request.object_name)
+        try:
+            set_object_pose = getattr(self._backend, "set_object_pose")
+            set_object_pose(request.object_name, request.pose)
+            _logger.info("SetObjectPose succeeded")
+            return common_pb2.Status(code=common_pb2.STATUS_SUCCESS)
+        except AttributeError:
+            _logger.warning("SetObjectPose not implemented")
+            context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+            return common_pb2.Status(code=common_pb2.STATUS_FAILURE, message="Not implemented")
+        except NotImplementedError as e:
+            _logger.warning("SetObjectPose not implemented: %s", e)
+            context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+            return common_pb2.Status(code=common_pb2.STATUS_FAILURE, message=str(e))
+        except Exception as e:
+            _logger.error("SetObjectPose failed: %s", e, exc_info=True)
+            context.set_code(grpc.StatusCode.INTERNAL)
+            return common_pb2.Status(code=common_pb2.STATUS_FAILURE, message=str(e))

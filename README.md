@@ -91,6 +91,18 @@ python3 -m robosim.server \
 
 `--no-headless` 会打开 Habitat-Sim viewer 窗口。`--headless` 模式仍通过 sensing gRPC 接口读取 `habitat_rgb` 相机图像，但需要可用 EGL/GPU 渲染上下文。
 
+如果 `drivers_sim` 资产目录不在 robosim 仓库内，可以用 `ROBOSIM_DRIVERS_SIM_ROOT`
+指向外部资产根目录。`--scene` 支持相对该目录的路径：
+
+```bash
+ROBOSIM_DRIVERS_SIM_ROOT=/home/murphy/code/drivers_sim \
+python3 -m robosim.server \
+  --port 50051 \
+  --backend habitat \
+  --scene habitat/assets/worlds/apartment.glb \
+  --no-headless
+```
+
 也可以用 Habitat-Sim 的 articulated object API 加载 Panda 机器人：
 
 ```bash
@@ -111,9 +123,13 @@ python3 -m robosim.server \
   --port 50051 \
   --backend habitat \
   --robot-name panda \
+  --scene habitat/assets/worlds/apartment.glb \
   --habitat-enable-camera \
   --headless
 ```
+
+Panda 可视化走 backend 的 camera renderer，不走 `--no-headless` 的 Habitat viewer
+subprocess；后者只能直接打开单个 mesh 场景，不能动态加载 Panda URDF。
 
 现在，你的环境已经准备好了！
 

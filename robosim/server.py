@@ -8,7 +8,7 @@ import asyncio
 import signal
 from concurrent import futures
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, TypeVar
 
 from grpc import aio as grpc_aio
 
@@ -50,6 +50,7 @@ LEROBOT_UNAVAILABLE_MESSAGE = (
     "LeRobot recorder/policy is unavailable in this environment. "
     "Install a compatible lerobot version to use this service."
 )
+T = TypeVar("T")
 
 
 class UnavailableDataRecorder(DataRecorder):
@@ -107,6 +108,120 @@ class UnavailablePolicyRunner:
 
     def shutdown(self) -> None:
         return None
+
+
+class ThreadBoundBackendProxy(SimulatorBackend):
+    """Run a backend and all of its calls on one dedicated thread.
+
+    Some simulator APIs bind rendering contexts to the creating thread. The
+    proxy keeps those backends usable from gRPC's worker threads by serializing
+    every backend call through the same single-thread executor that constructs
+    the backend.
+    """
+
+    def __init__(self, factory: Callable[[], SimulatorBackend]) -> None:
+        self._executor = futures.ThreadPoolExecutor(max_workers=1)
+        self._backend = self._executor.submit(factory).result()
+        self._closed = False
+
+    def _call(self, fn: Callable[[SimulatorBackend], T]) -> T:
+        if self._closed:
+            raise RuntimeError("Backend has been shut down")
+        return self._executor.submit(lambda: fn(self._backend)).result()
+
+    @property
+    def capabilities(self) -> Any:
+        return self._call(lambda backend: backend.capabilities)
+
+    @property
+    def robot_name(self) -> str:
+        return self._call(lambda backend: backend.robot_name)
+
+    @property
+    def headless_mode(self) -> bool:
+        return self._call(lambda backend: backend.headless_mode)
+
+    def set_headless_mode(self, enabled: bool) -> None:
+        return self._call(lambda backend: backend.set_headless_mode(enabled))
+
+    def get_robot_state(self) -> Any:
+        return self._call(lambda backend: backend.get_robot_state())
+
+    def get_robot_spec(self) -> Any:
+        return self._call(lambda backend: backend.get_robot_spec())
+
+    def set_joint_target(
+        self,
+        names: list[str],
+        data: list[float],
+        mode: Any,
+        group: str | None = None,
+    ) -> None:
+        return self._call(lambda backend: backend.set_joint_target(names, data, mode, group))
+
+    def servo_control_stream(self, request_iterator: Any) -> Any:
+        iterator = self._call(lambda backend: backend.servo_control_stream(request_iterator))
+        while True:
+            has_item, item = self._call(lambda _backend: self._next_iterator(iterator))
+            if not has_item:
+                return
+            yield item
+
+    def get_end_effector_state(self, group: str) -> Any:
+        return self._call(lambda backend: backend.get_end_effector_state(group))
+
+    def get_joint_command_state(self) -> Any:
+        return self._call(lambda backend: backend.get_joint_command_state())
+
+    def list_sensors(self) -> Any:
+        return self._call(lambda backend: backend.list_sensors())
+
+    def get_sensors(self, names: list[str]) -> Any:
+        return self._call(lambda backend: backend.get_sensors(names))
+
+    def stream_sensors(self, names: list[str]) -> Any:
+        iterator = self._call(lambda backend: backend.stream_sensors(names))
+        while True:
+            has_item, item = self._call(lambda _backend: self._next_iterator(iterator))
+            if not has_item:
+                return
+            yield item
+
+    def get_robot_pose_in_map(self) -> Any:
+        return self._call(lambda backend: backend.get_robot_pose_in_map())
+
+    def navigate_to(self, goal: Any) -> Any:
+        iterator = self._call(lambda backend: backend.navigate_to(goal))
+        while True:
+            has_item, item = self._call(lambda _backend: self._next_iterator(iterator))
+            if not has_item:
+                return
+            yield item
+
+    def reset_world(self, seed: int, randomization_params: dict[str, float]) -> None:
+        return self._call(lambda backend: backend.reset_world(seed, randomization_params))
+
+    def set_object_pose(self, object_name: str, pose: Any) -> None:
+        return self._call(lambda backend: getattr(backend, "set_object_pose")(object_name, pose))
+
+    def emergency_stop(self) -> None:
+        return self._call(lambda backend: backend.emergency_stop())
+
+    def shutdown(self) -> None:
+        if self._closed:
+            return
+        try:
+            self._executor.submit(self._backend.shutdown).result()
+        finally:
+            self._closed = True
+            self._executor.shutdown(wait=True)
+
+    @staticmethod
+    def _next_iterator(iterator: Any) -> tuple[bool, Any]:
+        try:
+            return True, next(iterator)
+        except StopIteration:
+            return False, None
 
 
 def create_lerobot_services(
@@ -221,11 +336,13 @@ async def serve_async(
         elif backend_type == "habitat":
             from robosim.backends import HabitatSimBackend
 
-            backend = HabitatSimBackend(
-                scene_path=scene,
-                headless=headless,
-                robot_name=robot_name if robot_name != "robot" else None,
-                enable_camera=habitat_enable_camera,
+            backend = ThreadBoundBackendProxy(
+                lambda: HabitatSimBackend(
+                    scene_path=scene,
+                    headless=headless,
+                    robot_name=robot_name if robot_name != "robot" else None,
+                    enable_camera=habitat_enable_camera,
+                )
             )
         else:
             raise ValueError(f"Unknown backend type: {backend_type}")
@@ -269,8 +386,10 @@ def main() -> None:
     )
     parser.add_argument(
         "--robot-name",
+        "--robot",
         type=str,
         default="robot",
+        dest="robot_name",
         help="Robot name for simulation",
     )
     parser.add_argument(
