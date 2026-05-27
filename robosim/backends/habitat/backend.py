@@ -87,19 +87,16 @@ class HabitatSimBackend(SimulatorBackend):
         self,
         scene_path: str | None = None,
         headless: bool = True,
-        robot_name: str | None = None,
+        robot: str | None = None,
         enable_camera: bool | None = None,
         camera: CameraConfig | None = None,
     ) -> None:
         self._habitat_sim = self._import_habitat_sim()
         self._scene_path = self._resolve_scene_path(scene_path)
         self._headless_mode = headless
-        self._requested_robot_name = robot_name
-        if self._requested_robot_name is not None and not self._uses_panda_robot:
-            raise ValueError(
-                "Habitat-Sim backend currently supports only robot_name='panda'. "
-                f"Got {self._requested_robot_name!r}."
-            )
+        self._requested_robot = Path(robot).expanduser() if robot is not None else None
+        self._resolved_robot_urdf: Path | None = None
+        self._resolved_robot_name: str | None = None
         self._enable_camera_override = enable_camera
         self._camera = camera or self._default_camera()
         self._camera_world_position = tuple(self._camera.position)
@@ -114,9 +111,9 @@ class HabitatSimBackend(SimulatorBackend):
         if self._sim is not None:
             self._robot = self._load_robot()
         if self._uses_display_viewer:
-            if self._uses_panda_robot:
+            if self._uses_robot:
                 raise NotImplementedError(
-                    "Habitat-Sim Panda support uses the Simulator API and is not "
+                    "Habitat-Sim robot support uses the Simulator API and is not "
                     "available through the display viewer subprocess. Use --headless."
                 )
             self._viewer = self._launch_display_viewer()
@@ -132,8 +129,8 @@ class HabitatSimBackend(SimulatorBackend):
 
     @property
     def robot_name(self) -> str:
-        if self._uses_panda_robot:
-            return "panda"
+        if self._uses_robot:
+            return self._resolved_robot_name or self._robot_name_from_path()
         return "habitat_camera"
 
     @property
@@ -435,7 +432,7 @@ class HabitatSimBackend(SimulatorBackend):
         if hasattr(sim_cfg, "create_renderer"):
             sim_cfg.create_renderer = self._camera_enabled
         if hasattr(sim_cfg, "enable_physics"):
-            sim_cfg.enable_physics = self._uses_panda_robot
+            sim_cfg.enable_physics = self._uses_robot
 
         agent_cfg = habitat_sim.AgentConfiguration()
         if self._camera_enabled:
@@ -455,14 +452,18 @@ class HabitatSimBackend(SimulatorBackend):
     def _camera_enabled(self) -> bool:
         if self._enable_camera_override is not None:
             return self._enable_camera_override
-        return not self._uses_panda_robot
+        return not self._uses_robot
 
     @property
     def _uses_panda_robot(self) -> bool:
-        return self._requested_robot_name == "panda"
+        return self._resolved_robot_name == "panda" or self._robot_name_from_path() == "panda"
+
+    @property
+    def _uses_robot(self) -> bool:
+        return self._requested_robot is not None
 
     def _default_camera(self) -> CameraConfig:
-        if self._uses_panda_robot:
+        if self._uses_robot:
             return CameraConfig(position=PANDA_CAMERA_POSITION)
         return CameraConfig()
 
@@ -516,32 +517,29 @@ class HabitatSimBackend(SimulatorBackend):
         return quat_from_coeffs(list(xyzw))
 
     def _load_robot(self) -> Any | None:
-        if not self._uses_panda_robot:
+        if not self._uses_robot:
             return None
         if self._sim is None:
             return None
         robot = self._sim.get_articulated_object_manager().add_articulated_object_from_urdf(
-            str(self._prepare_panda_urdf()),
+            str(self._prepare_robot_urdf()),
             fixed_base=True,
             maintain_link_order=True,
         )
         self._joint_infos = self._build_robot_joint_infos(robot)
-        self._apply_panda_ready_state(robot)
+        if self._uses_panda_robot:
+            self._apply_panda_ready_state(robot)
         return robot
 
-    def _prepare_panda_urdf(self) -> Path:
-        source = self._drivers_sim_root() / Path(
-            "gazebo-11/assets/robots/franka_panda/"
-            "panda_description/urdf/panda.urdf"
-        )
+    def _prepare_robot_urdf(self) -> Path:
+        source = self._resolve_robot_urdf_path()
         if not source.exists():
-            raise FileNotFoundError(
-                "Could not find Panda URDF for Habitat-Sim. Expected "
-                f"{source}. Set {DRIVERS_SIM_ROOT_ENV} to the drivers_sim asset root "
-                "if assets live outside the robosim repository."
-            )
+            raise FileNotFoundError(f"Could not find Habitat-Sim robot URDF: {source}")
+        self._resolved_robot_urdf = source
+        self._resolved_robot_name = self._read_urdf_robot_name(source) or source.stem
         mesh_root = source.parents[1]
         text = source.read_text()
+        text = self._resolve_package_mesh_uris(text)
         text = text.replace("package://franka_panda_desc/", f"{mesh_root}/")
         handle = tempfile.NamedTemporaryFile(
             "w",
@@ -553,6 +551,95 @@ class HabitatSimBackend(SimulatorBackend):
             handle.write(text)
         self._robot_urdf_path = Path(handle.name)
         return self._robot_urdf_path
+
+    def _resolve_robot_urdf_path(self) -> Path:
+        if self._requested_robot is None:
+            raise ValueError("Habitat-Sim robot loading requires --robot")
+
+        robot_path = self._resolve_requested_robot_path()
+
+        if robot_path.is_file():
+            if robot_path.suffix.lower() != ".urdf":
+                raise ValueError(
+                    "Habitat-Sim articulated robot loading expects a URDF file. "
+                    f"Got {robot_path}."
+                )
+            return robot_path
+        if not robot_path.exists():
+            raise FileNotFoundError(f"Robot path does not exist: {robot_path}")
+        if not robot_path.is_dir():
+            raise ValueError(f"Robot path must be a directory or URDF file: {robot_path}")
+
+        preferred = [
+            robot_path / "urdf" / f"{robot_path.name}.urdf",
+            robot_path / f"{robot_path.name}.urdf",
+            robot_path / "robot.urdf",
+            robot_path / "model.urdf",
+        ]
+        for candidate in preferred:
+            if candidate.exists():
+                return candidate
+
+        candidates = sorted(robot_path.rglob("*.urdf"))
+        if len(candidates) == 1:
+            return candidates[0]
+        if candidates:
+            names = ", ".join(str(path.relative_to(robot_path)) for path in candidates)
+            raise ValueError(
+                f"Multiple URDF files found in {robot_path}: {names}. "
+                "Pass --robot with the specific .urdf file."
+            )
+
+        mjcf_candidates = sorted(
+            path
+            for path in robot_path.glob("*.xml")
+            if path.name != "package.xml" and self._looks_like_mjcf(path)
+        )
+        if mjcf_candidates:
+            raise ValueError(
+                "Habitat-Sim cannot load MuJoCo MJCF XML robot files through the "
+                "current articulated-object path. Provide a robot directory containing "
+                "a .urdf file, or use --backend mujoco for this robot."
+            )
+        raise FileNotFoundError(f"No URDF file found in robot directory: {robot_path}")
+
+    def _read_urdf_robot_name(self, urdf_path: Path) -> str | None:
+        try:
+            return ET.parse(urdf_path).getroot().attrib.get("name")
+        except ET.ParseError:
+            return None
+
+    def _resolve_package_mesh_uris(self, text: str) -> str:
+        if self._requested_robot is None:
+            return text
+        robot_path = self._resolve_requested_robot_path()
+        robot_root = robot_path if robot_path.is_dir() else robot_path.parent
+        for package_xml in robot_root.rglob("package.xml"):
+            try:
+                package_name = ET.parse(package_xml).getroot().findtext("name")
+            except ET.ParseError:
+                continue
+            if package_name:
+                text = text.replace(f"package://{package_name}/", f"{package_xml.parent}/")
+        return text
+
+    def _robot_name_from_path(self) -> str:
+        if self._requested_robot is None:
+            return "habitat_camera"
+        return self._requested_robot.stem if self._requested_robot.is_file() else self._requested_robot.name
+
+    def _resolve_requested_robot_path(self) -> Path:
+        if self._requested_robot is None:
+            raise ValueError("Habitat-Sim robot loading requires --robot")
+        robot_path = self._requested_robot
+        if robot_path.is_absolute() or robot_path.exists():
+            return robot_path.resolve()
+
+        env_candidate = self._drivers_sim_root() / robot_path
+        if env_candidate.exists():
+            return env_candidate.resolve()
+
+        return (Path.cwd() / robot_path).resolve()
 
     def _drivers_sim_root(self) -> Path:
         env_root = os.environ.get(DRIVERS_SIM_ROOT_ENV)

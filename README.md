@@ -77,7 +77,7 @@ python3 -m robosim.server --port 50051 --backend mujoco --no-headless
 >
 > 然后再启动 robosim。
 
-> [!TIP]
+> [!WARNING]
 >
 > Habitat-Sim 后端的安装和启动方式与 Gazebo / MuJoCo 差异较大，包含
 > `habitat_sim` 可选依赖、GPU/EGL、Mesa 软件渲染、Panda articulated object 和

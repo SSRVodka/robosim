@@ -275,7 +275,7 @@ def create_server(
 
 async def serve_async(
     backend_type: str,
-    robot_name: str = "robot",
+    robot: str | None = None,
     port: int = 50051,
     scene: str | None = None,
     headless: bool = True,
@@ -325,7 +325,7 @@ async def serve_async(
             from robosim.backends import GazeboBackend
 
             rclpy.init()
-            backend = GazeboBackend(robot_name=robot_name)
+            backend = GazeboBackend(robot_name=Path(robot).name if robot else "robot")
         elif backend_type == "mujoco":
             from robosim.backends import MuJoCoBackend
 
@@ -340,7 +340,7 @@ async def serve_async(
                 lambda: HabitatSimBackend(
                     scene_path=scene,
                     headless=headless,
-                    robot_name=robot_name if robot_name != "robot" else None,
+                    robot=robot,
                     enable_camera=habitat_enable_camera,
                 )
             )
@@ -385,12 +385,10 @@ def main() -> None:
         help="Simulator backend type",
     )
     parser.add_argument(
-        "--robot-name",
         "--robot",
         type=str,
-        default="robot",
-        dest="robot_name",
-        help="Robot name for simulation",
+        default=None,
+        help="Path to the robot asset directory or backend-specific robot file",
     )
     parser.add_argument(
         "--port",
@@ -424,7 +422,7 @@ def main() -> None:
     asyncio.run(
         serve_async(
             backend_type=args.backend,
-            robot_name=args.robot_name,
+            robot=args.robot,
             port=args.port,
             scene=args.scene,
             headless=args.headless,

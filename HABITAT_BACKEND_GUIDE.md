@@ -6,7 +6,7 @@ Habitat-Sim 后端和 Gazebo / MuJoCo 的启动路径差异较大：它依赖可
 
 ## 1. 准备 RoboSim 环境
 
-先完成 README 中的通用环境创建和 proto 生成：
+先完成的通用环境创建和 proto 生成：
 
 ```bash
 mamba env create -f environment.yml
@@ -15,8 +15,7 @@ mamba activate robosim
 ./scripts/gen_protos.sh
 ```
 
-如果 `control_stubs` 里缺少 `*_pb2.py`、`*_pb2_grpc.py` 或 `*.pyi`，
-server/client 会无法导入 gRPC 类型，重新运行上面的 proto 生成命令即可。
+若proto文件发生变化，需要重新运行`gen_proto.sh`
 
 ## 2. 安装 Habitat-Sim
 
@@ -48,13 +47,13 @@ ROBOSIM_ENV_NAME=robosim ./scripts/install_habitat.sh
 
 ## 3. 只启动 Habitat 场景渲染
 
-不传入 `--robot-name` 时，Habitat 后端提供渲染能力，不控制机器人：
+不传入 `--robot` 时，Habitat 后端提供渲染能力，不控制机器人：
 
 ```bash
 python3 -m robosim.server \
   --port 50051 \
   --backend habitat \
-  --scene <your-scene.glb>
+  --scene /path/to/your/scene
 ```
 
 `--scene` 需要传 Habitat-Sim 支持的 mesh / scene 文件，例如 `.glb`、`.gltf`、
@@ -62,7 +61,7 @@ python3 -m robosim.server \
 
 ## 4. 本地显示窗口和软件渲染
 
-在没有 NVIDIA GPU 但有本机显示器的环境中，可以使用普通显示版 Habitat-Sim 和 Mesa
+在没有 NVIDIA GPU 但有显示器的环境中，可以使用普通显示版 Habitat-Sim 和 Mesa
 软件渲染：
 
 ```bash
@@ -70,40 +69,41 @@ LIBGL_ALWAYS_SOFTWARE=1 MESA_GL_VERSION_OVERRIDE=4.1 DISPLAY=:0 \
 python3 -m robosim.server \
   --port 50051 \
   --backend habitat \
-  --scene drivers_sim/mujoco/assets/worlds/two_bedroom_apartment/BEDROOM_NEO/model.obj \
+  --scene /path/to/your/scene \
   --no-headless
 ```
 
 `--no-headless` 会打开 Habitat-Sim viewer 窗口。这个模式只适合直接查看单个 mesh 场景，
-不会通过 gRPC 暴露 `habitat_rgb` 图像，也不能动态加载 Panda URDF。
+不会通过 gRPC 暴露 `habitat_rgb` 图像，也不能动态加载机械臂 URDF。
 
-## 5. 外部 drivers_sim 资产
+> [!TIP]
+> 如果 `drivers_sim` 资产目录不在 robosim 仓库内，可以用`ROBOSIM_DRIVERS_SIM_ROOT` 指向外部资产根目录。`--scene` 支持相对该目录的路径：
+>
+> ```bash
+> ROBOSIM_DRIVERS_SIM_ROOT=/home/murphy/code/drivers_sim \
+> python3 -m robosim.server \
+>   --port 50051 \
+>   --backend habitat \
+>   --scene habitat/assets/worlds/apartment.glb \
+>   --no-headless
+> ```
 
-如果 `drivers_sim` 资产目录不在 robosim 仓库内，可以用
-`ROBOSIM_DRIVERS_SIM_ROOT` 指向外部资产根目录。`--scene` 支持相对该目录的路径：
+## 5. 加载机械臂
 
-```bash
-ROBOSIM_DRIVERS_SIM_ROOT=/home/murphy/code/drivers_sim \
-python3 -m robosim.server \
-  --port 50051 \
-  --backend habitat \
-  --scene habitat/assets/worlds/apartment.glb \
-  --no-headless
-```
-
-## 6. 加载 Panda 机器人
-
-可以用 Habitat-Sim 的 articulated object API 加载 Panda 机器人：
+可以用 Habitat-Sim 的 articulated object API 加载机械臂：
 
 ```bash
 python3 -m robosim.server \
   --port 50051 \
   --backend habitat \
-  --robot-name panda \
+  --robot drivers_sim/gazebo-11/assets/robots/franka_panda \
   --headless
 ```
 
-Panda 模式会加载仓库中的 Panda URDF，并暴露 `panda_arm`、`panda_hand`、
+`--robot` 应传机器人资源目录或具体 `.urdf` 文件。Habitat 后端会在该目录下寻找 URDF
+并加载；如果目录里只有 MuJoCo MJCF `.xml`，请改用 `--backend mujoco`。
+
+Panda 模式会从机器人目录中的 Panda URDF 加载，并暴露 `panda_arm`、`panda_hand`、
 `panda_arm_hand` 三个 joint model group。为了能在无 GPU 环境中运行，Panda 模式默认关闭
 Habitat camera renderer，只提供 joint state/spec 和 POSITION joint target。
 
@@ -115,7 +115,7 @@ ROBOSIM_DRIVERS_SIM_ROOT=/home/murphy/code/drivers_sim \
 python3 -m robosim.server \
   --port 50051 \
   --backend habitat \
-  --robot-name panda \
+  --robot gazebo-11/assets/robots/franka_panda \
   --scene habitat/assets/worlds/apartment.glb \
   --habitat-enable-camera \
   --headless
@@ -130,80 +130,53 @@ subprocess。后者只能直接打开单个 mesh 场景，不能动态加载 Pan
 python3 -m robosim.server \
   --port 50051 \
   --backend habitat \
-  --robot-name panda \
+  --robot drivers_sim/gazebo-11/assets/robots/franka_panda \
   --habitat-enable-camera \
   --headless
 ```
 
-## 7. 保存一帧 habitat_rgb
+## 6. 保存一帧 habitat_rgb
 
 启动带 camera renderer 的 Habitat 后端后，另开一个终端，在同一个环境和仓库根目录下运行：
 
 ```bash
-python3 - <<'PY'
-import numpy as np
-from PIL import Image
-
-from control_stubs.tools.client import RobosimClient
-
-client = RobosimClient("localhost", 50051)
-print(client.sensing.list_sensors())
-
-data = client.sensing.get_sensors(["habitat_rgb"])
-if not data.images:
-    raise RuntimeError("No habitat_rgb image returned")
-
-img = data.images[0]
-arr = np.frombuffer(img.data, dtype=np.uint8).reshape(img.height, img.width, 3)
-Image.fromarray(arr, "RGB").save("habitat_rgb.png")
-
-print("saved habitat_rgb.png", img.width, img.height, img.encoding)
-client.close()
-PY
+python3 save_habitat_rgb.py
 ```
 
 生成的 `habitat_rgb.png` 会保存在当前目录。
 
-## 8. 连续显示 habitat_rgb
-
-如果安装了 OpenCV，可以连续显示图像流：
+也可以指定输出路径或服务地址：
 
 ```bash
-python3 - <<'PY'
-import cv2
-import numpy as np
+python3 save_habitat_rgb.py --output /tmp/habitat_rgb.png
+python3 save_habitat_rgb.py --host localhost --port 50051
+```
 
-from control_stubs.tools.client import RobosimClient
+## 7. 连续显示 habitat_rgb
 
-client = RobosimClient("localhost", 50051)
+如果安装了 OpenCV，可以直接使用仓库中的小工具连续显示图像流：
 
-for data in client.sensing.stream_sensors(["habitat_rgb"]):
-    if not data.images:
-        continue
-
-    img = data.images[0]
-    rgb = np.frombuffer(img.data, dtype=np.uint8).reshape(img.height, img.width, 3)
-    bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
-    cv2.imshow("habitat_rgb", bgr)
-
-    if cv2.waitKey(1) == 27:
-        break
-
-client.close()
-cv2.destroyAllWindows()
-PY
+```bash
+python3 move_habitat_camera.py --show
 ```
 
 按 `Esc` 退出窗口。
 
-也可以直接使用仓库中的小工具：
+也可以保存一段视频或调整连接参数：
 
 ```bash
-python3 view_habitat_rgb.py --help
+python3 move_habitat_camera.py --save-video habitat_rgb.mp4 --max-frames 120
+python3 move_habitat_camera.py --show --host localhost --port 50051
+```
+
+更多参数：
+
+```bash
+python3 save_habitat_rgb.py --help
 python3 move_habitat_camera.py --help
 ```
 
-## 常见问题
+## 8. 常见问题
 
 - `ModuleNotFoundError: No module named 'control_stubs.common_pb2'`：
   先运行 `./scripts/gen_protos.sh`。

@@ -271,14 +271,12 @@ def test_habitat_backend_reset_delegates_to_simulator(fake_habitat_sim) -> None:
 
 def test_habitat_backend_loads_panda_and_sets_joint_targets(
     fake_habitat_sim,
-    monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
     urdf = tmp_path / "panda.urdf"
     urdf.write_text("<robot name='panda'></robot>")
-    monkeypatch.setattr(HabitatSimBackend, "_prepare_panda_urdf", lambda self: urdf)
 
-    backend = HabitatSimBackend(robot_name="panda")
+    backend = HabitatSimBackend(robot=str(urdf))
 
     try:
         assert backend.capabilities & Capability.JOINT_READ
@@ -319,23 +317,24 @@ def test_habitat_backend_loads_panda_and_sets_joint_targets(
         backend.shutdown()
 
 
-def test_habitat_backend_rejects_unknown_robot_name(fake_habitat_sim) -> None:
+def test_habitat_backend_rejects_mjcf_robot_directory(fake_habitat_sim, tmp_path) -> None:
     del fake_habitat_sim
+    robot_dir = tmp_path / "robot_vacuum"
+    robot_dir.mkdir()
+    (robot_dir / "robot_vacuum.xml").write_text("<mujoco model='robot_vacuum'></mujoco>")
 
-    with pytest.raises(ValueError, match="supports only robot_name='panda'"):
-        HabitatSimBackend(robot_name="xxx")
+    with pytest.raises(ValueError, match="cannot load MuJoCo MJCF XML"):
+        HabitatSimBackend(robot=str(robot_dir))
 
 
 def test_habitat_backend_can_render_panda_when_camera_enabled(
     fake_habitat_sim,
-    monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
     urdf = tmp_path / "panda.urdf"
     urdf.write_text("<robot name='panda'></robot>")
-    monkeypatch.setattr(HabitatSimBackend, "_prepare_panda_urdf", lambda self: urdf)
 
-    backend = HabitatSimBackend(robot_name="panda", enable_camera=True)
+    backend = HabitatSimBackend(robot=str(urdf), enable_camera=True)
 
     try:
         assert backend.capabilities & Capability.SENSOR_CAMERA
@@ -357,15 +356,13 @@ def test_habitat_backend_can_render_panda_when_camera_enabled(
 
 def test_habitat_backend_can_move_camera_with_set_object_pose(
     fake_habitat_sim,
-    monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
     del fake_habitat_sim
     urdf = tmp_path / "panda.urdf"
     urdf.write_text("<robot name='panda'></robot>")
-    monkeypatch.setattr(HabitatSimBackend, "_prepare_panda_urdf", lambda self: urdf)
 
-    backend = HabitatSimBackend(robot_name="panda", enable_camera=True)
+    backend = HabitatSimBackend(robot=str(urdf), enable_camera=True)
 
     try:
         pose = common_pb2.Pose(
@@ -381,15 +378,13 @@ def test_habitat_backend_can_move_camera_with_set_object_pose(
 
 def test_habitat_backend_exposes_panda_end_effector(
     fake_habitat_sim,
-    monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
     del fake_habitat_sim
     urdf = tmp_path / "panda.urdf"
     urdf.write_text("<robot name='panda'></robot>")
-    monkeypatch.setattr(HabitatSimBackend, "_prepare_panda_urdf", lambda self: urdf)
 
-    backend = HabitatSimBackend(robot_name="panda")
+    backend = HabitatSimBackend(robot=str(urdf))
 
     try:
         spec = backend.get_robot_spec()
@@ -406,15 +401,13 @@ def test_habitat_backend_exposes_panda_end_effector(
 
 def test_habitat_backend_servo_control_stream_accepts_twist(
     fake_habitat_sim,
-    monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
     del fake_habitat_sim
     urdf = tmp_path / "panda.urdf"
     urdf.write_text("<robot name='panda'></robot>")
-    monkeypatch.setattr(HabitatSimBackend, "_prepare_panda_urdf", lambda self: urdf)
 
-    backend = HabitatSimBackend(robot_name="panda")
+    backend = HabitatSimBackend(robot=str(urdf))
 
     try:
         before = backend.get_robot_state()
@@ -470,11 +463,11 @@ def test_habitat_backend_display_mode_launches_viewer(
     assert process.terminated
 
 
-def test_habitat_backend_display_mode_rejects_panda(fake_habitat_sim) -> None:
+def test_habitat_backend_display_mode_rejects_robot(fake_habitat_sim) -> None:
     del fake_habitat_sim
 
     with pytest.raises(NotImplementedError, match="Simulator API"):
-        HabitatSimBackend(scene_path="/tmp/example.glb", headless=False, robot_name="panda")
+        HabitatSimBackend(scene_path="/tmp/example.glb", headless=False, robot="/tmp/panda.urdf")
 
 
 def test_habitat_backend_display_mode_requires_scene(fake_habitat_sim) -> None:
@@ -517,11 +510,11 @@ def test_habitat_backend_resolves_external_drivers_sim_root(
         "</robot>"
     )
     monkeypatch.setenv("ROBOSIM_DRIVERS_SIM_ROOT", str(drivers_root))
-    backend = HabitatSimBackend.__new__(HabitatSimBackend)
-
-    prepared = backend._prepare_panda_urdf()
+    backend = HabitatSimBackend(robot=str(drivers_root / "gazebo-11/assets/robots/franka_panda"))
+    prepared = backend._robot_urdf_path
 
     try:
+        assert prepared is not None
         assert str(drivers_root / "gazebo-11/assets/robots/franka_panda/panda_description") in (
             prepared.read_text()
         )
