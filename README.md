@@ -52,6 +52,12 @@ popd
 python3 -m robosim.server [--help] [--host <gRPC-listen-host>] [--port <gRPC-listen-port>] [--backend <gazebo|mujoco|habitat>] [--scene <scene-path>] [--headless | --no-headless]
 ```
 
+例如启动 MuJoCo 后端：
+
+```bash
+python3 -m robosim.server --port 50051 --backend mujoco --no-headless
+```
+
 > [!WARNING]
 >
 > 如果选择的后端是 gazebo，那么需要额外启动 ROS2 节点（后续会集成进 `server.py`）。需要先在新的窗口中使用 robosim 虚拟环境：
@@ -71,65 +77,12 @@ python3 -m robosim.server [--help] [--host <gRPC-listen-host>] [--port <gRPC-lis
 >
 > 然后再启动 robosim。
 
-如果选择 Habitat-Sim 后端，需要先在当前 Python 环境中安装 `habitat_sim`。不传入
-`--robot-name` 时，该后端提供渲染能力，不控制机器人：
-
-```bash
-python3 -m robosim.server --port 50051 --backend habitat --scene <your-scene.glb>
-```
-
-在没有 NVIDIA GPU 但有本机显示器的环境中，使用普通显示版 Habitat-Sim 和 Mesa 软件渲染：
-
-```bash
-LIBGL_ALWAYS_SOFTWARE=1 MESA_GL_VERSION_OVERRIDE=4.1 DISPLAY=:0 \
-python3 -m robosim.server \
-  --port 50051 \
-  --backend habitat \
-  --scene drivers_sim/mujoco/assets/worlds/two_bedroom_apartment/BEDROOM_NEO/model.obj \
-  --no-headless
-```
-
-`--no-headless` 会打开 Habitat-Sim viewer 窗口。`--headless` 模式仍通过 sensing gRPC 接口读取 `habitat_rgb` 相机图像，但需要可用 EGL/GPU 渲染上下文。
-
-如果 `drivers_sim` 资产目录不在 robosim 仓库内，可以用 `ROBOSIM_DRIVERS_SIM_ROOT`
-指向外部资产根目录。`--scene` 支持相对该目录的路径：
-
-```bash
-ROBOSIM_DRIVERS_SIM_ROOT=/home/murphy/code/drivers_sim \
-python3 -m robosim.server \
-  --port 50051 \
-  --backend habitat \
-  --scene habitat/assets/worlds/apartment.glb \
-  --no-headless
-```
-
-也可以用 Habitat-Sim 的 articulated object API 加载 Panda 机器人：
-
-```bash
-python3 -m robosim.server \
-  --port 50051 \
-  --backend habitat \
-  --robot-name panda \
-  --headless
-```
-
-Panda 模式会加载仓库中的 Panda URDF，并暴露 `panda_arm`、`panda_hand`、
-`panda_arm_hand` 三个 joint model group。为了能在无 GPU 环境中运行，Panda 模式默认关闭
-Habitat camera renderer，只提供 joint state/spec 和 POSITION joint target。在有 GPU/EGL 的
-机器上可以显式打开渲染：
-
-```bash
-python3 -m robosim.server \
-  --port 50051 \
-  --backend habitat \
-  --robot-name panda \
-  --scene habitat/assets/worlds/apartment.glb \
-  --habitat-enable-camera \
-  --headless
-```
-
-Panda 可视化走 backend 的 camera renderer，不走 `--no-headless` 的 Habitat viewer
-subprocess；后者只能直接打开单个 mesh 场景，不能动态加载 Panda URDF。
+> [!TIP]
+>
+> Habitat-Sim 后端的安装和启动方式与 Gazebo / MuJoCo 差异较大，包含
+> `habitat_sim` 可选依赖、GPU/EGL、Mesa 软件渲染、Panda articulated object 和
+> `habitat_rgb` 图像读取等额外说明。选择 Habitat 后端时，请参见
+> [`HABITAT_BACKEND_GUIDE.md`](./HABITAT_BACKEND_GUIDE.md)。
 
 现在，你的环境已经准备好了！
 
