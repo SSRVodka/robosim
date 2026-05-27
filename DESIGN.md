@@ -150,7 +150,7 @@ robosim/
 - Habitat-Sim 后端默认是 render-only backend，不实现关节控制、末端执行器读取或导航；
 - 默认模式下后端初始化时创建一个 RGB camera sensor，默认名为 `habitat_rgb`，并通过 `SensingService` 暴露为 `CameraImage`；
 - `--robot <robot-dir-or-urdf>` 会通过 Habitat-Sim articulated object API 从机器人资源目录中发现并加载 URDF；Panda URDF 会暴露 `panda_arm`、`panda_hand`、`panda_arm_hand` 三个 joint model group，并支持 POSITION joint target；
-- Panda 模式为了兼容无 GPU/EGL 的本地环境，默认关闭 Habitat camera renderer；在 GPU/EGL 机器上可通过 `--habitat-enable-camera` 打开 `habitat_rgb` 图像；
+- Habitat camera renderer 默认开启并暴露 `habitat_rgb` 图像；在无 GPU/EGL 的环境中可通过 `--no-habitat-enable-camera` 关闭 renderer，仅加载 Panda articulated object；
 - `--scene` 传入 Habitat-Sim 支持的场景文件；未传入时使用 Habitat-Sim 的 `NONE` scene，主要用于接口连通性测试；
 - `habitat_sim` 是可选依赖，仅当选择 `--backend habitat` 时才会导入。`robosim.backends` 也采用懒加载，避免未安装 ROS、MuJoCo 或 Habitat-Sim 时影响其他后端的导入。
 

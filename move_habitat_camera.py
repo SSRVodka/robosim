@@ -12,13 +12,39 @@ import termios
 import time
 import tty
 
-import cv2
 import numpy as np
-
-from control_stubs.tools.client import RobosimClient
 
 Vector3 = tuple[float, float, float]
 Quaternion = tuple[float, float, float, float]
+
+
+def require_cv2():
+    try:
+        import cv2
+    except ImportError as exc:
+        raise RuntimeError(
+            "move_habitat_camera.py needs OpenCV for GUI display or video recording. "
+            "Install opencv-python or use --set-once for pose-only camera movement."
+        ) from exc
+    return cv2
+
+
+def create_client(host: str, port: int):
+    from control_stubs.tools.client import RobosimClient
+
+    return RobosimClient(host, port)
+
+
+def raise_stream_error(exc: Exception) -> None:
+    code = getattr(exc, "code", lambda: None)()
+    details = getattr(exc, "details", lambda: str(exc))()
+    if str(code).endswith("UNIMPLEMENTED"):
+        raise RuntimeError(
+            "The server is not streaming camera images. If you are using Habitat Panda mode, "
+            "restart robosim.server with --habitat-enable-camera, then run this tool again. "
+            f"Server details: {details}"
+        ) from exc
+    raise exc
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -31,11 +57,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--yaw", type=float, default=0.0, help="Orbit yaw in degrees")
     parser.add_argument("--pitch", type=float, default=-15.0, help="Orbit pitch in degrees")
     parser.add_argument("--radius", type=float, default=3.0)
-    parser.add_argument("--interactive", action="store_true")
+    parser.add_argument(
+        "--set-once",
+        action="store_true",
+        help="Set the camera pose once and exit unless --show or --save-video is also passed",
+    )
+    parser.add_argument("--interactive", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--yaw-step", type=float, default=5.0)
     parser.add_argument("--pitch-step", type=float, default=5.0)
     parser.add_argument("--radius-step", type=float, default=0.2)
-    parser.add_argument("--show", action="store_true", help="Display the RGB stream after moving")
+    parser.add_argument("--show", action="store_true", help="Display the RGB stream")
     parser.add_argument("--save-video", help="Write RGB frames to this video file")
     parser.add_argument("--fps", type=float, default=10.0)
     parser.add_argument("--max-frames", type=int, default=0, help="0 means run until interrupted")
@@ -165,10 +196,119 @@ def run_interactive(args: argparse.Namespace, client: RobosimClient) -> None:
         print()
 
 
+def update_orbit_from_key(
+    key: str | None,
+    args: argparse.Namespace,
+    yaw: float,
+    pitch: float,
+    radius: float,
+) -> tuple[float, float, float, bool]:
+    if key in ("q", "\x1b"):
+        return yaw, pitch, radius, True
+    if key == "a":
+        yaw -= args.yaw_step
+    elif key == "d":
+        yaw += args.yaw_step
+    elif key == "w":
+        pitch = min(pitch + args.pitch_step, 85.0)
+    elif key == "s":
+        pitch = max(pitch - args.pitch_step, -85.0)
+    elif key == "r":
+        radius = max(0.2, radius - args.radius_step)
+    elif key == "f":
+        radius += args.radius_step
+    return yaw, pitch, radius, False
+
+
+def key_from_cv2(value: int) -> str | None:
+    if value < 0:
+        return None
+    if value == 27:
+        return "\x1b"
+    if 0 <= value <= 255:
+        return chr(value & 0xFF)
+    return None
+
+
+def show_interactive_camera(args: argparse.Namespace, client: RobosimClient) -> None:
+    if args.fps <= 0.0:
+        raise ValueError("--fps must be > 0")
+
+    cv2 = require_cv2()
+    target = tuple(args.look_at)
+    yaw = args.yaw
+    pitch = args.pitch
+    radius = args.radius
+    writer = None
+    frame_count = 0
+    original = None
+    fd = sys.stdin.fileno()
+    if sys.stdin.isatty():
+        original = termios.tcgetattr(fd)
+        tty.setcbreak(fd)
+
+    print("keys: a/d yaw, w/s pitch, r/f radius, q or Esc quit")
+    try:
+        for data in client.sensing.stream_sensors([args.camera]):
+            position = orbit_position(target, yaw, pitch, radius)
+            set_camera_pose(client, args.camera, position, target)
+            print(
+                f"\rposition=({position[0]:.2f}, {position[1]:.2f}, {position[2]:.2f}) "
+                f"yaw={yaw:.1f} pitch={pitch:.1f} radius={radius:.2f}",
+                end="",
+                flush=True,
+            )
+
+            if data.images:
+                img = data.images[0]
+                rgb = np.frombuffer(img.data, dtype=np.uint8).reshape(img.height, img.width, 3)
+                bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+                if args.save_video:
+                    if writer is None:
+                        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+                        writer = cv2.VideoWriter(
+                            args.save_video,
+                            fourcc,
+                            args.fps,
+                            (img.width, img.height),
+                        )
+                    writer.write(bgr)
+                cv2.imshow(args.camera, bgr)
+
+            frame_count += 1
+            if args.max_frames and frame_count >= args.max_frames:
+                break
+
+            terminal_key = read_key(0.001) if sys.stdin.isatty() else None
+            cv_key = key_from_cv2(cv2.waitKey(1))
+            yaw, pitch, radius, should_quit = update_orbit_from_key(
+                terminal_key or cv_key,
+                args,
+                yaw,
+                pitch,
+                radius,
+            )
+            if should_quit:
+                break
+            if args.save_video:
+                time.sleep(1.0 / args.fps)
+    except Exception as exc:
+        raise_stream_error(exc)
+    finally:
+        if original is not None:
+            termios.tcsetattr(fd, termios.TCSADRAIN, original)
+        if writer is not None:
+            writer.release()
+            print(f"\nsaved {args.save_video}")
+        print()
+        cv2.destroyAllWindows()
+
+
 def stream_camera(args: argparse.Namespace, client: RobosimClient) -> None:
     if args.fps <= 0.0:
         raise ValueError("--fps must be > 0")
 
+    cv2 = require_cv2()
     writer = None
     frame_count = 0
     try:
@@ -203,6 +343,8 @@ def stream_camera(args: argparse.Namespace, client: RobosimClient) -> None:
                 break
             if cv2.waitKey(1) == 27:
                 break
+    except Exception as exc:
+        raise_stream_error(exc)
     finally:
         if writer is not None:
             writer.release()
@@ -212,12 +354,10 @@ def stream_camera(args: argparse.Namespace, client: RobosimClient) -> None:
 
 def main() -> int:
     args = build_parser().parse_args()
-    client = RobosimClient(args.host, args.port)
+    client = create_client(args.host, args.port)
     try:
-        if args.interactive:
-            run_interactive(args, client)
-            if args.show or args.save_video:
-                stream_camera(args, client)
+        if args.interactive or not args.set_once:
+            show_interactive_camera(args, client)
             return 0
         target = tuple(args.look_at)
         position = tuple(args.position) if args.position else orbit_position(

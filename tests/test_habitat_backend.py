@@ -327,14 +327,14 @@ def test_habitat_backend_rejects_mjcf_robot_directory(fake_habitat_sim, tmp_path
         HabitatSimBackend(robot=str(robot_dir))
 
 
-def test_habitat_backend_can_render_panda_when_camera_enabled(
+def test_habitat_backend_renders_panda_camera_by_default(
     fake_habitat_sim,
     tmp_path,
 ) -> None:
     urdf = tmp_path / "panda.urdf"
     urdf.write_text("<robot name='panda'></robot>")
 
-    backend = HabitatSimBackend(robot=str(urdf), enable_camera=True)
+    backend = HabitatSimBackend(robot=str(urdf))
 
     try:
         assert backend.capabilities & Capability.SENSOR_CAMERA
@@ -350,6 +350,26 @@ def test_habitat_backend_can_render_panda_when_camera_enabled(
         assert config.sim_cfg.create_renderer is True
         sensor_spec = config.agent_cfgs[0].sensor_specifications[0]
         assert sensor_spec.position == [0.0, 0.0, 0.0]
+    finally:
+        backend.shutdown()
+
+
+def test_habitat_backend_can_disable_panda_camera(
+    fake_habitat_sim,
+    tmp_path,
+) -> None:
+    urdf = tmp_path / "panda.urdf"
+    urdf.write_text("<robot name='panda'></robot>")
+
+    backend = HabitatSimBackend(robot=str(urdf), enable_camera=False)
+
+    try:
+        assert backend.capabilities & Capability.JOINT_READ
+        assert not (backend.capabilities & Capability.SENSOR_CAMERA)
+        assert not backend.list_sensors().entries
+        config = FakeSimulator.last_config
+        assert config is not None
+        assert config.sim_cfg.create_renderer is False
     finally:
         backend.shutdown()
 

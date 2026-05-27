@@ -302,9 +302,9 @@ class HabitatSimBackend(SimulatorBackend):
     def get_sensors(self, names: list[str]) -> sensing_pb2.SensorData:
         if not self._camera_enabled:
             raise NotImplementedError(
-                "Habitat-Sim Panda mode disables camera rendering by default so it "
-                "can run without an EGL/GPU context. Pass enable_camera=True, or "
-                "use --habitat-enable-camera from the server CLI, on a GPU machine."
+                "Habitat-Sim camera rendering is disabled. Remove "
+                "--no-habitat-enable-camera, or pass enable_camera=True when "
+                "constructing the backend, to expose habitat_rgb."
             )
         if self._uses_display_viewer:
             raise NotImplementedError(
@@ -452,7 +452,7 @@ class HabitatSimBackend(SimulatorBackend):
     def _camera_enabled(self) -> bool:
         if self._enable_camera_override is not None:
             return self._enable_camera_override
-        return not self._uses_robot
+        return True
 
     @property
     def _uses_panda_robot(self) -> bool:

@@ -43,9 +43,10 @@ class SensingServicer(sensing_pb2_grpc.SensingServiceServicer):
             result = self._backend.get_sensors(sensor_names)
             # _logger.info("GetSensors succeeded: %d sensor readings", len(result))
             return result
-        except NotImplementedError:
-            _logger.warning("GetSensors not implemented")
+        except NotImplementedError as e:
+            _logger.warning("GetSensors not implemented: %s", e)
             context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+            context.set_details(str(e))
             return sensing_pb2.SensorData()
         except Exception as e:
             _logger.error("GetSensors failed: %s", e, exc_info=True)
@@ -60,9 +61,10 @@ class SensingServicer(sensing_pb2_grpc.SensingServiceServicer):
         try:
             yield from self._backend.stream_sensors(sensor_names)
             _logger.info("StreamSensors completed")
-        except NotImplementedError:
-            _logger.warning("StreamSensors not implemented")
+        except NotImplementedError as e:
+            _logger.warning("StreamSensors not implemented: %s", e)
             context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+            context.set_details(str(e))
             return
         except Exception as e:
             _logger.error("StreamSensors failed: %s", e, exc_info=True)

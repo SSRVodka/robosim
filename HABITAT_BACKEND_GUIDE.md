@@ -104,11 +104,12 @@ python3 -m robosim.server \
 并加载；如果目录里只有 MuJoCo MJCF `.xml`，请改用 `--backend mujoco`。
 
 Panda 模式会从机器人目录中的 Panda URDF 加载，并暴露 `panda_arm`、`panda_hand`、
-`panda_arm_hand` 三个 joint model group。为了能在无 GPU 环境中运行，Panda 模式默认关闭
-Habitat camera renderer，只提供 joint state/spec 和 POSITION joint target。
+`panda_arm_hand` 三个 joint model group。Habitat camera renderer 默认开启，因此可以直接
+通过 sensing gRPC 接口读取 `habitat_rgb`。如果当前机器没有可用 GPU/EGL，可以用
+`--no-habitat-enable-camera` 关闭 camera renderer，只保留 joint state/spec 和 POSITION
+joint target。
 
-在有 GPU/EGL 的机器上，可以显式打开 camera renderer，并通过 sensing gRPC 接口读取
-`habitat_rgb`：
+在有 GPU/EGL 的机器上，可以同时加载环境场景和 Panda：
 
 ```bash
 ROBOSIM_DRIVERS_SIM_ROOT=/home/murphy/code/drivers_sim \
@@ -117,7 +118,6 @@ python3 -m robosim.server \
   --backend habitat \
   --robot gazebo-11/assets/robots/franka_panda \
   --scene habitat/assets/worlds/apartment.glb \
-  --habitat-enable-camera \
   --headless
 ```
 
@@ -131,7 +131,6 @@ python3 -m robosim.server \
   --port 50051 \
   --backend habitat \
   --robot drivers_sim/gazebo-11/assets/robots/franka_panda \
-  --habitat-enable-camera \
   --headless
 ```
 
@@ -157,16 +156,17 @@ python3 save_habitat_rgb.py --host localhost --port 50051
 如果安装了 OpenCV，可以直接使用仓库中的小工具连续显示图像流：
 
 ```bash
-python3 move_habitat_camera.py --show
+python3 move_habitat_camera.py
 ```
 
-按 `Esc` 退出窗口。
+终端按 `a/d` 调整 yaw，`w/s` 调整 pitch，`r/f` 调整距离，按 `q` 或在窗口按 `Esc`
+退出。
 
 也可以保存一段视频或调整连接参数：
 
 ```bash
 python3 move_habitat_camera.py --save-video habitat_rgb.mp4 --max-frames 120
-python3 move_habitat_camera.py --show --host localhost --port 50051
+python3 move_habitat_camera.py --host localhost --port 50051
 ```
 
 更多参数：
@@ -188,7 +188,8 @@ python3 move_habitat_camera.py --help
   或 `.ply`。
 - `--no-headless` 看不到 Panda：
   这是预期行为。Panda 是通过 backend 的 Simulator API 动态加载的，只能走
-  `--headless --habitat-enable-camera` 后通过 gRPC camera 查看。
+  `--headless` 后通过 gRPC camera 查看。
 - `--headless` 读取不到 `habitat_rgb`：
   headless camera renderer 需要可用 EGL/GPU 渲染上下文。无 GPU 的本地显示环境可以改用
-  `--no-headless` 直接打开 viewer，但该模式不提供 gRPC camera 图像。
+  `--no-headless` 直接打开 viewer，但该模式不提供 gRPC camera 图像。如果只需要关节接口，
+  可用 `--no-habitat-enable-camera` 关闭 camera renderer。
