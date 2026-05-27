@@ -76,18 +76,6 @@ python3 -m robosim.server \
 `--no-headless` 会打开 Habitat-Sim viewer 窗口。这个模式只适合直接查看单个 mesh 场景，
 不会通过 gRPC 暴露 `habitat_rgb` 图像，也不能动态加载机械臂 URDF。
 
-> [!TIP]
-> 如果 `drivers_sim` 资产目录不在 robosim 仓库内，可以用`ROBOSIM_DRIVERS_SIM_ROOT` 指向外部资产根目录。`--scene` 支持相对该目录的路径：
->
-> ```bash
-> ROBOSIM_DRIVERS_SIM_ROOT=/home/murphy/code/drivers_sim \
-> python3 -m robosim.server \
->   --port 50051 \
->   --backend habitat \
->   --scene habitat/assets/worlds/apartment.glb \
->   --no-headless
-> ```
-
 ## 5. 加载机械臂
 
 可以用 Habitat-Sim 的 articulated object API 加载机械臂：
@@ -101,36 +89,20 @@ python3 -m robosim.server \
 ```
 
 `--robot` 应传机器人资源目录或具体 `.urdf` 文件。Habitat 后端会在该目录下寻找 URDF
-并加载；如果目录里只有 MuJoCo MJCF `.xml`，请改用 `--backend mujoco`。
+并加载。运行habitat-sim后端时，**机器人资源与运行gazebo后端的机器人资源兼容**。
 
-Panda 模式会从机器人目录中的 Panda URDF 加载，并暴露 `panda_arm`、`panda_hand`、
-`panda_arm_hand` 三个 joint model group。Habitat camera renderer 默认开启，因此可以直接
-通过 sensing gRPC 接口读取 `habitat_rgb`。如果当前机器没有可用 GPU/EGL，可以用
+如果当前机器没有可用 GPU/EGL，可以用
 `--no-habitat-enable-camera` 关闭 camera renderer，只保留 joint state/spec 和 POSITION
 joint target。
 
-在有 GPU/EGL 的机器上，可以同时加载环境场景和 Panda：
+在有 GPU/EGL 的机器上，可以同时加载环境场景和 Panda（不建议，展示效果较差）：
 
 ```bash
-ROBOSIM_DRIVERS_SIM_ROOT=/home/murphy/code/drivers_sim \
 python3 -m robosim.server \
   --port 50051 \
   --backend habitat \
   --robot gazebo-11/assets/robots/franka_panda \
   --scene habitat/assets/worlds/apartment.glb \
-  --headless
-```
-
-Panda 可视化走 backend 的 camera renderer，不走 `--no-headless` 的 Habitat viewer
-subprocess。后者只能直接打开单个 mesh 场景，不能动态加载 Panda URDF。
-
-如果只想加载 Panda，不加载环境场景，可以去掉 `--scene`：
-
-```bash
-python3 -m robosim.server \
-  --port 50051 \
-  --backend habitat \
-  --robot drivers_sim/gazebo-11/assets/robots/franka_panda \
   --headless
 ```
 
@@ -167,13 +139,6 @@ python3 move_habitat_camera.py
 ```bash
 python3 move_habitat_camera.py --save-video habitat_rgb.mp4 --max-frames 120
 python3 move_habitat_camera.py --host localhost --port 50051
-```
-
-更多参数：
-
-```bash
-python3 save_habitat_rgb.py --help
-python3 move_habitat_camera.py --help
 ```
 
 ## 8. 常见问题
