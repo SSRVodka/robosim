@@ -78,30 +78,30 @@ python3 -m robosim.server \
 
 ## 5. 加载机械臂
 
-可以用 Habitat-Sim 的 articulated object API 加载机械臂：
+可以用 Habitat-Sim 的 articulated object API 加载机械臂，目前仅支持franka panda，**资源与运行gazebo后端的机器人资源兼容**：
 
 ```bash
 python3 -m robosim.server \
   --port 50051 \
   --backend habitat \
-  --robot drivers_sim/gazebo-11/assets/robots/franka_panda \
+  --robot drivers_sim/assets/gazebo-11/assets/robots/franka_panda \
   --headless
 ```
 
 `--robot` 应传机器人资源目录或具体 `.urdf` 文件。Habitat 后端会在该目录下寻找 URDF
-并加载。运行habitat-sim后端时，**机器人资源与运行gazebo后端的机器人资源兼容**。
+并加载。
 
 如果当前机器没有可用 GPU/EGL，可以用
 `--no-habitat-enable-camera` 关闭 camera renderer，只保留 joint state/spec 和 POSITION
 joint target。
 
-在有 GPU/EGL 的机器上，可以同时加载环境场景和 Panda（不建议，展示效果较差）：
+也可以同时加载环境场景和机械臂（不建议，展示效果较差）：
 
 ```bash
 python3 -m robosim.server \
   --port 50051 \
   --backend habitat \
-  --robot gazebo-11/assets/robots/franka_panda \
+  --robot drivers_sim/assets/gazebo-11/assets/robots/franka_panda \
   --scene habitat/assets/worlds/apartment.glb \
   --headless
 ```
@@ -151,10 +151,6 @@ python3 move_habitat_camera.py --host localhost --port 50051
 - `Habitat-Sim viewer cannot load MuJoCo MJCF XML scenes`：
   `--scene` 不能传 MuJoCo `scene.xml`。Habitat scene 要使用 `.glb`、`.gltf`、`.obj`
   或 `.ply`。
-- `--no-headless` 看不到 Panda：
-  这是预期行为。Panda 是通过 backend 的 Simulator API 动态加载的，只能走
+- `--no-headless` 看不到机械臂：
+  这是预期行为。机械臂是通过 habitat-sim 的 Simulator API 动态加载的，只能走
   `--headless` 后通过 gRPC camera 查看。
-- `--headless` 读取不到 `habitat_rgb`：
-  headless camera renderer 需要可用 EGL/GPU 渲染上下文。无 GPU 的本地显示环境可以改用
-  `--no-headless` 直接打开 viewer，但该模式不提供 gRPC camera 图像。如果只需要关节接口，
-  可用 `--no-habitat-enable-camera` 关闭 camera renderer。
