@@ -15,6 +15,23 @@ finalize/load 为 MuJoCo、Gazebo 或未来后端所需的 native scene/artifact
 官方文档；例如 MuJoCo 路径需要理解 MJCF 的 body、asset、geom、inertial、
 joint、material、mesh、contact 参数以及 compiler defaults 等语义。
 
+同一个 CSD 可以 realization 到多个 backend，并缓存各自的 native artifacts
+和 backend manifest。缓存 key 至少应包含 CSD 内容 hash、所选 asset IDs 与
+asset variant hashes、目标 backend、realization config、`vsim` realization
+版本、可获取的 simulator 版本以及 sampled randomization values。CSD 始终是
+场景语义源，MJCF/URDF/SDF/Gazebo 资源等只是可复现的派生产物。
+
+CSD realization 需要显式处理 asset backend compatibility。不同 backend 对
+mesh 格式、material/texture、collision geometry、articulation/joint、sensor、
+lighting、scale、frame/up-axis、contact 参数和 inertial 语义的支持可能不同；
+不能直接复用或只能有损转换时，应生成 validation failure 或 blocker。
+
+官方文档起始参考：
+- MuJoCo MJCF XML Reference:
+  `https://mujoco.readthedocs.io/en/stable/XMLreference.html`
+- ROS URDF XML documentation: `https://wiki.ros.org/urdf/XML`
+- SDFormat specification: `https://sdformat.org/spec/`
+
 ## 架构设计
 
 ```
