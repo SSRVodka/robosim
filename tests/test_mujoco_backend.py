@@ -9,6 +9,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import mujoco
 
 from control_stubs import common_pb2
 from control_stubs import robot_core_pb2 as core_pb2
@@ -17,6 +18,10 @@ from robosim.backends.mujoco.backend import MuJoCoBackend
 SCENE_PATH = (
     Path(__file__).resolve().parent.parent
     / "drivers_sim/mujoco/assets/robots/franka_panda/scene.xml"
+)
+G1_29DOF_SCENE_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "drivers_sim/mujoco/assets/robots/unitree_g1/g1_29dof.xml"
 )
 
 
@@ -189,6 +194,123 @@ def test_idle_loop_holds_initial_configuration(backend: MuJoCoBackend) -> None:
         for reference, current in zip(initial, later, strict=True)
     )
     assert max_drift < 0.01
+
+
+def test_free_base_g1_idle_loop_holds_root_pose() -> None:
+    backend = MuJoCoBackend(str(G1_29DOF_SCENE_PATH), headless=True)
+    try:
+        assert backend.robot_name == "g1_29dof"
+        pelvis_id = mujoco.mj_name2id(
+            backend._model,
+            mujoco.mjtObj.mjOBJ_BODY,
+            "pelvis",
+        )
+        initial_z = float(backend._data.xpos[pelvis_id][2])
+        time.sleep(0.5)
+        later_z = float(backend._data.xpos[pelvis_id][2])
+    finally:
+        backend.shutdown()
+
+    assert later_z == pytest.approx(initial_z, abs=0.03)
+
+
+def test_free_base_g1_twist_servo_does_not_flail_idle_joints() -> None:
+    backend = MuJoCoBackend(str(G1_29DOF_SCENE_PATH), headless=True)
+    try:
+        command = core_pb2.ServoCommand(
+            twist_cmd=core_pb2.TwistCommand(
+                twist=common_pb2.TwistStamped(
+                    twist=common_pb2.Twist(linear=common_pb2.Point(x=0.02))
+                ),
+                target_ee=core_pb2.EESpec(
+                    name="left_wrist_yaw_link",
+                    parent_jmg_name="left_arm",
+                    group_name="left_arm",
+                ),
+            )
+        )
+        next(backend.servo_control_stream(iter([command])))
+        time.sleep(0.2)
+
+        state = backend.get_robot_state()
+        velocities = dict(zip(state.name, state.velocity, strict=True))
+    finally:
+        backend.shutdown()
+
+    idle_joint_names = [
+        name
+        for name in velocities
+        if not name.startswith("left_shoulder")
+        and not name.startswith("left_elbow")
+        and not name.startswith("left_wrist")
+    ]
+    assert max(abs(velocities[name]) for name in idle_joint_names) < 1e-6
+    assert max(abs(value) for value in velocities.values()) <= 1.05
+
+
+def test_free_base_g1_spec_exposes_leg_end_effectors() -> None:
+    backend = MuJoCoBackend(str(G1_29DOF_SCENE_PATH), headless=True)
+    try:
+        groups = {group.name: group for group in backend.get_robot_spec().joint_model_groups}
+    finally:
+        backend.shutdown()
+
+    assert [ee.name for ee in groups["left_leg"].end_effectors] == [
+        "left_ankle_roll_link"
+    ]
+    assert [ee.name for ee in groups["right_leg"].end_effectors] == [
+        "right_ankle_roll_link"
+    ]
+    assert list(groups["both_legs"].joint_names) == [
+        "left_hip_pitch_joint",
+        "left_hip_roll_joint",
+        "left_hip_yaw_joint",
+        "left_knee_joint",
+        "left_ankle_pitch_joint",
+        "left_ankle_roll_joint",
+        "right_hip_pitch_joint",
+        "right_hip_roll_joint",
+        "right_hip_yaw_joint",
+        "right_knee_joint",
+        "right_ankle_pitch_joint",
+        "right_ankle_roll_joint",
+    ]
+
+
+def test_free_base_g1_leg_twist_servo_does_not_flail_other_joints() -> None:
+    backend = MuJoCoBackend(str(G1_29DOF_SCENE_PATH), headless=True)
+    try:
+        pelvis_id = mujoco.mj_name2id(
+            backend._model,
+            mujoco.mjtObj.mjOBJ_BODY,
+            "pelvis",
+        )
+        initial_z = float(backend._data.xpos[pelvis_id][2])
+        command = core_pb2.ServoCommand(
+            twist_cmd=core_pb2.TwistCommand(
+                twist=common_pb2.TwistStamped(
+                    twist=common_pb2.Twist(linear=common_pb2.Point(x=0.02))
+                ),
+                target_ee=core_pb2.EESpec(
+                    name="left_ankle_roll_link",
+                    parent_jmg_name="left_leg",
+                    group_name="left_leg",
+                ),
+            )
+        )
+        next(backend.servo_control_stream(iter([command])))
+        time.sleep(0.2)
+
+        state = backend.get_robot_state()
+        velocities = dict(zip(state.name, state.velocity, strict=True))
+        later_z = float(backend._data.xpos[pelvis_id][2])
+    finally:
+        backend.shutdown()
+
+    idle_joint_names = [name for name in velocities if not name.startswith("left_")]
+    assert later_z == pytest.approx(initial_z, abs=0.03)
+    assert max(abs(velocities[name]) for name in idle_joint_names) < 1e-6
+    assert max(abs(value) for value in velocities.values()) <= 1.05
 
 
 def test_servo_control_stream_accepts_twist(backend: MuJoCoBackend) -> None:
