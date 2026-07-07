@@ -11,7 +11,7 @@
   generator 输出的 Concrete Scenario Definition，将其 finalize/load 为
   MuJoCo、Gazebo 等后端 native scene/artifacts，并返回可审计的 backend
   manifest；实现 MuJoCo 路径前必须先阅读官方 MJCF 语义文档；
-- [ ] 为 CSD realization 定义缓存 key：CSD content hash、asset variant hash、
+- [x] 为 CSD realization 定义缓存 key：CSD content hash、asset variant hash、
   backend target、realization config、`vsim` realization version、simulator
   version、sampled randomization values；
 - [ ] 为 CSD realization 定义 asset backend compatibility 检查：mesh format、
