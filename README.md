@@ -3,7 +3,7 @@
 
 ### Supported Features
 
-- [x] 支持 Gazebo / MuJoCo 模拟器后端；
+- [x] 支持 Gazebo / MuJoCo 模拟器后端；支持 Habitat-Sim 渲染后端；
 
 - [x] 支持动态的传感器发现、机器人关节和定义发现；
 
@@ -49,7 +49,13 @@ popd
 最后启动 robosim（`[]` 表示可选项，`<>` 表示必填项）。更多参数用法请使用 `--help`：
 
 ```bash
-python3 -m robosim.server [--help] [--host <gRPC-listen-host>] [--port <gRPC-listen-port>] [--backend <gazebo|mujoco>] [--headless | --no-headless]
+python3 -m robosim.server [--help] [--host <gRPC-listen-host>] [--port <gRPC-listen-port>] [--backend <gazebo|mujoco|habitat>] [--scene <scene-path>] [--headless | --no-headless]
+```
+
+例如启动 MuJoCo 后端：
+
+```bash
+python3 -m robosim.server --port 50051 --backend mujoco --no-headless
 ```
 
 > [!WARNING]
@@ -70,6 +76,13 @@ python3 -m robosim.server [--help] [--host <gRPC-listen-host>] [--port <gRPC-lis
 > ```
 >
 > 然后再启动 robosim。
+
+> [!WARNING]
+>
+> Habitat-Sim 后端的安装和启动方式与 Gazebo / MuJoCo 差异较大，包含
+> `habitat_sim` 可选依赖、GPU/EGL、Mesa 软件渲染、Panda articulated object 和
+> `habitat_rgb` 图像读取等额外说明。选择 Habitat 后端时，请参见
+> [`HABITAT_BACKEND_GUIDE.md`](./HABITAT_BACKEND_GUIDE.md)。
 
 现在，你的环境已经准备好了！
 

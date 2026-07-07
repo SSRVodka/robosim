@@ -3,17 +3,17 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import grpc
 
 from control_stubs import common_pb2, policy_pb2, policy_pb2_grpc
-from robosim.core.impl.policy_lerobot import LerobotPolicyRunner
 
 _logger = logging.getLogger(__name__)
 
 
 class PolicyInferenceServicer(policy_pb2_grpc.PolicyInferenceServiceServicer):
-    def __init__(self, runner: LerobotPolicyRunner) -> None:
+    def __init__(self, runner: Any) -> None:
         self._runner = runner
 
     def LoadPolicy(

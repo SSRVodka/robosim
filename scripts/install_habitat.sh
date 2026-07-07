@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ENV_NAME="${ROBOSIM_ENV_NAME:-robosim}"
+HABITAT_REPO="${HABITAT_SIM_REPO:-https://github.com/facebookresearch/habitat-sim.git}"
+HABITAT_REF="${HABITAT_SIM_REF:-main}"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
+BUILD_DIR="${HABITAT_SIM_BUILD_DIR:-${REPO_ROOT}/.tmp/habitat-sim}"
+KEEP_BUILD_DIR="${KEEP_HABITAT_BUILD_DIR:-1}"
+SOURCE_DIR="${BUILD_DIR}/habitat-sim"
+CLEAN_ON_SUCCESS=0
+
+if [[ "${KEEP_BUILD_DIR}" != "1" ]]; then
+  CLEAN_ON_SUCCESS=1
+fi
+
+if [[ -n "${CONDA_PREFIX:-}" && -x "${CONDA_PREFIX}/bin/python" ]]; then
+  PYTHON_BIN="${CONDA_PREFIX}/bin/python"
+elif command -v mamba >/dev/null 2>&1; then
+  PYTHON_BIN=(mamba run -n "${ENV_NAME}" python)
+elif [[ -x "${HOME}/miniforge3/bin/mamba" ]]; then
+  PYTHON_BIN=("${HOME}/miniforge3/bin/mamba" run -n "${ENV_NAME}" python)
+else
+  echo "Could not find an active conda env or mamba executable." >&2
+  echo "Activate the robosim env first, or set ROBOSIM_ENV_NAME." >&2
+  exit 1
+fi
+
+echo "Using Python:"
+"${PYTHON_BIN[@]}" --version
+echo "Using Habitat-Sim build directory: ${BUILD_DIR}"
+
+mkdir -p "${BUILD_DIR}"
+
+if [[ -d "${SOURCE_DIR}/.git" ]]; then
+  echo "Reusing existing Habitat-Sim checkout: ${SOURCE_DIR}"
+  git -C "${SOURCE_DIR}" fetch origin --tags
+  git -C "${SOURCE_DIR}" checkout "${HABITAT_REF}"
+  if git -C "${SOURCE_DIR}" rev-parse --verify "origin/${HABITAT_REF}" >/dev/null 2>&1; then
+    git -C "${SOURCE_DIR}" pull --ff-only origin "${HABITAT_REF}"
+  fi
+elif [[ -e "${SOURCE_DIR}" ]]; then
+  echo "Found existing path that is not a git checkout: ${SOURCE_DIR}" >&2
+  echo "Move or remove it, then rerun this script." >&2
+  exit 1
+else
+  git clone --recursive --branch "${HABITAT_REF}" "${HABITAT_REPO}" "${SOURCE_DIR}"
+fi
+
+cd "${SOURCE_DIR}"
+git submodule update --init --recursive
+
+"${PYTHON_BIN[@]}" -m pip install "setuptools>=71,<81"
+"${PYTHON_BIN[@]}" -m pip install "scikit-build-core>=0.10" "pybind11>=2.10"
+"${PYTHON_BIN[@]}" -m pip install -r requirements.txt
+
+HABITAT_BUILD_GUI_VIEWERS="${HABITAT_BUILD_GUI_VIEWERS:-ON}" \
+HABITAT_WITH_BULLET="${HABITAT_WITH_BULLET:-ON}" \
+"${PYTHON_BIN[@]}" -m pip install . --no-build-isolation
+
+"${PYTHON_BIN[@]}" -c "import habitat_sim; print('habitat-sim import OK')"
+
+if [[ "${CLEAN_ON_SUCCESS}" == "1" ]]; then
+  rm -rf "${BUILD_DIR}"
+fi
