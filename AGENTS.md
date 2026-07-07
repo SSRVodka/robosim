@@ -13,7 +13,7 @@
 - 目前**已经实现了对 Gazebo、MuJoCo 模拟器后端的控制**。后续可能会接入 PyBullet、Habitat-Sim 等模拟器；
 - `vsim` 负责 thesis-level benchmark generator 传入的 Concrete Scenario
   Definition（CSD）到后端 native scene/artifacts 的 realization、缓存、加载、
-  渲染和运行时执行。CSD 是固定 benchmark atom 的定义，不是 distribution。
+  渲染和运行时执行。CSD 是固定 task instance 的定义，不是 distribution。
 - CSD realization 必须把后端 native scene 当作可复现的缓存产物，而不是语义
   源。缓存 key 至少需要考虑 CSD 内容、asset variant、目标 backend、realization
   配置、`vsim` realization 版本、可获取的 simulator 版本以及 sampled
