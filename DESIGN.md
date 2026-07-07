@@ -3,6 +3,18 @@
 ## 目标
 为多种模拟器后端（Gazebo/MuJoCo/PyBullet/Habitat-Sim）提供统一的控制和状态读取抽象，通过 gRPC 接口向上层暴露。
 
+在 thesis-level benchmark generator 中，`vsim` 还承担 Concrete Scenario
+Definition（CSD）的后端实现边界：上层 benchmark generator 负责从自然语言
+benchmark distribution 采样并固化一个具体 CSD；`vsim` 负责将该 CSD
+finalize/load 为 MuJoCo、Gazebo 或未来后端所需的 native scene/artifacts，
+并继续提供渲染、传感器、控制、policy runtime 和 rollout 采集能力。CSD 在传入
+`vsim` 时已经不是 distribution，而是一个具体 benchmark atom 的固定定义。
+
+后端 native scene 生成不应放在 thesis-level benchmark generator 中。若在
+`vsim` 内实现 MuJoCo/Gazebo 等后端的 CSD realization，必须先仔细阅读对应
+官方文档；例如 MuJoCo 路径需要理解 MJCF 的 body、asset、geom、inertial、
+joint、material、mesh、contact 参数以及 compiler defaults 等语义。
+
 ## 架构设计
 
 ```

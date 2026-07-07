@@ -7,6 +7,10 @@
 - [ ] (**<u>WIP</u>**) 基于 IL Policy（如 ACT）的推理支持（Action Chunking，或许可以借助 lerobot 的能力）；
 - [ ] 基于 RL Policy 的推理支持；
 - [ ] 支持常见模型的 VLA 推理（对接 LeRobot 接口）；
+- [ ] 定义并实现 CSD realization 接口：接收 thesis-level benchmark
+  generator 输出的 Concrete Scenario Definition，将其 finalize/load 为
+  MuJoCo、Gazebo 等后端 native scene/artifacts，并返回可审计的 backend
+  manifest；实现 MuJoCo 路径前必须先阅读官方 MJCF 语义文档；
 
 ## Bug Fixes
 
