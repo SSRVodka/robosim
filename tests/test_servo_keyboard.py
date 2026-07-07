@@ -48,6 +48,33 @@ def test_select_servo_bindings_prefers_ee_group_and_small_joint_group() -> None:
     assert bindings.summary_names == ("finger_left", "finger_right")
 
 
+def test_select_servo_bindings_prefers_second_ee_group_over_shorter_body_group() -> None:
+    spec = core_pb2.RobotSpecification(
+        robot_name="g1",
+        joint_model_groups=[
+            core_pb2.JointModelGroupSpec(
+                name="left_arm",
+                joint_names=["left_shoulder", "left_elbow", "left_wrist"],
+                end_effectors=[core_pb2.EESpec(name="left_wrist", parent_jmg_name="left_arm")],
+            ),
+            core_pb2.JointModelGroupSpec(
+                name="waist",
+                joint_names=["waist_yaw"],
+            ),
+            core_pb2.JointModelGroupSpec(
+                name="right_arm",
+                joint_names=["right_shoulder", "right_elbow", "right_wrist"],
+                end_effectors=[core_pb2.EESpec(name="right_wrist", parent_jmg_name="right_arm")],
+            ),
+        ],
+    )
+
+    bindings = select_servo_bindings(spec)
+
+    assert bindings.twist_group_name == "left_arm"
+    assert bindings.joint_group_name == "right_arm"
+
+
 def test_select_servo_bindings_rejects_invalid_explicit_group() -> None:
     with pytest.raises(ValueError, match="has no end effector"):
         select_servo_bindings(_make_spec(), twist_group_name="gripper")
