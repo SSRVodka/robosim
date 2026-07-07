@@ -1,6 +1,9 @@
 """Tests for CSD realization cache contracts."""
 
-from robosim.core.csd import make_csd_realization_cache_key
+from robosim.core.csd import (
+    CsdRealizationManifest,
+    make_csd_realization_cache_key,
+)
 
 
 def test_csd_realization_cache_key_helper_is_core_api() -> None:
@@ -51,3 +54,20 @@ def test_csd_realization_cache_key_changes_by_backend() -> None:
     )
 
     assert gazebo.digest != mujoco.digest
+
+
+def test_csd_realization_manifest_round_trips_backend_artifacts() -> None:
+    manifest = CsdRealizationManifest(
+        manifest_id="manifest_mujoco_csd_0001",
+        csd_id="csd_0001",
+        backend="mujoco",
+        cache_key="abc123",
+        root_path="engine_manifests/mujoco/csd_0001",
+        entry_file="scene.xml",
+        generated_files=("scene.xml", "assets/mug.obj"),
+        preview_files=("render_previews/mujoco/csd_0001/front.png",),
+    )
+
+    restored = CsdRealizationManifest.from_json_dict(manifest.to_json_dict())
+
+    assert restored == manifest

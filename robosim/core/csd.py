@@ -21,6 +21,71 @@ class CsdRealizationCacheKey:
     simulator_version: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class CsdRealizationManifest:
+    """Manifest for backend-native artifacts derived from one CSD."""
+
+    manifest_id: str
+    csd_id: str
+    backend: str
+    cache_key: str
+    root_path: str
+    entry_file: str
+    generated_files: tuple[str, ...]
+    preview_files: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if not self.manifest_id:
+            raise ValueError("manifest_id is required")
+        if not self.csd_id:
+            raise ValueError("csd_id is required")
+        if not self.backend:
+            raise ValueError("backend is required")
+        if not self.cache_key:
+            raise ValueError("cache_key is required")
+        if not self.root_path:
+            raise ValueError("root_path is required")
+        if not self.entry_file:
+            raise ValueError("entry_file is required")
+        object.__setattr__(
+            self,
+            "generated_files",
+            tuple(str(path) for path in self.generated_files),
+        )
+        object.__setattr__(
+            self,
+            "preview_files",
+            tuple(str(path) for path in self.preview_files),
+        )
+
+    def to_json_dict(self) -> dict[str, object]:
+        return {
+            "manifest_id": self.manifest_id,
+            "csd_id": self.csd_id,
+            "backend": self.backend,
+            "cache_key": self.cache_key,
+            "root_path": self.root_path,
+            "entry_file": self.entry_file,
+            "generated_files": list(self.generated_files),
+            "preview_files": list(self.preview_files),
+        }
+
+    @classmethod
+    def from_json_dict(cls, payload: Mapping[str, Any]) -> "CsdRealizationManifest":
+        return cls(
+            manifest_id=str(payload["manifest_id"]),
+            csd_id=str(payload["csd_id"]),
+            backend=str(payload["backend"]),
+            cache_key=str(payload["cache_key"]),
+            root_path=str(payload["root_path"]),
+            entry_file=str(payload["entry_file"]),
+            generated_files=tuple(
+                str(path) for path in payload.get("generated_files", [])
+            ),
+            preview_files=tuple(str(path) for path in payload.get("preview_files", [])),
+        )
+
+
 def make_csd_realization_cache_key(
     *,
     csd: Mapping[str, Any],

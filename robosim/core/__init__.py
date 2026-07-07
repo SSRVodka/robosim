@@ -1,10 +1,15 @@
 """Core module for RoboSim framework."""
 
 from robosim.core.capabilities import Capability
-from robosim.core.csd import CsdRealizationCacheKey, make_csd_realization_cache_key
+from robosim.core.csd import (
+    CsdRealizationCacheKey,
+    CsdRealizationManifest,
+    make_csd_realization_cache_key,
+)
 
 __all__ = [
     "CsdRealizationCacheKey",
+    "CsdRealizationManifest",
     "SimulatorBackend",
     "Capability",
     "make_csd_realization_cache_key",
