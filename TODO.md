@@ -14,6 +14,8 @@
 - [x] 为 CSD realization 定义缓存 key：CSD content hash、asset variant hash、
   backend target、realization config、`vsim` realization version、simulator
   version、sampled randomization values；
+- [x] 为 CSD realization 增加输入 gate：检查 CSD 引用的 assets 是否具备目标
+  backend 的 passed variant，并为 cache key 提取 asset variant hashes；
 - [ ] 为 CSD realization 定义 asset backend compatibility 检查：mesh format、
   material/texture、collision、joint/articulation、sensor、lighting、scale、
   frame/up-axis、contact/inertial semantics；不支持或有损转换必须返回

@@ -2,16 +2,22 @@
 
 from robosim.core.capabilities import Capability
 from robosim.core.csd import (
+    CsdRealizationBlocker,
     CsdRealizationCacheKey,
     CsdRealizationManifest,
+    asset_variant_hashes_for_csd,
+    find_csd_realization_blockers,
     make_csd_realization_cache_key,
 )
 
 __all__ = [
+    "CsdRealizationBlocker",
     "CsdRealizationCacheKey",
     "CsdRealizationManifest",
     "SimulatorBackend",
     "Capability",
+    "asset_variant_hashes_for_csd",
+    "find_csd_realization_blockers",
     "make_csd_realization_cache_key",
 ]
 

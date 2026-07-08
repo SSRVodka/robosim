@@ -1,7 +1,10 @@
 """Tests for CSD realization cache contracts."""
 
 from robosim.core.csd import (
+    CsdRealizationBlocker,
     CsdRealizationManifest,
+    asset_variant_hashes_for_csd,
+    find_csd_realization_blockers,
     make_csd_realization_cache_key,
 )
 
@@ -71,3 +74,61 @@ def test_csd_realization_manifest_round_trips_backend_artifacts() -> None:
     restored = CsdRealizationManifest.from_json_dict(manifest.to_json_dict())
 
     assert restored == manifest
+
+
+def test_csd_realization_reports_missing_backend_asset_variant() -> None:
+    blockers = find_csd_realization_blockers(
+        csd={"csd_id": "csd_0001", "objects": [{"asset_id": "object_mug"}]},
+        asset_registry={
+            "objects": [
+                {
+                    "object_id": "object_mug",
+                    "semantic_tags": ["mug"],
+                    "variants": [],
+                }
+            ]
+        },
+        backend="mujoco",
+    )
+
+    assert blockers == (
+        CsdRealizationBlocker(
+            blocker_id="csd_0001_mujoco_object_mug_variant_missing",
+            csd_id="csd_0001",
+            backend="mujoco",
+            asset_id="object_mug",
+            scope="asset",
+            reason="asset has no passed backend variant for mujoco",
+        ),
+    )
+
+
+def test_csd_realization_extracts_passed_backend_variant_hashes() -> None:
+    registry = {
+        "objects": [
+            {
+                "object_id": "object_mug",
+                "variants": [
+                    {
+                        "engine": "mujoco",
+                        "variant_hash": "hash_mug_mjcf",
+                        "validation_state": "passed",
+                    }
+                ],
+            }
+        ]
+    }
+
+    blockers = find_csd_realization_blockers(
+        csd={"csd_id": "csd_0001", "objects": [{"asset_id": "object_mug"}]},
+        asset_registry=registry,
+        backend="mujoco",
+    )
+    hashes = asset_variant_hashes_for_csd(
+        csd={"csd_id": "csd_0001", "objects": [{"asset_id": "object_mug"}]},
+        asset_registry=registry,
+        backend="mujoco",
+    )
+
+    assert blockers == ()
+    assert hashes == {"object_mug": "hash_mug_mjcf"}

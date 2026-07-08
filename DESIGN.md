@@ -32,6 +32,17 @@ lighting、scale、frame/up-axis、contact 参数和 inertial 语义的支持可
 - ROS URDF XML documentation: `https://wiki.ros.org/urdf/XML`
 - SDFormat specification: `https://sdformat.org/spec/`
 
+当前 CSD realization 的已实现范围是后端输入 gate：`vsim` 可以检查一个 CSD
+引用的 asset 是否具备目标 backend 的 passed variant，并提取参与 cache key 的
+variant hashes。若缺失 passed variant，会返回 typed blocker。该 gate 不生成
+MJCF/URDF/SDF/Gazebo 文件，也不替代实际 load/render/physics validation。
+
+实现记录（2026-07-08）：MuJoCo 路径设计前已查阅 MuJoCo MJCF XML Reference
+中关于 `asset/mesh`、`geom` mesh 引用、mesh scale、mesh frame centering、
+collision convex hull、material 与 contact/friction 参数的说明。由此确认第一
+阶段不能把 project asset ID 直接当作 MJCF 文件路径使用，必须先通过 asset
+backend variant/compatibility gate，再进入后续 MJCF 生成。
+
 ## 架构设计
 
 ```
