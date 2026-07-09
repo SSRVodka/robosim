@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import json
+import struct
 import xml.etree.ElementTree as ET
+import zlib
+from collections.abc import Mapping
 from pathlib import Path
 from shutil import copytree
+from typing import Any
 
 import mujoco
 
@@ -15,6 +19,18 @@ from robosim.core import (
     compile_csd_to_gazebo,
     compile_csd_to_mujoco,
 )
+
+FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "csd"
+
+
+def _load_json_fixture(name: str) -> dict[str, object]:
+    return json.loads((FIXTURE_ROOT / name).read_text(encoding="utf-8"))
+
+
+def _required_element(parent: ET.Element, path: str) -> ET.Element:
+    element = parent.find(path)
+    assert element is not None
+    return element
 
 
 def _write_tetra_mesh(path: Path) -> None:
@@ -36,57 +52,64 @@ def _write_tetra_mesh(path: Path) -> None:
     )
 
 
+def _write_png_1x1(path: Path) -> None:
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(data))
+            + tag
+            + data
+            + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+        )
+
+    raw = b"\x00\xff\xff\xff\xff"
+    png = (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 6, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(raw))
+        + chunk(b"IEND", b"")
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(png)
+
+
+def _write_ppm(path: Path, pixels: Any) -> None:
+    height, width = pixels.shape[:2]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(f"P6\n{width} {height}\n255\n".encode("ascii") + pixels.tobytes())
+
+
+def _write_fixture_asset_files(asset_root: Path, asset_registry: Mapping[str, object]) -> None:
+    records = asset_registry.get("objects", ())
+    if not isinstance(records, list):
+        return
+    for record in records:
+        if not isinstance(record, Mapping):
+            continue
+        variants = record.get("variants", ())
+        if not isinstance(variants, list):
+            continue
+        for variant in variants:
+            if not isinstance(variant, Mapping):
+                continue
+            relative_path = variant.get("relative_path")
+            if relative_path:
+                _write_tetra_mesh(asset_root / str(relative_path))
+            material = variant.get("material")
+            if isinstance(material, Mapping) and material.get("texture_path"):
+                texture_path = asset_root / str(material["texture_path"])
+                _write_png_1x1(texture_path)
+
+
 def test_compile_csd_to_mujoco_writes_loadable_mjcf_and_manifest(tmp_path: Path) -> None:
     asset_root = tmp_path / "assets"
-    mesh_path = asset_root / "objects" / "mug.obj"
-    _write_tetra_mesh(mesh_path)
+    csd = _load_json_fixture("franka_tabletop_single_object.json")
+    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    _write_fixture_asset_files(asset_root, asset_registry)
     source_template = Path(__file__).resolve().parents[1] / (
         "drivers_sim/mujoco/assets/robots/franka_panda"
     )
     template_copy = tmp_path / "template_src" / "franka_panda"
     copytree(source_template, template_copy)
-    csd = {
-        "csd_id": "csd_tabletop_0001",
-        "task_instance_id": "task_tabletop_0001",
-        "task_objective": "place the mug on the table",
-        "frame": "world",
-        "units": "m",
-        "robot_asset_id": "robot_franka_panda",
-        "world_template_id": "world_tabletop",
-        "objects": [
-            {
-                "name": "mug",
-                "asset_id": "object_mug",
-                "role": "interactive_object",
-                "pose": {
-                    "position": {"x": 0.25, "y": -0.1, "z": 0.82},
-                    "orientation": {"w": 1.0, "x": 0.0, "y": 0.0, "z": 0.0},
-                },
-                "static": False,
-                "initial_state": {"mass_kg": 0.2, "friction": 0.8},
-            }
-        ],
-        "relationships": [],
-        "randomization": {"seed": 3, "values": {}},
-        "sensor_requirements": {},
-        "evaluator_refs": [],
-        "schema_version": "0.1",
-    }
-    asset_registry = {
-        "objects": [
-            {
-                "object_id": "object_mug",
-                "variants": [
-                    {
-                        "engine": "mujoco",
-                        "relative_path": "objects/mug.obj",
-                        "variant_hash": "hash_mug_obj",
-                        "validation_state": "passed",
-                    }
-                ],
-            }
-        ]
-    }
 
     result = compile_csd(
         backend="mujoco",
@@ -128,26 +151,180 @@ def test_compile_csd_to_mujoco_writes_loadable_mjcf_and_manifest(tmp_path: Path)
     assert json.loads(manifest_path.read_text(encoding="utf-8")) == manifest.to_json_dict()
     assert root.tag == "mujoco"
     assert root.find("compiler") is None
-    assert root.find("include").attrib["file"] == "assets/robots/franka_panda/panda.xml"
-    assert root.find("asset/mesh").attrib == {
+    assert _required_element(root, "include").attrib["file"] == (
+        "assets/robots/franka_panda/panda.xml"
+    )
+    assert _required_element(root, "asset/mesh").attrib == {
         "name": "object_mug",
         "file": "objects/mug.obj",
     }
-    assert root.find("worldbody/camera").attrib["name"] == "world_camera"
-    body = root.find("worldbody/body")
+    assert _required_element(root, "worldbody/camera").attrib["name"] == "world_camera"
+    body = _required_element(root, "worldbody/body[@name='mug']")
     assert body.attrib["name"] == "mug"
     assert body.attrib["pos"] == "0.25 -0.1 0.82"
     assert body.attrib["quat"] == "1 0 0 0"
     assert body.find("freejoint") is not None
-    assert body.find("geom").attrib["mesh"] == "object_mug"
+    assert _required_element(body, "geom").attrib["mesh"] == "object_mug"
 
-    mesh_path.unlink()
+    (asset_root / "objects" / "mug.obj").unlink()
     copied_template_source = template_copy
     for source_file in copied_template_source.rglob("*"):
         if source_file.is_file():
             source_file.unlink()
     model = mujoco.MjModel.from_xml_path(str(scene_path))
     assert model.nbody >= 2
+
+
+def test_compile_csd_to_mujoco_handles_multi_object_static_dynamic_scene(
+    tmp_path: Path,
+) -> None:
+    asset_root = tmp_path / "assets"
+    csd = _load_json_fixture("franka_tabletop_multi_object.json")
+    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    _write_fixture_asset_files(asset_root, asset_registry)
+
+    result = compile_csd_to_mujoco(
+        csd=csd,
+        asset_registry=asset_registry,
+        output_root=tmp_path / "engine_manifests",
+        asset_root=asset_root,
+    )
+
+    scene_path = tmp_path / "engine_manifests" / "mujoco" / "csd_tabletop_multi_0001" / "scene.xml"
+    root = ET.parse(scene_path).getroot()
+    bodies = {body.attrib["name"]: body for body in root.findall("worldbody/body")}
+
+    assert result.blockers == ()
+    assert {"mug", "tray", "marker", "tabletop_workspace"} <= set(bodies)
+    assert bodies["mug"].find("freejoint") is not None
+    assert bodies["marker"].find("freejoint") is not None
+    assert bodies["tray"].find("freejoint") is None
+    model = mujoco.MjModel.from_xml_path(str(scene_path))
+    assert model.nbody >= 4
+
+
+def test_compile_csd_to_mujoco_realizes_world_template_geometry(tmp_path: Path) -> None:
+    asset_root = tmp_path / "assets"
+    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    _write_fixture_asset_files(asset_root, asset_registry)
+
+    tabletop_result = compile_csd_to_mujoco(
+        csd=_load_json_fixture("franka_tabletop_single_object.json"),
+        asset_registry=asset_registry,
+        output_root=tmp_path / "engine_manifests",
+        asset_root=asset_root,
+    )
+    empty_floor_result = compile_csd_to_mujoco(
+        csd=_load_json_fixture("object_only_static_and_dynamic.json"),
+        asset_registry=asset_registry,
+        output_root=tmp_path / "engine_manifests",
+        asset_root=asset_root,
+    )
+
+    tabletop_root = ET.parse(
+        tmp_path / "engine_manifests" / "mujoco" / "csd_tabletop_0001" / "scene.xml"
+    ).getroot()
+    empty_floor_root = ET.parse(
+        tmp_path / "engine_manifests" / "mujoco" / "csd_object_only_0001" / "scene.xml"
+    ).getroot()
+    table_body = _required_element(tabletop_root, "worldbody/body[@name='tabletop_workspace']")
+    table_geom = _required_element(table_body, "geom")
+
+    assert tabletop_result.blockers == ()
+    assert empty_floor_result.blockers == ()
+    assert table_body.find("freejoint") is None
+    assert table_body.attrib["pos"] == "0.5 0 0.74"
+    assert table_geom.attrib == {
+        "name": "tabletop_surface",
+        "type": "box",
+        "size": "0.45 0.35 0.04",
+        "rgba": "0.42 0.36 0.28 1",
+        "friction": "1.2 0.2 0.2",
+    }
+    assert empty_floor_root.find("worldbody/body[@name='tabletop_workspace']") is None
+
+
+def test_compile_csd_to_mujoco_preserves_texture_material_and_mesh_scale(
+    tmp_path: Path,
+) -> None:
+    asset_root = tmp_path / "assets"
+    csd = _load_json_fixture("textured_scaled_object.json")
+    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    _write_fixture_asset_files(asset_root, asset_registry)
+
+    result = compile_csd_to_mujoco(
+        csd=csd,
+        asset_registry=asset_registry,
+        output_root=tmp_path / "engine_manifests",
+        asset_root=asset_root,
+    )
+
+    scene_root = tmp_path / "engine_manifests" / "mujoco" / "csd_textured_scaled_0001"
+    scene_path = scene_root / "scene.xml"
+    root = ET.parse(scene_path).getroot()
+    mesh = _required_element(root, "asset/mesh")
+    texture = _required_element(root, "asset/texture")
+    material = _required_element(root, "asset/material")
+    geom = _required_element(root, "worldbody/body/geom")
+
+    assert result.blockers == ()
+    assert isinstance(result.manifest, CsdRealizationManifest)
+    assert mesh.attrib["scale"] == "0.75 0.75 0.75"
+    assert texture.attrib == {
+        "name": "can_label_texture",
+        "type": "2d",
+        "file": "textures/can_label.png",
+    }
+    assert material.attrib == {
+        "name": "can_label",
+        "texture": "can_label_texture",
+        "rgba": "1 1 1 1",
+    }
+    assert geom.attrib["material"] == "can_label"
+    assert (scene_root / "assets" / "textures" / "can_label.png").is_file()
+    assert "assets/textures/can_label.png" in result.manifest.generated_files
+
+    (asset_root / "objects" / "can.obj").unlink()
+    (asset_root / "textures" / "can_label.png").unlink()
+    model = mujoco.MjModel.from_xml_path(str(scene_path))
+    assert model.ngeom >= 2
+
+
+def test_compile_csd_to_mujoco_renders_semantic_preview_screenshot(
+    tmp_path: Path,
+) -> None:
+    asset_root = tmp_path / "assets"
+    csd = _load_json_fixture("object_only_static_and_dynamic.json")
+    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    _write_fixture_asset_files(asset_root, asset_registry)
+
+    result = compile_csd_to_mujoco(
+        csd=csd,
+        asset_registry=asset_registry,
+        output_root=tmp_path / "engine_manifests",
+        asset_root=asset_root,
+    )
+
+    scene_root = tmp_path / "engine_manifests" / "mujoco" / "csd_object_only_0001"
+    scene_path = scene_root / "scene.xml"
+    model = mujoco.MjModel.from_xml_path(str(scene_path))
+    data = mujoco.MjData(model)
+    tray_body = model.body("tray")
+    mug_body = model.body("mug")
+    assert result.blockers == ()
+    assert tuple(round(float(value), 6) for value in tray_body.pos) == (0.0, 0.0, 0.15)
+    assert tuple(round(float(value), 6) for value in mug_body.pos) == (0.05, 0.0, 0.32)
+
+    with mujoco.Renderer(model, height=128, width=128) as renderer:
+        mujoco.mj_forward(model, data)
+        renderer.update_scene(data, camera="world_camera")
+        pixels = renderer.render()
+
+    screenshot_path = scene_root / "diagnostics" / "semantic_preview.ppm"
+    _write_ppm(screenshot_path, pixels)
+
+    assert screenshot_path.stat().st_size > 128 * 128
+    assert int(pixels.max()) > int(pixels.min())
 
 
 def test_compile_csd_to_mujoco_reports_missing_variant(tmp_path: Path) -> None:
@@ -174,39 +351,13 @@ def test_compile_csd_to_mujoco_reports_missing_variant(tmp_path: Path) -> None:
 
 def test_compile_csd_to_mujoco_reports_unsupported_robot_asset(tmp_path: Path) -> None:
     asset_root = tmp_path / "assets"
-    mesh_path = asset_root / "objects" / "mug.obj"
-    _write_tetra_mesh(mesh_path)
+    csd = _load_json_fixture("unsupported_robot.json")
+    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    _write_fixture_asset_files(asset_root, asset_registry)
 
     result = compile_csd_to_mujoco(
-        csd={
-            "csd_id": "csd_unknown_robot",
-            "robot_asset_id": "robot_unknown",
-            "objects": [
-                {
-                    "name": "mug",
-                    "asset_id": "object_mug",
-                    "pose": {
-                        "position": {"x": 0.25, "y": -0.1, "z": 0.82},
-                        "orientation": {"w": 1.0, "x": 0.0, "y": 0.0, "z": 0.0},
-                    },
-                }
-            ],
-        },
-        asset_registry={
-            "objects": [
-                {
-                    "object_id": "object_mug",
-                    "variants": [
-                        {
-                            "engine": "mujoco",
-                            "relative_path": "objects/mug.obj",
-                            "variant_hash": "hash_mug_obj",
-                            "validation_state": "passed",
-                        }
-                    ],
-                }
-            ]
-        },
+        csd=csd,
+        asset_registry=asset_registry,
         output_root=tmp_path,
         asset_root=asset_root,
     )
@@ -224,38 +375,9 @@ def test_compile_csd_to_mujoco_reports_unsupported_robot_asset(tmp_path: Path) -
 
 def test_compile_csd_to_gazebo_writes_self_contained_sdf_world(tmp_path: Path) -> None:
     asset_root = tmp_path / "assets"
-    mesh_path = asset_root / "objects" / "mug.obj"
-    _write_tetra_mesh(mesh_path)
-    csd = {
-        "csd_id": "csd_tabletop_0001",
-        "objects": [
-            {
-                "name": "mug",
-                "asset_id": "object_mug",
-                "pose": {
-                    "position": {"x": 0.25, "y": -0.1, "z": 0.82},
-                    "orientation": {"w": 1.0, "x": 0.0, "y": 0.0, "z": 0.0},
-                },
-                "static": False,
-                "initial_state": {"mass_kg": 0.2, "friction": 0.8},
-            }
-        ],
-    }
-    asset_registry = {
-        "objects": [
-            {
-                "object_id": "object_mug",
-                "variants": [
-                    {
-                        "engine": "gazebo",
-                        "relative_path": "objects/mug.obj",
-                        "variant_hash": "hash_mug_obj",
-                        "validation_state": "passed",
-                    }
-                ],
-            }
-        ]
-    }
+    csd = _load_json_fixture("franka_tabletop_single_object.json")
+    asset_registry = _load_json_fixture("asset_registry_gazebo.json")
+    _write_fixture_asset_files(asset_root, asset_registry)
 
     result = compile_csd(
         backend="gazebo",
@@ -273,7 +395,7 @@ def test_compile_csd_to_gazebo_writes_self_contained_sdf_world(tmp_path: Path) -
     manifest_path = world_root / "manifest.json"
     copied_mesh_path = world_root / "assets" / "objects" / "mug.obj"
     root = ET.parse(world_path).getroot()
-    model = root.find("world/model")
+    model = _required_element(root, "world/model")
 
     assert isinstance(manifest, CsdRealizationManifest)
     assert result.blockers == ()
@@ -284,12 +406,16 @@ def test_compile_csd_to_gazebo_writes_self_contained_sdf_world(tmp_path: Path) -
     assert copied_mesh_path.is_file()
     assert root.attrib["version"] == "1.12"
     assert model.attrib["name"] == "mug"
-    assert model.find("pose").text == "0.25 -0.1 0.82 0 0 0"
-    assert model.find("static").text == "false"
-    assert model.find("link/visual/geometry/mesh/uri").text == "assets/objects/mug.obj"
-    assert model.find("link/collision/geometry/mesh/uri").text == "assets/objects/mug.obj"
+    assert _required_element(model, "pose").text == "0.25 -0.1 0.82 0 0 0"
+    assert _required_element(model, "static").text == "false"
+    assert _required_element(model, "link/visual/geometry/mesh/uri").text == (
+        "assets/objects/mug.obj"
+    )
+    assert _required_element(model, "link/collision/geometry/mesh/uri").text == (
+        "assets/objects/mug.obj"
+    )
 
-    mesh_path.unlink()
+    (asset_root / "objects" / "mug.obj").unlink()
     assert copied_mesh_path.is_file()
 
 

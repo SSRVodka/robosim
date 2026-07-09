@@ -1,0 +1,27 @@
+{
+  "csd_id": "csd_unknown_robot",
+  "task_instance_id": "task_unknown_robot",
+  "task_objective": "verify unsupported robot assets produce typed blockers",
+  "frame": "world",
+  "units": "m",
+  "robot_asset_id": "robot_unknown",
+  "world_template_id": "world_tabletop",
+  "objects": [
+    {
+      "name": "mug",
+      "asset_id": "object_mug",
+      "role": "interactive_object",
+      "pose": {
+        "position": {"x": 0.25, "y": -0.1, "z": 0.82},
+        "orientation": {"w": 1.0, "x": 0.0, "y": 0.0, "z": 0.0}
+      },
+      "static": false,
+      "initial_state": {"mass_kg": 0.2, "friction": 0.8}
+    }
+  ],
+  "relationships": [],
+  "randomization": {"seed": 13, "values": {}},
+  "sensor_requirements": {},
+  "evaluator_refs": [],
+  "schema_version": "0.1"
+}

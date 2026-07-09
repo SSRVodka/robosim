@@ -268,20 +268,24 @@ def _write_mjcf(
                 "angle": "radian",
                 "coordinate": "local",
                 "meshdir": str(asset_root),
+                "texturedir": str(asset_root),
             },
         )
         ET.SubElement(root, "option", {"gravity": "0 0 -9.81"})
     ET.SubElement(root, "statistic", {"center": "0.3 0 0.4", "extent": "1"})
     assets = ET.SubElement(root, "asset")
     for asset_id in _csd_asset_ids(csd):
-        ET.SubElement(
-            assets,
-            "mesh",
-            {
-                "name": _mjcf_name(asset_id),
-                "file": str(variants[asset_id]["relative_path"]),
-            },
-        )
+        mesh_attrs = {
+            "name": _mjcf_name(asset_id),
+            "file": str(variants[asset_id]["relative_path"]),
+        }
+        mesh_scale = _mesh_scale_text(variants[asset_id])
+        if mesh_scale is not None:
+            mesh_attrs["scale"] = mesh_scale
+        ET.SubElement(assets, "mesh", mesh_attrs)
+        material = _variant_material(variants[asset_id])
+        if material is not None:
+            _append_mjcf_material(assets, material)
 
     worldbody = ET.SubElement(root, "worldbody")
     ET.SubElement(
@@ -309,8 +313,9 @@ def _write_mjcf(
             "rgba": "0.8 0.8 0.8 1",
         },
     )
+    _append_world_template(worldbody, csd)
     for obj in _csd_objects(csd):
-        _append_object_body(worldbody, obj)
+        _append_object_body(worldbody, obj, variants)
 
     ET.indent(root, space="  ")
     ET.ElementTree(root).write(scene_path, encoding="utf-8", xml_declaration=True)
@@ -363,6 +368,23 @@ def _append_sdf_mesh_geometry(parent: ET.Element, mesh_uri: str) -> None:
     geometry = ET.SubElement(parent, "geometry")
     mesh = ET.SubElement(geometry, "mesh")
     ET.SubElement(mesh, "uri").text = mesh_uri
+
+
+def _append_world_template(parent: ET.Element, csd: Mapping[str, Any]) -> None:
+    if str(csd.get("world_template_id", "")) != "world_tabletop":
+        return
+    table = ET.SubElement(parent, "body", {"name": "tabletop_workspace", "pos": "0.5 0 0.74"})
+    ET.SubElement(
+        table,
+        "geom",
+        {
+            "name": "tabletop_surface",
+            "type": "box",
+            "size": "0.45 0.35 0.04",
+            "rgba": "0.42 0.36 0.28 1",
+            "friction": "1.2 0.2 0.2",
+        },
+    )
 
 
 def _copy_variant_files(
@@ -499,10 +521,18 @@ def _variant_relative_paths(
     variants: Mapping[str, Mapping[str, Any]],
 ) -> Iterable[Path]:
     for asset_id in _csd_asset_ids(csd):
-        yield Path(str(variants[asset_id]["relative_path"]))
+        variant = variants[asset_id]
+        yield Path(str(variant["relative_path"]))
+        material = _variant_material(variant)
+        if material is not None and material.get("texture_path"):
+            yield Path(str(material["texture_path"]))
 
 
-def _append_object_body(parent: ET.Element, obj: Mapping[str, Any]) -> None:
+def _append_object_body(
+    parent: ET.Element,
+    obj: Mapping[str, Any],
+    variants: Mapping[str, Mapping[str, Any]],
+) -> None:
     asset_id = _required_str(obj, "asset_id")
     body = ET.SubElement(
         parent,
@@ -515,18 +545,19 @@ def _append_object_body(parent: ET.Element, obj: Mapping[str, Any]) -> None:
     )
     if not bool(obj.get("static", False)):
         ET.SubElement(body, "freejoint")
-    ET.SubElement(
-        body,
-        "geom",
-        {
-            "name": f"{_mjcf_name(_required_str(obj, 'name'))}_geom",
-            "type": "mesh",
-            "mesh": _mjcf_name(asset_id),
-            "mass": _object_scalar(obj, "mass_kg", 0.1),
-            "friction": _object_scalar(obj, "friction", 0.7),
-            "rgba": "0.7 0.7 0.7 1",
-        },
-    )
+    geom_attrs = {
+        "name": f"{_mjcf_name(_required_str(obj, 'name'))}_geom",
+        "type": "mesh",
+        "mesh": _mjcf_name(asset_id),
+        "mass": _object_scalar(obj, "mass_kg", 0.1),
+        "friction": _object_scalar(obj, "friction", 0.7),
+        "rgba": "0.7 0.7 0.7 1",
+    }
+    material = _variant_material(variants[asset_id])
+    if material is not None:
+        geom_attrs["material"] = _mjcf_name(str(material.get("name") or f"{asset_id}_material"))
+        geom_attrs.pop("rgba")
+    ET.SubElement(body, "geom", geom_attrs)
 
 
 def _mesh_path_blockers(
@@ -559,7 +590,68 @@ def _mesh_path_blockers(
                     f"asset variant file is missing: {relative_path}",
                 )
             )
+            continue
+        material = _variant_material(variants[asset_id])
+        if material is None or not material.get("texture_path"):
+            continue
+        texture_path = str(material["texture_path"])
+        if Path(texture_path).is_absolute():
+            blockers.append(
+                _asset_blocker(
+                    csd_id,
+                    asset_id,
+                    backend,
+                    "asset material texture path must be relative",
+                )
+            )
+            continue
+        if not (asset_root / texture_path).is_file():
+            blockers.append(
+                _asset_blocker(
+                    csd_id,
+                    asset_id,
+                    backend,
+                    f"asset material texture file is missing: {texture_path}",
+                )
+            )
     return tuple(blockers)
+
+
+def _append_mjcf_material(parent: ET.Element, material: Mapping[str, Any]) -> None:
+    material_name = _mjcf_name(str(material.get("name") or "material"))
+    texture_path = material.get("texture_path")
+    material_attrs = {"name": material_name}
+    if texture_path:
+        texture_name = f"{material_name}_texture"
+        ET.SubElement(
+            parent,
+            "texture",
+            {
+                "name": texture_name,
+                "type": "2d",
+                "file": str(texture_path),
+            },
+        )
+        material_attrs["texture"] = texture_name
+    if material.get("rgba") is not None:
+        material_attrs["rgba"] = _numbers_text(tuple(material["rgba"]))
+    ET.SubElement(parent, "material", material_attrs)
+
+
+def _mesh_scale_text(variant: Mapping[str, Any]) -> str | None:
+    scale = variant.get("mesh_scale") or variant.get("scale")
+    if scale is None:
+        return None
+    if isinstance(scale, (int, float, str)):
+        return _numbers_text((scale, scale, scale))
+    if isinstance(scale, (list, tuple)) and len(scale) == 3:
+        return _numbers_text(tuple(scale))
+    raise ValueError("mesh_scale must be a number or a 3-element sequence")
+
+
+def _variant_material(variant: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    material = variant.get("material")
+    return material if isinstance(material, Mapping) else None
 
 
 def _asset_blocker(

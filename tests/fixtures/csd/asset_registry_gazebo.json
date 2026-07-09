@@ -1,0 +1,15 @@
+{
+  "objects": [
+    {
+      "object_id": "object_mug",
+      "variants": [
+        {
+          "engine": "gazebo",
+          "relative_path": "objects/mug.obj",
+          "variant_hash": "hash_mug_obj",
+          "validation_state": "passed"
+        }
+      ]
+    }
+  ]
+}

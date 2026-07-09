@@ -1,0 +1,55 @@
+{
+  "objects": [
+    {
+      "object_id": "object_mug",
+      "variants": [
+        {
+          "engine": "mujoco",
+          "relative_path": "objects/mug.obj",
+          "variant_hash": "hash_mug_obj",
+          "validation_state": "passed"
+        }
+      ]
+    },
+    {
+      "object_id": "object_tray",
+      "variants": [
+        {
+          "engine": "mujoco",
+          "relative_path": "objects/tray.obj",
+          "variant_hash": "hash_tray_obj",
+          "validation_state": "passed"
+        }
+      ]
+    },
+    {
+      "object_id": "object_marker",
+      "variants": [
+        {
+          "engine": "mujoco",
+          "relative_path": "objects/marker.obj",
+          "variant_hash": "hash_marker_obj",
+          "validation_state": "passed",
+          "mesh_scale": [0.5, 0.5, 2.0]
+        }
+      ]
+    },
+    {
+      "object_id": "object_textured_can",
+      "variants": [
+        {
+          "engine": "mujoco",
+          "relative_path": "objects/can.obj",
+          "variant_hash": "hash_can_obj",
+          "validation_state": "passed",
+          "mesh_scale": [0.75, 0.75, 0.75],
+          "material": {
+            "name": "can_label",
+            "rgba": [1.0, 1.0, 1.0, 1.0],
+            "texture_path": "textures/can_label.png"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -14,10 +14,11 @@
   函数误认为 compiler 抽象本身；
 - [x] MuJoCo compiler 产物目录自包含 mesh variant 文件，避免编译后依赖易丢失
   的原始 asset cache；
-- [ ] 将 MuJoCo compiler 提升为完整 realization package：输出到
+- [x] 将 MuJoCo compiler 提升为完整 realization package：输出到
   `engine_manifests/mujoco/<csd_id>/`，持久化 `manifest.json`，生成可直接加载的
-  `scene.xml`，并复制 object、robot template、world template 的 dependency
-  closure 到本地 `assets/`；
+  `scene.xml`，并复制 object assets 与当前 Franka robot-template dependency
+  closure 到本地 `assets/`；当前 tabletop/floor world 元素由 compiler 生成，
+  尚未接入独立 world-template source closure；
 - [x] 定义并实现第一版 CSD -> Gazebo SDF compiler：生成
   `engine_manifests/gazebo/<csd_id>/world.sdf`，复制 passed Gazebo asset
   variants 到本地 `assets/`，并返回可审计的 backend manifest；
@@ -36,9 +37,13 @@
   material/texture、collision、joint/articulation、sensor、lighting、scale、
   frame/up-axis、contact/inertial semantics；不支持或有损转换必须返回
   validation failure/blocker；
-- [ ] 增加 MuJoCo compiler fixture MJCF 覆盖当前 demo 用例：Franka tabletop、
-  至少一个动态交互物体、至少一个静态支撑物、mesh/material/collision dependency
-  copy、sensor/camera 保留、以及 MuJoCo loadability smoke；
+- [x] 增加 MuJoCo compiler fixture MJCF 覆盖当前 demo 用例：Franka tabletop、
+  至少一个动态交互物体、至少一个静态支撑物、mesh/material/texture dependency
+  copy、world camera 保留、world-template geometry、以及 MuJoCo loadability
+  smoke；collision dependency 仍属于后续 asset compatibility 工作；
+- [x] 增加 MuJoCo compiler offscreen preview smoke：编译 fixture CSD 后从
+  `world_camera` 渲染临时 screenshot 到 `diagnostics/`，并检查对象 pose 语义与
+  非空像素，防止 CSD->MJCF 转换只在 XML 层面通过；
 - [x] 在实现 MuJoCo realization 前记录官方文档依据：MuJoCo MJCF XML
   Reference、ROS URDF XML documentation、SDFormat specification；
 - [x] 在设计 realization output layout 前记录 OpenUSD asset resolution /

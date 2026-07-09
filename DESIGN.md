@@ -115,13 +115,18 @@ backend variant/compatibility gate，再进入后续 MJCF 生成。
 
 实现记录（2026-07-09）：当前 `compile_csd_to_mujoco()` 继续依据 MuJoCo
 MJCF XML Reference（stable）中的 `compiler`、`asset/mesh`、`worldbody/body`、
-`include`、`freejoint`、`geom`、mesh `file`、geom `mass` 与 `friction`
+`include`、`freejoint`、`geom`、mesh `file`、mesh `scale`、`texture`、
+`material`、geom `mass` 与 `friction`
 语义实现。无机器人模板时，编译器使用 `<compiler meshdir="...">` 指向编译产物
-目录内的 `assets/`；有机器人模板时，顶层 `scene.xml` 通过相对 `<include>`
-引用 realization package 内复制出的 Franka MJCF 模板，并沿用模板内的
-`compiler meshdir` 规则。CSD object 使用 `<asset><mesh file="relative/path.obj"/>`
-注册 mesh variant，再用 `<geom type="mesh" mesh="...">` 实例化。动态对象以
-`freejoint` 表示自由刚体；MuJoCo loadability 由单元测试通过
+目录内的 `assets/`，并设置 `texturedir` 让 texture 也从 backend-local assets
+解析；有机器人模板时，顶层 `scene.xml` 通过相对 `<include>` 引用 realization
+package 内复制出的 Franka MJCF 模板，并沿用模板内的 `compiler meshdir` 规则。
+CSD object 使用 `<asset><mesh file="relative/path.obj"/></asset>` 注册 mesh
+variant，可带 mesh `scale`；variant material/texture metadata 会生成 MJCF
+`texture`、`material`，再由 object geom 引用。动态对象以 `freejoint` 表示自由
+刚体。当前支持的 world template 为 `empty_floor` 和 `world_tabletop`；
+`world_tabletop` 会生成 backend-local static tabletop geometry，而不是引用
+`drivers_sim` 的 world scene。MuJoCo loadability 由单元测试通过
 `mujoco.MjModel.from_xml_path` 验证。
 
 编译产物目录必须自包含当前 backend 需要的资产文件。第一版 MuJoCo 编译器会把
@@ -134,6 +139,15 @@ dependency closure 复制到当前 realization package。这样即使原始 asse
 或 `drivers_sim` 源目录移动或清理，已编译的 MJCF 仍可加载。后续处理 OBJ
 材质、纹理、collision mesh、URDF/SDF resource 时也必须遵守同样原则：native
 scene artifact 不得依赖易丢失的下载缓存路径。
+
+CSD compiler tests must keep scenario definitions as JSON fixtures under
+`tests/fixtures/csd/` instead of embedding large dictionaries in test code.
+Fixture coverage should include robot tabletop scenes, multiple static/dynamic
+objects, object-only scenes, unsupported robot blockers, and material/texture/
+scale variants. At least one MuJoCo compiler smoke test should load the
+compiled `scene.xml`, render an offscreen screenshot from `world_camera` into
+`diagnostics/`, and assert basic CSD semantic preservation such as object
+presence, pose sanity, and nonblank rendered pixels.
 
 实现记录（2026-07-09）：第一版 `compile_csd_to_gazebo()` 依据 SDFormat
 1.12 的 `sdf/world/model/link/visual/collision/geometry/mesh/uri` 结构与 Gazebo

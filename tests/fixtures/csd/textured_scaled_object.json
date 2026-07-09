@@ -1,0 +1,26 @@
+{
+  "csd_id": "csd_textured_scaled_0001",
+  "task_instance_id": "task_textured_scaled_0001",
+  "task_objective": "render a scaled textured can as an interactive object",
+  "frame": "world",
+  "units": "m",
+  "world_template_id": "empty_floor",
+  "objects": [
+    {
+      "name": "labelled_can",
+      "asset_id": "object_textured_can",
+      "role": "interactive_object",
+      "pose": {
+        "position": {"x": 0.15, "y": 0.05, "z": 0.2},
+        "orientation": {"w": 1.0, "x": 0.0, "y": 0.0, "z": 0.0}
+      },
+      "static": false,
+      "initial_state": {"mass_kg": 0.35, "friction": 0.75}
+    }
+  ],
+  "relationships": [],
+  "randomization": {"seed": 11, "values": {"texture_variant": "fixture_label"}},
+  "sensor_requirements": {"cameras": ["world_camera"]},
+  "evaluator_refs": ["predicate_textured_can_visible"],
+  "schema_version": "0.1"
+}
