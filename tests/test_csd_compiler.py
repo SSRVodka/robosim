@@ -692,6 +692,41 @@ def test_compile_csd_to_mujoco_blocks_unsupported_environment_surface(
     }
 
 
+def test_compile_csd_to_mujoco_blocks_unknown_relationship_entity(
+    tmp_path: Path,
+) -> None:
+    asset_root = tmp_path / "assets"
+    csd = _load_json_fixture("franka_tabletop_single_object.json")
+    scenario = csd["scenario"]
+    assert isinstance(scenario, dict)
+    relationships = scenario["relationships"]
+    assert isinstance(relationships, list)
+    relationship = relationships[0]
+    assert isinstance(relationship, dict)
+    relationship["subject"] = "object:ghost"
+    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    _write_fixture_asset_files(asset_root, asset_registry)
+
+    result = compile_csd_to_mujoco(
+        csd=csd,
+        asset_registry=asset_registry,
+        output_root=tmp_path,
+        asset_root=asset_root,
+    )
+
+    assert result.manifest is None
+    assert result.blockers[0].to_json_dict() == {
+        "blocker_id": "csd_tabletop_0001_mujoco_rel_mug_on_table_compile_blocked",
+        "csd_id": "csd_tabletop_0001",
+        "backend": "mujoco",
+        "asset_id": "rel_mug_on_table",
+        "scope": "csd",
+        "reason": (
+            "relationship rel_mug_on_table subject references unknown entity: object:ghost"
+        ),
+    }
+
+
 def test_compile_csd_to_mujoco_applies_template_nondefault_gravity(tmp_path: Path) -> None:
     asset_root = tmp_path / "assets"
     csd = _load_json_fixture("franka_tabletop_single_object.json")

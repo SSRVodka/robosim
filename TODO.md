@@ -51,6 +51,10 @@
 - [x] 为 MuJoCo compiler 增加语义 gate：不支持的 CSD units/frame、
   environment surface type 均返回 typed blocker，避免生成语义错误但可加载的
   MJCF；
+- [x] 为 MuJoCo compiler 增加 relationship entity-ref gate：enum relationship
+  的 `subject`/`object` 必须能解析到当前 CSD 的 object、environment surface
+  或 robot，否则返回 `CsdRealizationBlocker(scope="csd")`；暂不在 compiler
+  中推断 `inside`/`on_top_of` 等几何关系成立性；
 - [x] 为 MuJoCo compiler 增加 mesh resource format gate：visual/collision mesh
   仅允许 MJCF mesh asset 支持的 `.obj`、`.stl`、`.msh`，否则返回 typed asset
   blocker；

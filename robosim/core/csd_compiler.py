@@ -615,7 +615,32 @@ def _mujoco_csd_semantic_blockers(
                     ),
                 )
             )
+    known_entities = _csd_entity_refs(csd)
+    for relationship in csd.relationships:
+        for field_name, entity_ref in (
+            ("subject", relationship.subject),
+            ("object", relationship.object),
+        ):
+            if entity_ref not in known_entities:
+                blockers.append(
+                    _csd_blocker(
+                        csd.csd_id,
+                        relationship.relation_id,
+                        (
+                            f"relationship {relationship.relation_id} {field_name} "
+                            f"references unknown entity: {entity_ref}"
+                        ),
+                    )
+                )
     return tuple(blockers)
+
+
+def _csd_entity_refs(csd: ConcreteScenarioDefinition) -> set[str]:
+    refs = {f"object:{obj.name}" for obj in csd.objects}
+    refs.update(f"surface:{surface.surface_id}" for surface in csd.environment.surfaces)
+    if csd.robot is not None:
+        refs.add(f"robot:{csd.robot.asset_id}")
+    return refs
 
 
 def _patch_mujoco_template_gravity(path: Path, *, gravity: str) -> None:
