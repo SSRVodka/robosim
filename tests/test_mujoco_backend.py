@@ -13,7 +13,7 @@ import mujoco
 import numpy as np
 import pytest
 
-from control_stubs import common_pb2
+from control_stubs import common_pb2, sensing_pb2
 from control_stubs import robot_core_pb2 as core_pb2
 from robosim.backends.mujoco.backend import MuJoCoBackend
 from robosim.core import CsdRealizationManifest, compile_csd_to_mujoco
@@ -86,6 +86,14 @@ def _write_fixture_asset_files(asset_root: Path, asset_registry: dict[str, objec
             mesh_path = resource.get("mesh_path") or resource.get("relative_path")
             if mesh_path:
                 _write_tetra_mesh(asset_root / str(mesh_path))
+
+
+def _image_array(image: sensing_pb2.CameraImage) -> np.ndarray:
+    return np.frombuffer(image.data, dtype=np.uint8).reshape(
+        image.height,
+        image.width,
+        3,
+    )
 
 
 def test_robot_spec_uses_srdf_groups(backend: MuJoCoBackend) -> None:
@@ -162,6 +170,39 @@ def test_backend_loads_compiled_csd_realization_manifest_file(tmp_path: Path) ->
     try:
         assert instance.robot_name == "panda"
         assert instance._model.body("mug").name == "mug"
+    finally:
+        instance.shutdown()
+
+
+def test_backend_runtime_renders_and_steps_compiled_csd_realization(
+    tmp_path: Path,
+) -> None:
+    asset_root = tmp_path / "assets"
+    csd = _load_json_fixture("franka_tabletop_single_object.json")
+    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    _write_fixture_asset_files(asset_root, asset_registry)
+    result = compile_csd_to_mujoco(
+        csd=csd,
+        asset_registry=asset_registry,
+        output_root=tmp_path / "engine_manifests",
+        asset_root=asset_root,
+    )
+    assert isinstance(result.manifest, CsdRealizationManifest)
+
+    instance = MuJoCoBackend.from_csd_realization_manifest(result.manifest, headless=True)
+    try:
+        image = instance.get_sensors(["world_camera"]).images[0]
+        first_qpos = instance._data.qpos.copy()
+        assert image.width == 320
+        assert image.height == 240
+        assert float(_image_array(image).std()) > 1.0
+
+        time.sleep(0.05)
+
+        assert np.isfinite(instance._data.qpos).all()
+        assert np.isfinite(instance._data.qvel).all()
+        assert instance._model.body("mug").name == "mug"
+        assert instance._data.qpos.shape == first_qpos.shape
     finally:
         instance.shutdown()
 

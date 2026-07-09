@@ -23,8 +23,9 @@
 - [x] 定义并实现第一版 CSD -> Gazebo SDF compiler：生成
   `engine_manifests/gazebo/<csd_id>/world.sdf`，复制 Gazebo backend resources
   到本地 `assets/`，并返回可审计的 backend manifest；
-- [ ] 将 CSD compiler 产物接入 MuJoCoBackend runtime load/render/physics
-  validation；
+- [x] 将 CSD compiler 产物接入 MuJoCoBackend runtime load/render/physics
+  validation：compiled CSD manifest 可进入 `MuJoCoBackend`，通过 runtime
+  `get_sensors()` 渲染 CSD camera，并在 backend 自动步进后保持 finite state；
 - [x] 将 MuJoCo compiler 产物接入 MuJoCoBackend runtime load 入口：
   `MuJoCoBackend.from_csd_realization_manifest()` 与
   `from_csd_realization_manifest_file()` 可加载 compiled CSD manifest，并复用现有
