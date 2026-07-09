@@ -143,8 +143,11 @@ entry XML 的 `<option gravity="...">`，不修改源 template，也不在顶层
 额外生成冲突的 `<option>` 节点。当前支持的 world template 为 `empty_floor` 和
 `world_tabletop`；
 `world_tabletop` 会生成 backend-local static tabletop geometry，而不是引用
-`drivers_sim` 的 world scene。MuJoCo loadability 由单元测试通过
-`mujoco.MjModel.from_xml_path` 验证。
+`drivers_sim` 的 world scene。编译器写出 MJCF 后会立即用
+`mujoco.MjModel.from_xml_path` 做 package-local load check，并在
+`diagnostics/load_check.json` 记录 `model_load`、gravity 和 CSD object body pose
+检查结果；若该检查失败，compiler 返回
+`CsdRealizationBlocker(scope="vsim_realization")`，不发布 manifest。
 
 MuJoCo compiler 会在写出文件前执行语义 gate，避免生成可加载但语义错误的
 MJCF。当前会阻止非 `units="m"`、非 `frame="world"`、以及非 `box` 类型的
@@ -161,11 +164,11 @@ CSD 引用的 backend mesh resources 复制到
 `engine_manifests/mujoco/<csd_id>/assets/<resource-relative-path>`，`scene.xml`
 只引用该目录内的相对路径。当前 MuJoCo compiler 会把该产物提升为
 `engine_manifests/mujoco/<csd_id>/` 下的完整 realization package，持久化
-`manifest.json`，创建 `diagnostics/`，并把临时 Franka robot template 与其 mesh
-dependency closure 复制到当前 realization package。这样即使原始 asset cache
-或 `drivers_sim` 源目录移动或清理，已编译的 MJCF 仍可加载。后续处理 OBJ
-材质、纹理、URDF/SDF resource 时也必须遵守同样原则：native scene artifact
-不得依赖易丢失的下载缓存路径。
+`manifest.json`，创建 `diagnostics/`，写入 `diagnostics/load_check.json`，并把
+临时 Franka robot template 与其 mesh dependency closure 复制到当前 realization
+package。这样即使原始 asset cache 或 `drivers_sim` 源目录移动或清理，已编译的
+MJCF 仍可加载。后续处理 OBJ 材质、纹理、URDF/SDF resource 时也必须遵守同样
+原则：native scene artifact 不得依赖易丢失的下载缓存路径。
 
 CSD compiler tests must keep scenario definitions as JSON fixtures under
 `tests/fixtures/csd/` instead of embedding large dictionaries in test code.

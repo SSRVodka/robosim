@@ -208,6 +208,45 @@ def test_compile_csd_to_mujoco_handles_multi_object_static_dynamic_scene(
     assert model.nbody >= 4
 
 
+def test_compile_csd_to_mujoco_writes_load_check_diagnostics(tmp_path: Path) -> None:
+    asset_root = tmp_path / "assets"
+    csd = _load_json_fixture("object_only_static_and_dynamic.json")
+    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    _write_fixture_asset_files(asset_root, asset_registry)
+
+    result = compile_csd_to_mujoco(
+        csd=csd,
+        asset_registry=asset_registry,
+        output_root=tmp_path / "engine_manifests",
+        asset_root=asset_root,
+    )
+
+    scene_root = tmp_path / "engine_manifests" / "mujoco" / "csd_object_only_0001"
+    load_check_path = scene_root / "diagnostics" / "load_check.json"
+
+    assert result.blockers == ()
+    assert isinstance(result.manifest, CsdRealizationManifest)
+    assert "diagnostics/load_check.json" in result.manifest.generated_files
+
+    payload = json.loads(load_check_path.read_text(encoding="utf-8"))
+    checks = {check["name"]: check for check in payload["checks"]}
+
+    assert payload["schema_version"] == "0.1"
+    assert payload["backend"] == "mujoco"
+    assert payload["csd_id"] == "csd_object_only_0001"
+    assert payload["entry_file"] == "scene.xml"
+    assert payload["status"] == "passed"
+    assert checks["model_load"]["status"] == "passed"
+    assert checks["gravity"]["expected"] == [0.0, 0.0, -9.81]
+    assert checks["gravity"]["actual"] == [0.0, 0.0, -9.81]
+    assert checks["body_pose:tray"]["status"] == "passed"
+    assert checks["body_pose:tray"]["expected"] == [0.0, 0.0, 0.15]
+    assert checks["body_pose:tray"]["actual"] == [0.0, 0.0, 0.15]
+    assert checks["body_pose:mug"]["status"] == "passed"
+    assert checks["body_pose:mug"]["expected"] == [0.05, 0.0, 0.32]
+    assert checks["body_pose:mug"]["actual"] == [0.05, 0.0, 0.32]
+
+
 def test_compile_csd_to_mujoco_realizes_world_template_geometry(tmp_path: Path) -> None:
     asset_root = tmp_path / "assets"
     asset_registry = _load_json_fixture("asset_registry_mujoco.json")

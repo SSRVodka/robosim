@@ -54,6 +54,11 @@
 - [x] 为 MuJoCo compiler 增加 mesh resource format gate：visual/collision mesh
   仅允许 MJCF mesh asset 支持的 `.obj`、`.stl`、`.msh`，否则返回 typed asset
   blocker；
+- [x] 为 MuJoCo compiler 产物增加 package-local load check：写出 MJCF 后使用
+  `mujoco.MjModel.from_xml_path()` 加载当前 realization 目录中的 `scene.xml`，
+  并将 model load、gravity、CSD object body pose 检查写入
+  `diagnostics/load_check.json`；检查失败时返回
+  `CsdRealizationBlocker(scope="vsim_realization")`，不发布 manifest；
 - [ ] 为 CSD realization 定义 asset backend compatibility 检查：mesh format、
   material/texture、collision、joint/articulation、sensor、lighting、scale、
   frame/up-axis、contact/inertial semantics；不支持或有损转换必须返回

@@ -28,6 +28,8 @@ MUJOCO_BACKEND = "mujoco"
 GAZEBO_BACKEND = "gazebo"
 DEFAULT_REALIZATION_VERSION = "csd-compiler-0.2"
 MUJOCO_MESH_EXTENSIONS = frozenset({".obj", ".stl", ".msh"})
+
+
 @dataclass(frozen=True, slots=True)
 class CsdCompilationResult:
     """Result of compiling one fixed CSD into backend-native artifacts."""
@@ -130,9 +132,17 @@ def compile_csd_to_mujoco(
         resources=resources,
         robot_include=robot_include,
     )
+    load_check_file, load_check_blockers = _write_mujoco_load_check(
+        scene_path=scene_path,
+        diagnostics_root=diagnostics_root,
+        csd=typed_csd,
+    )
+    if load_check_blockers:
+        return CsdCompilationResult(manifest=None, blockers=load_check_blockers)
     generated_files = (
         "manifest.json",
         "scene.xml",
+        load_check_file,
         *generated_asset_files,
         *generated_robot_files,
     )
@@ -628,6 +638,113 @@ def _write_manifest(path: Path, manifest: CsdRealizationManifest) -> None:
     )
 
 
+def _write_mujoco_load_check(
+    *,
+    scene_path: Path,
+    diagnostics_root: Path,
+    csd: ConcreteScenarioDefinition,
+) -> tuple[str, tuple[CsdRealizationBlocker, ...]]:
+    checks: list[dict[str, object]] = []
+    try:
+        import mujoco
+
+        model = mujoco.MjModel.from_xml_path(str(scene_path))
+        checks.append(
+            _load_check(
+                "model_load",
+                passed=True,
+                details={"nbody": int(model.nbody), "ngeom": int(model.ngeom)},
+            )
+        )
+        checks.append(
+            _load_check(
+                "gravity",
+                expected=_vector3_json(csd.environment.gravity),
+                actual=_float_sequence_json(model.opt.gravity),
+            )
+        )
+        for obj in csd.objects:
+            body_name = _mjcf_name(obj.name)
+            try:
+                body = model.body(body_name)
+                actual = _float_sequence_json(body.pos)
+                expected = _vector3_json(obj.pose.position)
+                checks.append(
+                    _load_check(
+                        f"body_pose:{body_name}",
+                        expected=expected,
+                        actual=actual,
+                    )
+                )
+            except KeyError:
+                checks.append(
+                    _load_check(
+                        f"body_pose:{body_name}",
+                        passed=False,
+                        expected=_vector3_json(obj.pose.position),
+                        details={"reason": "body not found in loaded MuJoCo model"},
+                    )
+                )
+    except Exception as exc:
+        checks.append(
+            _load_check(
+                "model_load",
+                passed=False,
+                details={"reason": str(exc)},
+            )
+        )
+
+    passed = all(check["status"] == "passed" for check in checks)
+    payload = {
+        "schema_version": "0.1",
+        "backend": MUJOCO_BACKEND,
+        "csd_id": csd.csd_id,
+        "entry_file": scene_path.name,
+        "status": "passed" if passed else "failed",
+        "checks": checks,
+    }
+    path = diagnostics_root / "load_check.json"
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    if passed:
+        return "diagnostics/load_check.json", ()
+    return (
+        "diagnostics/load_check.json",
+        (
+            CsdRealizationBlocker(
+                blocker_id=f"{csd.csd_id}_{MUJOCO_BACKEND}_scene_load_check_failed",
+                csd_id=csd.csd_id,
+                backend=MUJOCO_BACKEND,
+                asset_id="scene",
+                scope="vsim_realization",
+                reason="generated MuJoCo scene failed compiler load-check diagnostics",
+            ),
+        ),
+    )
+
+
+def _load_check(
+    name: str,
+    *,
+    passed: bool | None = None,
+    expected: list[float] | None = None,
+    actual: list[float] | None = None,
+    details: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    if passed is None:
+        passed = expected == actual
+    check: dict[str, object] = {
+        "name": name,
+        "status": "passed" if passed else "failed",
+    }
+    if expected is not None:
+        check["expected"] = expected
+    if actual is not None:
+        check["actual"] = actual
+    if details is not None:
+        check["details"] = dict(details)
+    return check
+
+
 def _unique_files(paths: Iterable[str]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(paths))
 
@@ -888,6 +1005,18 @@ def _vector3_text(vector: Any) -> str:
 
 def _quaternion_text(quaternion: Any) -> str:
     return _numbers_text((quaternion.w, quaternion.x, quaternion.y, quaternion.z))
+
+
+def _vector3_json(vector: Any) -> list[float]:
+    return [_json_float(vector.x), _json_float(vector.y), _json_float(vector.z)]
+
+
+def _float_sequence_json(values: Any) -> list[float]:
+    return [_json_float(value) for value in values]
+
+
+def _json_float(value: Any) -> float:
+    return round(float(value), 12)
 
 
 def _sdf_pose_text(obj: Mapping[str, Any]) -> str:
