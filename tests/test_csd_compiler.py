@@ -14,6 +14,7 @@ import mujoco
 
 from robosim.core import (
     ConcreteScenarioDefinition,
+    CsdObjectContact,
     CsdRealizationManifest,
     compile_csd,
     compile_csd_to_gazebo,
@@ -456,6 +457,35 @@ def test_csd_parser_exposes_typed_object_physical_state() -> None:
 
     assert mug.initial_state.mass_kg == 0.2
     assert mug.initial_state.friction == (0.8, 0.005, 0.0001)
+    assert mug.initial_state.contact is None
+
+
+def test_csd_parser_exposes_typed_object_contact_parameters() -> None:
+    csd = _load_json_fixture("object_only_static_and_dynamic.json")
+    scenario = csd["scenario"]
+    assert isinstance(scenario, dict)
+    objects = scenario["objects"]
+    assert isinstance(objects, list)
+    mug = objects[1]
+    assert isinstance(mug, dict)
+    initial_state = mug["initial_state"]
+    assert isinstance(initial_state, dict)
+    initial_state["contact"] = {
+        "margin_m": 0.004,
+        "gap_m": 0.001,
+        "solref": [0.02, 1.0],
+        "solimp": [0.9, 0.95, 0.001, 0.5, 2.0],
+    }
+
+    typed = ConcreteScenarioDefinition.from_mapping(csd)
+    typed_mug = next(obj for obj in typed.objects if obj.name == "mug")
+
+    assert typed_mug.initial_state.contact == CsdObjectContact(
+        margin_m=0.004,
+        gap_m=0.001,
+        solref=(0.02, 1.0),
+        solimp=(0.9, 0.95, 0.001, 0.5, 2.0),
+    )
 
 
 def test_compile_csd_to_mujoco_preserves_explicit_friction_tuple(tmp_path: Path) -> None:
@@ -487,6 +517,106 @@ def test_compile_csd_to_mujoco_preserves_explicit_friction_tuple(tmp_path: Path)
 
     assert result.blockers == ()
     assert geom.attrib["friction"] == "0.9 0.02 0.003"
+
+
+def test_compile_csd_to_mujoco_preserves_object_contact_parameters(
+    tmp_path: Path,
+) -> None:
+    asset_root = tmp_path / "assets"
+    csd = _load_json_fixture("object_only_static_and_dynamic.json")
+    scenario = csd["scenario"]
+    assert isinstance(scenario, dict)
+    objects = scenario["objects"]
+    assert isinstance(objects, list)
+    mug = objects[1]
+    assert isinstance(mug, dict)
+    initial_state = mug["initial_state"]
+    assert isinstance(initial_state, dict)
+    initial_state["contact"] = {
+        "margin_m": 0.004,
+        "gap_m": 0.001,
+        "solref": [0.02, 1.0],
+        "solimp": [0.9, 0.95, 0.001, 0.5, 2.0],
+    }
+    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    _write_fixture_asset_files(asset_root, asset_registry)
+
+    result = compile_csd_to_mujoco(
+        csd=csd,
+        asset_registry=asset_registry,
+        output_root=tmp_path / "engine_manifests",
+        asset_root=asset_root,
+    )
+
+    scene_path = tmp_path / "engine_manifests" / "mujoco" / "csd_object_only_0001" / "scene.xml"
+    root = ET.parse(scene_path).getroot()
+    mug_body = _required_element(root, "worldbody/body[@name='mug']")
+    geom = _required_element(mug_body, "geom")
+
+    assert result.blockers == ()
+    assert geom.attrib["margin"] == "0.004"
+    assert geom.attrib["gap"] == "0.001"
+    assert geom.attrib["solref"] == "0.02 1"
+    assert geom.attrib["solimp"] == "0.9 0.95 0.001 0.5 2"
+
+
+def test_compile_csd_to_mujoco_blocks_invalid_physical_parameters(
+    tmp_path: Path,
+) -> None:
+    asset_root = tmp_path / "assets"
+    csd = _load_json_fixture("object_only_static_and_dynamic.json")
+    scenario = csd["scenario"]
+    assert isinstance(scenario, dict)
+    objects = scenario["objects"]
+    assert isinstance(objects, list)
+    tray = objects[0]
+    mug = objects[1]
+    assert isinstance(tray, dict)
+    assert isinstance(mug, dict)
+    tray_state = tray["initial_state"]
+    mug_state = mug["initial_state"]
+    assert isinstance(tray_state, dict)
+    assert isinstance(mug_state, dict)
+    tray_state["mass_kg"] = 0.0
+    mug_state["friction"] = [-0.1, 0.005, 0.0001]
+    mug_state["contact"] = {"margin_m": 0.001, "gap_m": 0.002}
+    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    _write_fixture_asset_files(asset_root, asset_registry)
+
+    result = compile_csd_to_mujoco(
+        csd=csd,
+        asset_registry=asset_registry,
+        output_root=tmp_path,
+        asset_root=asset_root,
+    )
+
+    assert result.manifest is None
+    assert [blocker.to_json_dict() for blocker in result.blockers] == [
+        {
+            "blocker_id": "csd_object_only_0001_mujoco_tray_mass_kg_compile_blocked",
+            "csd_id": "csd_object_only_0001",
+            "backend": "mujoco",
+            "asset_id": "tray",
+            "scope": "csd",
+            "reason": "object tray mass_kg must be positive",
+        },
+        {
+            "blocker_id": "csd_object_only_0001_mujoco_mug_friction_compile_blocked",
+            "csd_id": "csd_object_only_0001",
+            "backend": "mujoco",
+            "asset_id": "mug",
+            "scope": "csd",
+            "reason": "object mug friction values must be non-negative",
+        },
+        {
+            "blocker_id": "csd_object_only_0001_mujoco_mug_contact_compile_blocked",
+            "csd_id": "csd_object_only_0001",
+            "backend": "mujoco",
+            "asset_id": "mug",
+            "scope": "csd",
+            "reason": "object mug contact gap_m must be less than or equal to margin_m",
+        },
+    ]
 
 
 def test_compile_csd_to_mujoco_preserves_texture_material_and_mesh_scale(
@@ -540,6 +670,15 @@ def test_compile_csd_to_mujoco_preserves_separate_collision_mesh(
 ) -> None:
     asset_root = tmp_path / "assets"
     csd = _load_json_fixture("object_only_static_and_dynamic.json")
+    scenario = csd["scenario"]
+    assert isinstance(scenario, dict)
+    objects = scenario["objects"]
+    assert isinstance(objects, list)
+    mug = objects[1]
+    assert isinstance(mug, dict)
+    initial_state = mug["initial_state"]
+    assert isinstance(initial_state, dict)
+    initial_state["contact"] = {"margin_m": 0.003}
     asset_registry = _load_json_fixture("asset_registry_mujoco.json")
     records = asset_registry["objects"]
     assert isinstance(records, list)
@@ -575,8 +714,10 @@ def test_compile_csd_to_mujoco_preserves_separate_collision_mesh(
     assert visual_geom.attrib["contype"] == "0"
     assert visual_geom.attrib["conaffinity"] == "0"
     assert "mass" not in visual_geom.attrib
+    assert "margin" not in visual_geom.attrib
     assert collision_geom.attrib["mesh"] == "object_mug_collision"
     assert collision_geom.attrib["mass"] == "0.2"
+    assert collision_geom.attrib["margin"] == "0.003"
     assert collision_geom.attrib["rgba"] == "0 0 0 0"
     assert "assets/collision/mug_collision.obj" in result.manifest.generated_files
 

@@ -213,17 +213,51 @@ class CsdRobot:
 
 
 @dataclass(frozen=True, slots=True)
+class CsdObjectContact:
+    """Optional backend-neutral contact parameters for an object geom."""
+
+    margin_m: float | None
+    gap_m: float | None
+    solref: tuple[float, float] | None
+    solimp: tuple[float, float, float, float, float] | None
+
+    @classmethod
+    def from_mapping(cls, payload: Mapping[str, Any]) -> "CsdObjectContact":
+        margin = payload.get("margin_m")
+        gap = payload.get("gap_m")
+        solref = None
+        if payload.get("solref") is not None:
+            solref = _number_tuple(payload["solref"], length=2, field="contact.solref")
+        solimp = None
+        if payload.get("solimp") is not None:
+            solimp = _number_tuple(payload["solimp"], length=5, field="contact.solimp")
+        return cls(
+            margin_m=float(margin) if margin is not None else None,
+            gap_m=float(gap) if gap is not None else None,
+            solref=solref,
+            solimp=solimp,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class CsdObjectInitialState:
     """Backend-neutral object physical state requested by CSD."""
 
     mass_kg: float
     friction: tuple[float, float, float]
+    contact: CsdObjectContact | None
 
     @classmethod
     def from_mapping(cls, payload: Mapping[str, Any]) -> "CsdObjectInitialState":
+        contact_payload = payload.get("contact")
         return cls(
             mass_kg=float(payload.get("mass_kg", 0.1)),
             friction=_friction_tuple(payload.get("friction", DEFAULT_MUJOCO_OBJECT_FRICTION)),
+            contact=(
+                CsdObjectContact.from_mapping(contact_payload)
+                if isinstance(contact_payload, Mapping)
+                else None
+            ),
         )
 
 

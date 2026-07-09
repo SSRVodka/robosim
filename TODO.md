@@ -53,6 +53,10 @@
 - [x] 将 object friction 输出改为 MuJoCo MJCF `real(3)`：CSD scalar friction
   映射为 sliding friction，torsional/rolling 使用 MuJoCo 默认值；CSD 3-vector
   friction 原样写出；
+- [x] 将 CSD object contact 参数的第一版直接映射到 MuJoCo collision-bearing
+  geom：`margin_m` -> `margin`、`gap_m` -> `gap`、`solref`、`solimp`，并对非正
+  mass、负 friction、负 contact margin/gap、`gap_m > margin_m` 返回 typed CSD
+  blocker；
 - [x] 在无 robot template 的 MuJoCo realization 中将 CSD
   `environment.gravity` 写入 MJCF `<option gravity="...">`；
 - [x] 在带 robot include/template 的 MuJoCo realization 中 patch 编译产物内复制的
@@ -85,8 +89,10 @@
   `diagnostics/semantic_preview.ppm`，并记录到 `manifest.preview_files`；
 - [ ] 为 CSD realization 定义 asset backend compatibility 检查：mesh format、
   material/texture、collision、joint/articulation、sensor、lighting、scale、
-  frame/up-axis、contact/inertial semantics；不支持或有损转换必须返回
-  validation failure/blocker；
+  frame/up-axis、contact/inertial semantics；MuJoCo mesh format、scale、
+  material/texture、collision mesh split、direct mass/friction/contact attributes
+  已覆盖，inertial defaults、solver assumptions 和 cross-backend parity 仍需后续
+  blocker/validation 设计；
 - [x] 增加 MuJoCo compiler fixture MJCF 覆盖当前 demo 用例：Franka tabletop、
   至少一个动态交互物体、至少一个静态支撑物、mesh/material/texture dependency
   copy、world camera 保留、world-template geometry、以及 MuJoCo loadability

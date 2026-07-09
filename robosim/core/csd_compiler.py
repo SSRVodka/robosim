@@ -643,6 +643,8 @@ def _mujoco_csd_semantic_blockers(
                     ),
                 )
             )
+    for obj in csd.objects:
+        blockers.extend(_mujoco_object_physical_blockers(csd.csd_id, obj))
     known_entities = _csd_entity_refs(csd)
     for relationship in csd.relationships:
         for field_name, entity_ref in (
@@ -1106,13 +1108,91 @@ def _append_object_body(
                 "mass": _number_text(obj.initial_state.mass_kg),
                 "friction": _numbers_text(obj.initial_state.friction),
                 "rgba": "0 0 0 0",
+                **_mujoco_contact_attrs(obj),
             },
         )
         return
 
     visual_geom_attrs["mass"] = _number_text(obj.initial_state.mass_kg)
     visual_geom_attrs["friction"] = _numbers_text(obj.initial_state.friction)
+    visual_geom_attrs.update(_mujoco_contact_attrs(obj))
     ET.SubElement(body, "geom", visual_geom_attrs)
+
+
+def _mujoco_object_physical_blockers(
+    csd_id: str,
+    obj: CsdObject,
+) -> tuple[CsdRealizationBlocker, ...]:
+    blockers: list[CsdRealizationBlocker] = []
+    if obj.initial_state.mass_kg <= 0.0:
+        blockers.append(
+            _object_csd_blocker(
+                csd_id,
+                obj.name,
+                "mass_kg",
+                f"object {obj.name} mass_kg must be positive",
+            )
+        )
+    if any(value < 0.0 for value in obj.initial_state.friction):
+        blockers.append(
+            _object_csd_blocker(
+                csd_id,
+                obj.name,
+                "friction",
+                f"object {obj.name} friction values must be non-negative",
+            )
+        )
+    contact = obj.initial_state.contact
+    if contact is None:
+        return tuple(blockers)
+    if contact.margin_m is not None and contact.margin_m < 0.0:
+        blockers.append(
+            _object_csd_blocker(
+                csd_id,
+                obj.name,
+                "contact",
+                f"object {obj.name} contact margin_m must be non-negative",
+            )
+        )
+    if contact.gap_m is not None and contact.gap_m < 0.0:
+        blockers.append(
+            _object_csd_blocker(
+                csd_id,
+                obj.name,
+                "contact",
+                f"object {obj.name} contact gap_m must be non-negative",
+            )
+        )
+    if (
+        contact.margin_m is not None
+        and contact.gap_m is not None
+        and contact.gap_m > contact.margin_m
+    ):
+        blockers.append(
+            _object_csd_blocker(
+                csd_id,
+                obj.name,
+                "contact",
+                f"object {obj.name} contact gap_m must be less than or equal to margin_m",
+            )
+        )
+    return tuple(blockers)
+
+
+def _mujoco_contact_attrs(obj: CsdObject) -> dict[str, str]:
+    contact = obj.initial_state.contact
+    if contact is None:
+        return {}
+    attrs: dict[str, str] = {}
+    if contact.margin_m is not None:
+        attrs["margin"] = _number_text(contact.margin_m)
+    if contact.gap_m is not None:
+        attrs["gap"] = _number_text(contact.gap_m)
+    if contact.solref is not None:
+        attrs["solref"] = _numbers_text(contact.solref)
+    if contact.solimp is not None:
+        attrs["solimp"] = _numbers_text(contact.solimp)
+    return attrs
 
 
 def _mesh_path_blockers(
@@ -1275,6 +1355,25 @@ def _csd_blocker(
         csd_id=csd_id,
         backend=MUJOCO_BACKEND,
         asset_id=subject_id,
+        scope="csd",
+        reason=reason,
+    )
+
+
+def _object_csd_blocker(
+    csd_id: str,
+    object_name: str,
+    field_name: str,
+    reason: str,
+) -> CsdRealizationBlocker:
+    return CsdRealizationBlocker(
+        blocker_id=(
+            f"{csd_id}_{MUJOCO_BACKEND}_{_mjcf_name(object_name)}_"
+            f"{_mjcf_name(field_name)}_compile_blocked"
+        ),
+        csd_id=csd_id,
+        backend=MUJOCO_BACKEND,
+        asset_id=object_name,
         scope="csd",
         reason=reason,
     )
