@@ -569,7 +569,7 @@ def test_compile_csd_to_mujoco_blocks_unsupported_environment_surface(
     }
 
 
-def test_compile_csd_to_mujoco_blocks_template_nondefault_gravity(tmp_path: Path) -> None:
+def test_compile_csd_to_mujoco_applies_template_nondefault_gravity(tmp_path: Path) -> None:
     asset_root = tmp_path / "assets"
     csd = _load_json_fixture("franka_tabletop_single_object.json")
     scenario = csd["scenario"]
@@ -587,18 +587,19 @@ def test_compile_csd_to_mujoco_blocks_template_nondefault_gravity(tmp_path: Path
         asset_root=asset_root,
     )
 
-    assert result.manifest is None
-    assert result.blockers[0].to_json_dict() == {
-        "blocker_id": "csd_tabletop_0001_mujoco_robot_franka_panda_compile_blocked",
-        "csd_id": "csd_tabletop_0001",
-        "backend": "mujoco",
-        "asset_id": "robot_franka_panda",
-        "scope": "csd",
-        "reason": (
-            "MuJoCo robot template gravity override is not implemented; "
-            "template scenes require default gravity 0 0 -9.81"
-        ),
-    }
+    scene_root = tmp_path / "mujoco" / "csd_tabletop_0001"
+    scene_path = scene_root / "scene.xml"
+    copied_template = scene_root / "assets" / "robots" / "franka_panda" / "panda.xml"
+
+    assert result.blockers == ()
+    assert isinstance(result.manifest, CsdRealizationManifest)
+
+    template_root = ET.parse(copied_template).getroot()
+    option = _required_element(template_root, "option")
+    model = mujoco.MjModel.from_xml_path(str(scene_path))
+
+    assert option.attrib["gravity"] == "0 0 -1.62"
+    assert tuple(round(float(value), 6) for value in model.opt.gravity) == (0.0, 0.0, -1.62)
 
 
 def test_compile_csd_to_gazebo_writes_self_contained_sdf_world(tmp_path: Path) -> None:

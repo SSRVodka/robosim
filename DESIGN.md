@@ -138,18 +138,19 @@ sliding friction，并保留 MuJoCo 默认 torsional/rolling friction
 adapter material/texture metadata 会生成 MJCF `texture`、`material`，再由 object
 visual geom 引用。动态对象以 `freejoint` 表示自由刚体。无 robot template 的
 MuJoCo scene 会把 CSD `environment.gravity` 写入 `<option gravity="...">`；带
-robot include 的 template 当前沿用 template 自身的 `<option>`，非默认 gravity
-override 需要单独设计以避免重复/冲突的 MuJoCo option 节点。当前支持的 world
-template 为 `empty_floor` 和 `world_tabletop`；
+robot include 的 scene 会 patch realization package 内复制出的 robot template
+entry XML 的 `<option gravity="...">`，不修改源 template，也不在顶层 scene 中
+额外生成冲突的 `<option>` 节点。当前支持的 world template 为 `empty_floor` 和
+`world_tabletop`；
 `world_tabletop` 会生成 backend-local static tabletop geometry，而不是引用
 `drivers_sim` 的 world scene。MuJoCo loadability 由单元测试通过
 `mujoco.MjModel.from_xml_path` 验证。
 
 MuJoCo compiler 会在写出文件前执行语义 gate，避免生成可加载但语义错误的
-MJCF。当前会阻止非 `units="m"`、非 `frame="world"`、非 `box` 类型的
-environment surface，以及带 robot template 时的非默认 gravity。被阻止的情况
-返回 typed `CsdRealizationBlocker(scope="csd")`，调用方应修复 CSD 或等待
-compiler 增加明确转换策略，而不是依赖静默降级。
+MJCF。当前会阻止非 `units="m"`、非 `frame="world"`、以及非 `box` 类型的
+environment surface。被阻止的情况返回 typed
+`CsdRealizationBlocker(scope="csd")`，调用方应修复 CSD 或等待 compiler 增加
+明确转换策略，而不是依赖静默降级。
 
 编译产物目录必须自包含当前 backend 需要的资产文件。MuJoCo 编译器会把
 CSD 引用的 backend mesh resources 复制到

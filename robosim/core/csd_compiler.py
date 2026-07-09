@@ -27,7 +27,6 @@ from robosim.core.csd import (
 MUJOCO_BACKEND = "mujoco"
 GAZEBO_BACKEND = "gazebo"
 DEFAULT_REALIZATION_VERSION = "csd-compiler-0.2"
-DEFAULT_MUJOCO_GRAVITY = (0.0, 0.0, -9.81)
 @dataclass(frozen=True, slots=True)
 class CsdCompilationResult:
     """Result of compiling one fixed CSD into backend-native artifacts."""
@@ -86,8 +85,7 @@ def compile_csd_to_mujoco(
         return CsdCompilationResult(manifest=None, blockers=robot_blockers)
 
     semantic_blockers = _mujoco_csd_semantic_blockers(
-        typed_csd,
-        uses_robot_template=_mujoco_robot_template_dir(csd, realization_config) is not None,
+        typed_csd
     )
     if semantic_blockers:
         return CsdCompilationResult(manifest=None, blockers=semantic_blockers)
@@ -117,7 +115,8 @@ def compile_csd_to_mujoco(
         compiled_asset_root=compiled_asset_root,
     )
     robot_include, generated_robot_files = _copy_mujoco_robot_template(
-        csd=csd,
+        csd=typed_csd,
+        raw_csd=csd,
         realization_config=realization_config,
         scene_root=scene_root,
         compiled_asset_root=compiled_asset_root,
@@ -467,12 +466,13 @@ def _copy_resource_files(
 
 def _copy_mujoco_robot_template(
     *,
-    csd: Mapping[str, Any],
+    csd: ConcreteScenarioDefinition,
+    raw_csd: Mapping[str, Any],
     realization_config: Mapping[str, Any],
     scene_root: Path,
     compiled_asset_root: Path,
 ) -> tuple[str | None, tuple[str, ...]]:
-    template_dir = _mujoco_robot_template_dir(csd, realization_config)
+    template_dir = _mujoco_robot_template_dir(raw_csd, realization_config)
     if template_dir is None:
         return None, ()
 
@@ -489,6 +489,12 @@ def _copy_mujoco_robot_template(
             destination.parent.mkdir(parents=True, exist_ok=True)
             copy2(source, destination)
             generated_files.append(str(destination.relative_to(scene_root)))
+
+    entry_destination = robot_dir / entry_file
+    _patch_mujoco_template_gravity(
+        entry_destination,
+        gravity=_vector3_text(csd.environment.gravity),
+    )
 
     mesh_source_root = template_dir / "assets"
     if mesh_source_root.is_dir():
@@ -568,8 +574,6 @@ def _mujoco_robot_template_blockers(
 
 def _mujoco_csd_semantic_blockers(
     csd: ConcreteScenarioDefinition,
-    *,
-    uses_robot_template: bool,
 ) -> tuple[CsdRealizationBlocker, ...]:
     blockers: list[CsdRealizationBlocker] = []
     if csd.units != "m":
@@ -600,28 +604,20 @@ def _mujoco_csd_semantic_blockers(
                     ),
                 )
             )
-    if uses_robot_template and not _is_default_mujoco_gravity(csd):
-        robot_asset_id = csd.robot.asset_id if csd.robot is not None else "robot_template"
-        blockers.append(
-            _csd_blocker(
-                csd.csd_id,
-                robot_asset_id,
-                (
-                    "MuJoCo robot template gravity override is not implemented; "
-                    "template scenes require default gravity 0 0 -9.81"
-                ),
-            )
-        )
     return tuple(blockers)
 
 
-def _is_default_mujoco_gravity(csd: ConcreteScenarioDefinition) -> bool:
-    gravity = csd.environment.gravity
-    return (
-        math.isclose(gravity.x, DEFAULT_MUJOCO_GRAVITY[0])
-        and math.isclose(gravity.y, DEFAULT_MUJOCO_GRAVITY[1])
-        and math.isclose(gravity.z, DEFAULT_MUJOCO_GRAVITY[2])
-    )
+def _patch_mujoco_template_gravity(path: Path, *, gravity: str) -> None:
+    tree = ET.parse(path)
+    root = tree.getroot()
+    option = root.find("option")
+    if option is None:
+        option = ET.Element("option")
+        compiler = root.find("compiler")
+        root.insert(1 if compiler is not None else 0, option)
+    option.set("gravity", gravity)
+    ET.indent(root, space="  ")
+    tree.write(path, encoding="utf-8", xml_declaration=False)
 
 
 def _write_manifest(path: Path, manifest: CsdRealizationManifest) -> None:
