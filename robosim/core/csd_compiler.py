@@ -19,7 +19,9 @@ from robosim.core.csd import (
     CsdRealizationBlocker,
     CsdRealizationManifest,
     CsdRealizationValidationRecord,
+    CsdRelationship,
     CsdRelationshipType,
+    CsdSurface,
     asset_resource_hashes_for_csd,
     backend_resource_adapters_by_asset,
     find_csd_realization_blockers,
@@ -1209,13 +1211,39 @@ def _write_mujoco_relationship_check(
         data = mujoco.MjData(model)
         mujoco.mj_forward(model, data)
         for relationship in csd.relationships:
+            if relationship.type == CsdRelationshipType.ON_TOP_OF:
+                passed, details = _mujoco_on_top_of_check(
+                    model,
+                    data,
+                    csd,
+                    relationship,
+                )
+                checks.append(
+                    _load_check(
+                        f"on_top_of:{relationship.relation_id}",
+                        passed=passed,
+                        details=details,
+                    )
+                )
+                if not passed:
+                    blockers.append(
+                        _csd_blocker(
+                            csd.csd_id,
+                            relationship.relation_id,
+                            (
+                                "MuJoCo initial state violates on_top_of relationship "
+                                f"{relationship.relation_id}"
+                            ),
+                        )
+                    )
+                continue
             if relationship.type != CsdRelationshipType.AVOID_CONTACT:
                 continue
             subject_body = _relationship_body_name(relationship.subject)
             object_body = _relationship_body_name(relationship.object)
             min_distance_m = float(relationship.parameters.get("min_distance_m", 0.0))
-            subject_pos = _float_sequence_json(model.body(subject_body).pos)
-            object_pos = _float_sequence_json(model.body(object_body).pos)
+            subject_pos = _mujoco_body_world_position(model, data, subject_body)
+            object_pos = _mujoco_body_world_position(model, data, object_body)
             distance_m = _distance(subject_pos, object_pos)
             passed = distance_m >= min_distance_m
             checks.append(
@@ -1273,11 +1301,99 @@ def _write_mujoco_relationship_check(
     return "diagnostics/relationship_check.json", tuple(blockers)
 
 
+def _mujoco_on_top_of_check(
+    model: Any,
+    data: Any,
+    csd: ConcreteScenarioDefinition,
+    relationship: CsdRelationship,
+) -> tuple[bool, dict[str, object]]:
+    subject_body = _relationship_body_name(relationship.subject)
+    object_body = _relationship_body_name(relationship.object)
+    subject_pos = _mujoco_body_world_position(model, data, subject_body)
+    object_pos = _mujoco_body_world_position(model, data, object_body)
+    tolerance_m = float(relationship.parameters.get("position_tolerance_m", 0.0))
+    support_surface = _relationship_surface(csd, relationship.object)
+    details: dict[str, object] = {
+        "subject": relationship.subject,
+        "object": relationship.object,
+        "subject_position": subject_pos,
+        "object_position": object_pos,
+        "position_tolerance_m": _json_float(tolerance_m),
+    }
+
+    if support_surface is not None:
+        dx = abs(subject_pos[0] - object_pos[0])
+        dy = abs(subject_pos[1] - object_pos[1])
+        max_dx = support_surface.size.x + tolerance_m
+        max_dy = support_surface.size.y + tolerance_m
+        min_subject_z = object_pos[2] + support_surface.size.z - tolerance_m
+        passed = dx <= max_dx and dy <= max_dy and subject_pos[2] >= min_subject_z
+        details.update(
+            {
+                "horizontal_delta_m": [_json_float(dx), _json_float(dy)],
+                "horizontal_limit_m": [_json_float(max_dx), _json_float(max_dy)],
+                "min_subject_z_m": _json_float(min_subject_z),
+            }
+        )
+        return passed, details
+
+    horizontal_distance_m = math.hypot(
+        subject_pos[0] - object_pos[0],
+        subject_pos[1] - object_pos[1],
+    )
+    support_radius_m = _mujoco_body_geom_radius(model, object_body)
+    horizontal_limit_m = max(tolerance_m, support_radius_m)
+    passed = (
+        horizontal_distance_m <= horizontal_limit_m
+        and subject_pos[2] >= object_pos[2] - tolerance_m
+    )
+    details.update(
+        {
+            "horizontal_distance_m": _json_float(horizontal_distance_m),
+            "horizontal_limit_m": _json_float(horizontal_limit_m),
+            "support_radius_m": _json_float(support_radius_m),
+        }
+    )
+    return passed, details
+
+
 def _relationship_body_name(entity_ref: str) -> str:
     entity_type, _, entity_id = entity_ref.partition(":")
     if entity_type in {"object", "surface"} and entity_id:
         return _mjcf_name(entity_id)
     raise ValueError(f"MuJoCo relationship diagnostics cannot resolve body for {entity_ref}")
+
+
+def _relationship_surface(
+    csd: ConcreteScenarioDefinition,
+    entity_ref: str,
+) -> CsdSurface | None:
+    entity_type, _, entity_id = entity_ref.partition(":")
+    if entity_type != "surface":
+        return None
+    return next(
+        (
+            surface
+            for surface in csd.environment.surfaces
+            if surface.surface_id == entity_id
+        ),
+        None,
+    )
+
+
+def _mujoco_body_world_position(model: Any, data: Any, body_name: str) -> list[float]:
+    body_id = int(model.body(body_name).id)
+    return _float_sequence_json(data.xpos[body_id])
+
+
+def _mujoco_body_geom_radius(model: Any, body_name: str) -> float:
+    body_id = int(model.body(body_name).id)
+    radii = [
+        float(model.geom_rbound[geom_id])
+        for geom_id in range(model.ngeom)
+        if int(model.geom_bodyid[geom_id]) == body_id
+    ]
+    return max(radii, default=0.0)
 
 
 def _distance(left: list[float], right: list[float]) -> float:

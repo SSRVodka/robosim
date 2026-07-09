@@ -48,19 +48,45 @@ def _required_element(parent: ET.Element, path: str) -> ET.Element:
     return element
 
 
-def _write_tetra_mesh(path: Path) -> None:
+def _fixture_mesh_half_extents(path: Path) -> tuple[float, float, float]:
+    name = path.stem
+    if "tray" in name:
+        return (0.08, 0.055, 0.012)
+    if "marker" in name:
+        return (0.018, 0.018, 0.055)
+    if "can" in name:
+        return (0.035, 0.035, 0.08)
+    if "mug" in name:
+        return (0.035, 0.035, 0.055)
+    return (0.035, 0.035, 0.035)
+
+
+def _write_box_mesh(path: Path) -> None:
+    hx, hy, hz = _fixture_mesh_half_extents(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         "\n".join(
             (
-                "v 0 0 0",
-                "v 0.04 0 0",
-                "v 0 0.04 0",
-                "v 0 0 0.04",
+                f"v {-hx} {-hy} {-hz}",
+                f"v {hx} {-hy} {-hz}",
+                f"v {hx} {hy} {-hz}",
+                f"v {-hx} {hy} {-hz}",
+                f"v {-hx} {-hy} {hz}",
+                f"v {hx} {-hy} {hz}",
+                f"v {hx} {hy} {hz}",
+                f"v {-hx} {hy} {hz}",
                 "f 1 2 3",
-                "f 1 2 4",
                 "f 1 3 4",
-                "f 2 3 4",
+                "f 5 7 6",
+                "f 5 8 7",
+                "f 1 5 6",
+                "f 1 6 2",
+                "f 2 6 7",
+                "f 2 7 3",
+                "f 3 7 8",
+                "f 3 8 4",
+                "f 4 8 5",
+                "f 4 5 1",
             )
         ),
         encoding="utf-8",
@@ -102,10 +128,10 @@ def _write_fixture_asset_files(asset_root: Path, asset_registry: Mapping[str, ob
                 continue
             relative_path = variant.get("mesh_path") or variant.get("relative_path")
             if relative_path:
-                _write_tetra_mesh(asset_root / str(relative_path))
+                _write_box_mesh(asset_root / str(relative_path))
             collision_mesh_path = variant.get("collision_mesh_path")
             if collision_mesh_path:
-                _write_tetra_mesh(asset_root / str(collision_mesh_path))
+                _write_box_mesh(asset_root / str(collision_mesh_path))
             material = variant.get("material")
             if isinstance(material, Mapping) and material.get("texture_path"):
                 texture_path = asset_root / str(material["texture_path"])
@@ -1198,18 +1224,18 @@ def test_compile_csd_to_mujoco_preview_contains_distinct_visual_regions(
     assert result.blockers == ()
     assert isinstance(result.manifest, CsdRealizationManifest)
     assert result.manifest.preview_files == ("diagnostics/semantic_preview.ppm",)
-    assert checks["surface_rgba:surface_green_backdrop_geom"]["status"] == "passed"
+    assert checks["surface_rgba:surface_green_base_geom"]["status"] == "passed"
     assert checks["surface_rgba:surface_red_left_pad_geom"]["status"] == "passed"
     assert checks["surface_rgba:surface_blue_right_pad_geom"]["status"] == "passed"
     assert tuple(round(float(value), 6) for value in model.body("mug_left").pos) == (
         0.28,
         -0.2,
-        0.16,
+        0.18,
     )
     assert tuple(round(float(value), 6) for value in model.body("tray_right").pos) == (
         0.32,
         0.2,
-        0.16,
+        0.14,
     )
     assert _count_pixels(pixels, lambda pixel: pixel[0] > pixel[1] + 20) > 40
     assert _count_pixels(pixels, lambda pixel: pixel[2] > pixel[1] + 20) > 40
@@ -1284,7 +1310,7 @@ def test_compile_csd_to_mujoco_blocks_mesh_path_traversal(tmp_path: Path) -> Non
             resource = resources[0]
             assert isinstance(resource, dict)
             resource["mesh_path"] = "../objects/mug.obj"
-    _write_tetra_mesh(asset_root / "objects" / "tray.obj")
+    _write_box_mesh(asset_root / "objects" / "tray.obj")
 
     result = compile_csd_to_mujoco(
         csd=csd,
@@ -1357,7 +1383,7 @@ def test_compile_csd_to_mujoco_blocks_texture_path_traversal(tmp_path: Path) -> 
             material = resource["material"]
             assert isinstance(material, dict)
             material["texture_path"] = "../textures/can_label.png"
-    _write_tetra_mesh(asset_root / "objects" / "can.obj")
+    _write_box_mesh(asset_root / "objects" / "can.obj")
 
     result = compile_csd_to_mujoco(
         csd=csd,
@@ -1740,6 +1766,58 @@ def test_compile_csd_to_mujoco_blocks_avoid_contact_violation(
     payload = json.loads(relationship_check.read_text(encoding="utf-8"))
     assert payload["status"] == "failed"
     assert payload["checks"][0]["name"] == "avoid_contact:rel_mug_avoid_marker"
+
+
+def test_compile_csd_to_mujoco_blocks_on_top_of_surface_violation(
+    tmp_path: Path,
+) -> None:
+    asset_root = tmp_path / "assets"
+    csd = _load_json_fixture("visual_tabletop_regions.json")
+    scenario = csd["scenario"]
+    assert isinstance(scenario, dict)
+    objects = scenario["objects"]
+    assert isinstance(objects, list)
+    mug = objects[0]
+    assert isinstance(mug, dict)
+    pose = mug["pose"]
+    assert isinstance(pose, dict)
+    position = pose["position"]
+    assert isinstance(position, dict)
+    position["y"] = 0.45
+    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    _write_fixture_asset_files(asset_root, asset_registry)
+
+    result = compile_csd_to_mujoco(
+        csd=csd,
+        asset_registry=asset_registry,
+        output_root=tmp_path,
+        asset_root=asset_root,
+    )
+
+    relationship_check = (
+        tmp_path
+        / "mujoco"
+        / "csd_visual_tabletop_regions_0001"
+        / "diagnostics"
+        / "relationship_check.json"
+    )
+
+    assert result.manifest is None
+    assert result.blockers[0].to_json_dict() == {
+        "blocker_id": (
+            "csd_visual_tabletop_regions_0001_mujoco_rel_mug_on_red_pad_compile_blocked"
+        ),
+        "csd_id": "csd_visual_tabletop_regions_0001",
+        "backend": "mujoco",
+        "asset_id": "rel_mug_on_red_pad",
+        "scope": "csd",
+        "reason": (
+            "MuJoCo initial state violates on_top_of relationship rel_mug_on_red_pad"
+        ),
+    }
+    payload = json.loads(relationship_check.read_text(encoding="utf-8"))
+    assert payload["status"] == "failed"
+    assert payload["checks"][0]["name"] == "on_top_of:rel_mug_on_red_pad"
 
 
 def test_compile_csd_to_mujoco_applies_template_nondefault_gravity(tmp_path: Path) -> None:

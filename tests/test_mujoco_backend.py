@@ -51,19 +51,45 @@ def _load_json_fixture(name: str) -> dict[str, object]:
     return json.loads((FIXTURE_ROOT / name).read_text(encoding="utf-8"))
 
 
-def _write_tetra_mesh(path: Path) -> None:
+def _fixture_mesh_half_extents(path: Path) -> tuple[float, float, float]:
+    name = path.stem
+    if "tray" in name:
+        return (0.08, 0.055, 0.012)
+    if "marker" in name:
+        return (0.018, 0.018, 0.055)
+    if "can" in name:
+        return (0.035, 0.035, 0.08)
+    if "mug" in name:
+        return (0.035, 0.035, 0.055)
+    return (0.035, 0.035, 0.035)
+
+
+def _write_box_mesh(path: Path) -> None:
+    hx, hy, hz = _fixture_mesh_half_extents(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         "\n".join(
             (
-                "v 0 0 0",
-                "v 0.04 0 0",
-                "v 0 0.04 0",
-                "v 0 0 0.04",
+                f"v {-hx} {-hy} {-hz}",
+                f"v {hx} {-hy} {-hz}",
+                f"v {hx} {hy} {-hz}",
+                f"v {-hx} {hy} {-hz}",
+                f"v {-hx} {-hy} {hz}",
+                f"v {hx} {-hy} {hz}",
+                f"v {hx} {hy} {hz}",
+                f"v {-hx} {hy} {hz}",
                 "f 1 2 3",
-                "f 1 2 4",
                 "f 1 3 4",
-                "f 2 3 4",
+                "f 5 7 6",
+                "f 5 8 7",
+                "f 1 5 6",
+                "f 1 6 2",
+                "f 2 6 7",
+                "f 2 7 3",
+                "f 3 7 8",
+                "f 3 8 4",
+                "f 4 8 5",
+                "f 4 5 1",
             )
         ),
         encoding="utf-8",
@@ -85,7 +111,7 @@ def _write_fixture_asset_files(asset_root: Path, asset_registry: dict[str, objec
                 continue
             mesh_path = resource.get("mesh_path") or resource.get("relative_path")
             if mesh_path:
-                _write_tetra_mesh(asset_root / str(mesh_path))
+                _write_box_mesh(asset_root / str(mesh_path))
 
 
 def _image_array(image: sensing_pb2.CameraImage) -> np.ndarray:
