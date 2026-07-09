@@ -778,6 +778,13 @@ def _write_mujoco_load_check(
                         actual=actual,
                     )
                 )
+                checks.append(
+                    _load_check(
+                        f"body_mass:{body_name}",
+                        expected=[_json_float(obj.initial_state.mass_kg)],
+                        actual=_float_sequence_json(body.mass),
+                    )
+                )
             except KeyError:
                 checks.append(
                     _load_check(
@@ -785,6 +792,41 @@ def _write_mujoco_load_check(
                         passed=False,
                         expected=_vector3_json(obj.pose.position),
                         details={"reason": "body not found in loaded MuJoCo model"},
+                    )
+                )
+                checks.append(
+                    _load_check(
+                        f"body_mass:{body_name}",
+                        passed=False,
+                        expected=[_json_float(obj.initial_state.mass_kg)],
+                        details={"reason": "body not found in loaded MuJoCo model"},
+                    )
+                )
+            geom_name = _mujoco_collision_geom_name(model, body_name)
+            try:
+                geom = model.geom(geom_name)
+                checks.append(
+                    _load_check(
+                        f"geom_friction:{geom_name}",
+                        expected=_float_sequence_json(obj.initial_state.friction),
+                        actual=_float_sequence_json(geom.friction),
+                    )
+                )
+                if obj.initial_state.contact is not None:
+                    checks.append(
+                        _load_check(
+                            f"geom_contact:{geom_name}",
+                            expected=_mujoco_contact_check_values(obj),
+                            actual=_mujoco_contact_check_values_from_geom(geom, obj),
+                        )
+                    )
+            except KeyError:
+                checks.append(
+                    _load_check(
+                        f"geom_friction:{geom_name}",
+                        passed=False,
+                        expected=_float_sequence_json(obj.initial_state.friction),
+                        details={"reason": "collision-bearing geom not found"},
                     )
                 )
         for surface in csd.environment.surfaces:
@@ -850,8 +892,8 @@ def _load_check(
     name: str,
     *,
     passed: bool | None = None,
-    expected: list[float] | None = None,
-    actual: list[float] | None = None,
+    expected: object | None = None,
+    actual: object | None = None,
     details: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     if passed is None:
@@ -867,6 +909,50 @@ def _load_check(
     if details is not None:
         check["details"] = dict(details)
     return check
+
+
+def _mujoco_collision_geom_name(model: Any, body_name: str) -> str:
+    collision_geom_name = f"{body_name}_collision_geom"
+    try:
+        model.geom(collision_geom_name)
+        return collision_geom_name
+    except KeyError:
+        return f"{body_name}_geom"
+
+
+def _mujoco_contact_check_values(obj: CsdObject) -> dict[str, list[float]]:
+    contact = obj.initial_state.contact
+    if contact is None:
+        return {}
+    values: dict[str, list[float]] = {}
+    if contact.margin_m is not None:
+        values["margin"] = [_json_float(contact.margin_m)]
+    if contact.gap_m is not None:
+        values["gap"] = [_json_float(contact.gap_m)]
+    if contact.solref is not None:
+        values["solref"] = _float_sequence_json(contact.solref)
+    if contact.solimp is not None:
+        values["solimp"] = _float_sequence_json(contact.solimp)
+    return values
+
+
+def _mujoco_contact_check_values_from_geom(
+    geom: Any,
+    obj: CsdObject,
+) -> dict[str, list[float]]:
+    contact = obj.initial_state.contact
+    if contact is None:
+        return {}
+    values: dict[str, list[float]] = {}
+    if contact.margin_m is not None:
+        values["margin"] = _float_sequence_json(geom.margin)
+    if contact.gap_m is not None:
+        values["gap"] = _float_sequence_json(geom.gap)
+    if contact.solref is not None:
+        values["solref"] = _float_sequence_json(geom.solref)
+    if contact.solimp is not None:
+        values["solimp"] = _float_sequence_json(geom.solimp)
+    return values
 
 
 def _write_mujoco_relationship_check(
@@ -1123,6 +1209,7 @@ def _append_object_body(
     if resource.collision_mesh_path:
         visual_geom_attrs["contype"] = "0"
         visual_geom_attrs["conaffinity"] = "0"
+        visual_geom_attrs["density"] = "0"
         ET.SubElement(body, "geom", visual_geom_attrs)
         ET.SubElement(
             body,

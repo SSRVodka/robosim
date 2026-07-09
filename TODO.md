@@ -46,7 +46,8 @@
   backend resource adapter，并为 cache key 提取 resource hashes；
 - [x] 为 MuJoCo compiler 增加 backend resource adapter typed contract，并支持
   单独 collision mesh resource：MJCF 中 visual geom 关闭 contact，collision
-  geom 承载 collision/mass/friction，相关 mesh 被复制进 backend-local `assets/`；
+  geom 承载 collision/mass/friction，visual-only geom 显式设为 `density="0"`，
+  相关 mesh 被复制进 backend-local `assets/`；
 - [x] 将 MuJoCo compiler 使用的 CSD object physical state 从 loose
   `initial_state` map 收紧为 typed `CsdObjectInitialState`，并覆盖
   `mass_kg`/`friction` 到 MJCF object geom；
@@ -78,7 +79,8 @@
   blocker；
 - [x] 为 MuJoCo compiler 产物增加 package-local load check：写出 MJCF 后使用
   `mujoco.MjModel.from_xml_path()` 加载当前 realization 目录中的 `scene.xml`，
-  并将 model load、gravity、CSD object body pose、environment surface pose 检查写入
+  并将 model load、gravity、CSD object body pose、body mass、collision-bearing
+  geom friction/contact、environment surface pose 检查写入
   `diagnostics/load_check.json`；检查失败时返回
   `CsdRealizationBlocker(scope="vsim_realization")`，不发布 manifest；
 - [x] 为 MuJoCo compiler 产物增加 package-local physics check：load check

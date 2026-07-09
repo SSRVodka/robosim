@@ -335,6 +335,15 @@ def test_compile_csd_to_mujoco_writes_load_check_diagnostics(tmp_path: Path) -> 
     assert checks["body_pose:mug"]["status"] == "passed"
     assert checks["body_pose:mug"]["expected"] == [0.05, 0.0, 0.32]
     assert checks["body_pose:mug"]["actual"] == [0.05, 0.0, 0.32]
+    assert checks["body_mass:tray"]["status"] == "passed"
+    assert checks["body_mass:tray"]["expected"] == [1.0]
+    assert checks["body_mass:tray"]["actual"] == [1.0]
+    assert checks["body_mass:mug"]["status"] == "passed"
+    assert checks["body_mass:mug"]["expected"] == [0.2]
+    assert checks["body_mass:mug"]["actual"] == [0.2]
+    assert checks["geom_friction:mug_geom"]["status"] == "passed"
+    assert checks["geom_friction:mug_geom"]["expected"] == [0.8, 0.005, 0.0001]
+    assert checks["geom_friction:mug_geom"]["actual"] == [0.8, 0.005, 0.0001]
 
 
 def test_compile_csd_to_mujoco_writes_physics_check_diagnostics(tmp_path: Path) -> None:
@@ -598,6 +607,32 @@ def test_compile_csd_to_mujoco_preserves_object_contact_parameters(
     assert geom.attrib["solref"] == "0.02 1"
     assert geom.attrib["solimp"] == "0.9 0.95 0.001 0.5 2"
 
+    load_check = json.loads(
+        (
+            tmp_path
+            / "engine_manifests"
+            / "mujoco"
+            / "csd_object_only_0001"
+            / "diagnostics"
+            / "load_check.json"
+        ).read_text(encoding="utf-8")
+    )
+    checks = {check["name"]: check for check in load_check["checks"]}
+
+    assert checks["geom_contact:mug_geom"]["status"] == "passed"
+    assert checks["geom_contact:mug_geom"]["expected"] == {
+        "gap": [0.001],
+        "margin": [0.004],
+        "solimp": [0.9, 0.95, 0.001, 0.5, 2.0],
+        "solref": [0.02, 1.0],
+    }
+    assert checks["geom_contact:mug_geom"]["actual"] == {
+        "gap": [0.001],
+        "margin": [0.004],
+        "solimp": [0.9, 0.95, 0.001, 0.5, 2.0],
+        "solref": [0.02, 1.0],
+    }
+
 
 def test_compile_csd_to_mujoco_blocks_invalid_physical_parameters(
     tmp_path: Path,
@@ -744,6 +779,10 @@ def test_compile_csd_to_mujoco_preserves_separate_collision_mesh(
     mug_body = _required_element(root, "worldbody/body[@name='mug']")
     visual_geom = _required_element(mug_body, "geom[@name='mug_geom']")
     collision_geom = _required_element(mug_body, "geom[@name='mug_collision_geom']")
+    load_check = json.loads(
+        (scene_root / "diagnostics" / "load_check.json").read_text(encoding="utf-8")
+    )
+    checks = {check["name"]: check for check in load_check["checks"]}
 
     assert result.blockers == ()
     assert isinstance(result.manifest, CsdRealizationManifest)
@@ -758,6 +797,8 @@ def test_compile_csd_to_mujoco_preserves_separate_collision_mesh(
     assert collision_geom.attrib["mass"] == "0.2"
     assert collision_geom.attrib["margin"] == "0.003"
     assert collision_geom.attrib["rgba"] == "0 0 0 0"
+    assert checks["geom_friction:mug_collision_geom"]["status"] == "passed"
+    assert checks["geom_contact:mug_collision_geom"]["actual"]["margin"] == [0.003]
     assert "assets/collision/mug_collision.obj" in result.manifest.generated_files
 
     (asset_root / "objects" / "mug.obj").unlink()

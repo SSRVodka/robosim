@@ -133,7 +133,8 @@ CSD object 使用 `<asset><mesh file="relative/path.obj"/></asset>` 注册 visua
 mesh resource，可带 mesh `scale`；若 backend resource adapter 提供
 `collision_mesh_path`，compiler 会注册单独的 collision mesh，并把 visual geom
 设为 `contype="0"`、`conaffinity="0"`，由透明 collision geom 承载 MuJoCo
-collision/mass/friction。object `initial_state` 解析为 typed physical state，
+collision/mass/friction，并将 visual-only geom 显式设为 `density="0"`，避免
+MuJoCo 默认 density 让 visual geom 额外贡献 body mass。object `initial_state` 解析为 typed physical state，
 当前支持 `mass_kg` 与 `friction`，并由 compiler 显式写入对应 object geom。
 MuJoCo geom `friction` 按 MJCF `real(3)` 输出；CSD scalar friction 被解释为
 sliding friction，并保留 MuJoCo 默认 torsional/rolling friction
@@ -155,7 +156,8 @@ entry XML 的 `<option gravity="...">`，不修改源 template，也不在顶层
 `drivers_sim` 的 world scene。编译器写出 MJCF 后会立即用
 `mujoco.MjModel.from_xml_path` 做 package-local load check，并在
 `diagnostics/load_check.json` 记录 `model_load`、gravity、CSD object body pose
-和 environment surface pose 检查结果；若该检查失败，compiler 返回
+和 body mass、collision-bearing geom friction/contact、environment surface pose
+检查结果；若该检查失败，compiler 返回
 `CsdRealizationBlocker(scope="vsim_realization")`，不发布 manifest。
 load check 通过后，compiler 会写入 `diagnostics/relationship_check.json`，再运行
 短 MuJoCo forward/step stability check，写入 `diagnostics/physics_check.json`；
