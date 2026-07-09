@@ -780,6 +780,13 @@ def _write_mujoco_load_check(
                 )
                 checks.append(
                     _load_check(
+                        f"body_orientation:{body_name}",
+                        expected=_quaternion_json(obj.pose.orientation),
+                        actual=_quaternion_sequence_json(body.quat),
+                    )
+                )
+                checks.append(
+                    _load_check(
                         f"body_mass:{body_name}",
                         expected=[_json_float(obj.initial_state.mass_kg)],
                         actual=_float_sequence_json(body.mass),
@@ -791,6 +798,14 @@ def _write_mujoco_load_check(
                         f"body_pose:{body_name}",
                         passed=False,
                         expected=_vector3_json(obj.pose.position),
+                        details={"reason": "body not found in loaded MuJoCo model"},
+                    )
+                )
+                checks.append(
+                    _load_check(
+                        f"body_orientation:{body_name}",
+                        passed=False,
+                        expected=_quaternion_json(obj.pose.orientation),
                         details={"reason": "body not found in loaded MuJoCo model"},
                     )
                 )
@@ -842,12 +857,27 @@ def _write_mujoco_load_check(
                         actual=actual,
                     )
                 )
+                checks.append(
+                    _load_check(
+                        f"surface_orientation:{body_name}",
+                        expected=_quaternion_json(surface.pose.orientation),
+                        actual=_quaternion_sequence_json(body.quat),
+                    )
+                )
             except KeyError:
                 checks.append(
                     _load_check(
                         f"surface_pose:{body_name}",
                         passed=False,
                         expected=_vector3_json(surface.pose.position),
+                        details={"reason": "surface body not found in loaded MuJoCo model"},
+                    )
+                )
+                checks.append(
+                    _load_check(
+                        f"surface_orientation:{body_name}",
+                        passed=False,
+                        expected=_quaternion_json(surface.pose.orientation),
                         details={"reason": "surface body not found in loaded MuJoCo model"},
                     )
                 )
@@ -1525,12 +1555,28 @@ def _vector3_json(vector: Any) -> list[float]:
     return [_json_float(vector.x), _json_float(vector.y), _json_float(vector.z)]
 
 
+def _quaternion_json(quaternion: Any) -> list[float]:
+    values = (float(quaternion.w), float(quaternion.x), float(quaternion.y), float(quaternion.z))
+    norm = math.sqrt(sum(value * value for value in values))
+    if norm == 0.0:
+        return [_orientation_float(value) for value in values]
+    return [_orientation_float(value / norm) for value in values]
+
+
+def _quaternion_sequence_json(values: Any) -> list[float]:
+    return [_orientation_float(value) for value in values]
+
+
 def _float_sequence_json(values: Any) -> list[float]:
     return [_json_float(value) for value in values]
 
 
 def _json_float(value: Any) -> float:
     return round(float(value), 12)
+
+
+def _orientation_float(value: Any) -> float:
+    return round(float(value), 6)
 
 
 def _sdf_pose_text(obj: Mapping[str, Any]) -> str:

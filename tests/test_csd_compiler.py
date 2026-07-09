@@ -346,6 +346,70 @@ def test_compile_csd_to_mujoco_writes_load_check_diagnostics(tmp_path: Path) -> 
     assert checks["geom_friction:mug_geom"]["actual"] == [0.8, 0.005, 0.0001]
 
 
+def test_compile_csd_to_mujoco_writes_orientation_load_diagnostics(
+    tmp_path: Path,
+) -> None:
+    asset_root = tmp_path / "assets"
+    csd = _load_json_fixture("franka_tabletop_single_object.json")
+    scenario = csd["scenario"]
+    assert isinstance(scenario, dict)
+    environment = scenario["environment"]
+    objects = scenario["objects"]
+    assert isinstance(environment, dict)
+    surfaces = environment["surfaces"]
+    assert isinstance(surfaces, list)
+    assert isinstance(objects, list)
+    surface = surfaces[0]
+    mug = objects[0]
+    assert isinstance(surface, dict)
+    assert isinstance(mug, dict)
+    surface_pose = surface["pose"]
+    mug_pose = mug["pose"]
+    assert isinstance(surface_pose, dict)
+    assert isinstance(mug_pose, dict)
+    surface_pose["orientation"] = {"w": 0.9238795325, "x": 0.0, "y": 0.0, "z": 0.3826834324}
+    mug_pose["orientation"] = {"w": 0.7071067812, "x": 0.0, "y": 0.0, "z": 0.7071067812}
+    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    _write_fixture_asset_files(asset_root, asset_registry)
+
+    result = compile_csd_to_mujoco(
+        csd=csd,
+        asset_registry=asset_registry,
+        output_root=tmp_path / "engine_manifests",
+        asset_root=asset_root,
+    )
+
+    load_check_path = (
+        tmp_path
+        / "engine_manifests"
+        / "mujoco"
+        / "csd_tabletop_0001"
+        / "diagnostics"
+        / "load_check.json"
+    )
+    payload = json.loads(load_check_path.read_text(encoding="utf-8"))
+    checks = {check["name"]: check for check in payload["checks"]}
+
+    assert result.blockers == ()
+    assert isinstance(result.manifest, CsdRealizationManifest)
+    assert checks["body_orientation:mug"]["status"] == "passed"
+    assert checks["body_orientation:mug"]["expected"] == [0.707107, 0.0, 0.0, 0.707107]
+    assert checks["body_orientation:mug"]["actual"] == [0.707107, 0.0, 0.0, 0.707107]
+    assert checks["surface_orientation:surface_tabletop"]["status"] == "passed"
+    assert checks["surface_orientation:surface_tabletop"]["expected"] == [
+        0.92388,
+        0.0,
+        0.0,
+        0.382683,
+    ]
+    assert checks["surface_orientation:surface_tabletop"]["actual"] == [
+        0.92388,
+        0.0,
+        0.0,
+        0.382683,
+    ]
+
+
 def test_compile_csd_to_mujoco_writes_physics_check_diagnostics(tmp_path: Path) -> None:
     asset_root = tmp_path / "assets"
     csd = _load_json_fixture("object_only_static_and_dynamic.json")
