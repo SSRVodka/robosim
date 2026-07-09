@@ -64,8 +64,8 @@
   robot template entry XML `<option gravity="...">`，避免修改源 template 或在顶层
   scene 生成冲突 option；
 - [x] 为 MuJoCo compiler 增加语义 gate：不支持的 CSD units/frame、
-  environment surface type、invalid camera `xyaxes`、zero light direction 均返回
-  typed blocker，避免生成语义错误但可加载的 MJCF；
+  environment surface type、zero object/surface orientation quaternion、invalid
+  camera `xyaxes`、zero light direction 均返回 typed blocker，避免生成语义错误但可加载的 MJCF；
 - [x] 为 MuJoCo compiler 增加 relationship entity-ref gate：enum relationship
   的 `subject`/`object` 必须能解析到当前 CSD 的 object、environment surface
   或 robot，否则返回 `CsdRealizationBlocker(scope="csd")`；暂不在 compiler

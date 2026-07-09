@@ -1128,6 +1128,78 @@ def test_compile_csd_to_mujoco_blocks_unsupported_environment_surface(
     }
 
 
+def test_compile_csd_to_mujoco_blocks_zero_surface_quaternion(
+    tmp_path: Path,
+) -> None:
+    asset_root = tmp_path / "assets"
+    csd = _load_json_fixture("franka_tabletop_single_object.json")
+    scenario = csd["scenario"]
+    assert isinstance(scenario, dict)
+    environment = scenario["environment"]
+    assert isinstance(environment, dict)
+    surfaces = environment["surfaces"]
+    assert isinstance(surfaces, list)
+    surface = surfaces[0]
+    assert isinstance(surface, dict)
+    pose = surface["pose"]
+    assert isinstance(pose, dict)
+    pose["orientation"] = {"w": 0.0, "x": 0.0, "y": 0.0, "z": 0.0}
+    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    _write_fixture_asset_files(asset_root, asset_registry)
+
+    result = compile_csd_to_mujoco(
+        csd=csd,
+        asset_registry=asset_registry,
+        output_root=tmp_path,
+        asset_root=asset_root,
+    )
+
+    assert result.manifest is None
+    assert result.blockers[0].to_json_dict() == {
+        "blocker_id": "csd_tabletop_0001_mujoco_surface_tabletop_compile_blocked",
+        "csd_id": "csd_tabletop_0001",
+        "backend": "mujoco",
+        "asset_id": "surface_tabletop",
+        "scope": "csd",
+        "reason": "surface surface_tabletop orientation quaternion must be non-zero",
+    }
+
+
+def test_compile_csd_to_mujoco_blocks_zero_object_quaternion(
+    tmp_path: Path,
+) -> None:
+    asset_root = tmp_path / "assets"
+    csd = _load_json_fixture("object_only_static_and_dynamic.json")
+    scenario = csd["scenario"]
+    assert isinstance(scenario, dict)
+    objects = scenario["objects"]
+    assert isinstance(objects, list)
+    mug = objects[1]
+    assert isinstance(mug, dict)
+    pose = mug["pose"]
+    assert isinstance(pose, dict)
+    pose["orientation"] = {"w": 0.0, "x": 0.0, "y": 0.0, "z": 0.0}
+    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    _write_fixture_asset_files(asset_root, asset_registry)
+
+    result = compile_csd_to_mujoco(
+        csd=csd,
+        asset_registry=asset_registry,
+        output_root=tmp_path,
+        asset_root=asset_root,
+    )
+
+    assert result.manifest is None
+    assert result.blockers[0].to_json_dict() == {
+        "blocker_id": "csd_object_only_0001_mujoco_mug_compile_blocked",
+        "csd_id": "csd_object_only_0001",
+        "backend": "mujoco",
+        "asset_id": "mug",
+        "scope": "csd",
+        "reason": "object mug orientation quaternion must be non-zero",
+    }
+
+
 def test_compile_csd_to_mujoco_blocks_invalid_camera_xyaxes(
     tmp_path: Path,
 ) -> None:

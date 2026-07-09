@@ -175,7 +175,8 @@ files；若 relationship/physics check、渲染或输出为空失败，同样返
 
 MuJoCo compiler 会在写出文件前执行语义 gate，避免生成可加载但语义错误的
 MJCF。当前会阻止非 `units="m"`、非 `frame="world"`、以及非 `box` 类型的
-environment surface、invalid camera `xyaxes`、zero light direction。被阻止的情况返回 typed
+environment surface、zero object/surface orientation quaternion、invalid camera
+`xyaxes`、zero light direction。被阻止的情况返回 typed
 `CsdRealizationBlocker(scope="csd")`，调用方应修复 CSD 或等待 compiler 增加
 明确转换策略，而不是依赖静默降级。
 compiler 还会检查 enum relationship 的 `subject` 和 `object` entity refs 是否

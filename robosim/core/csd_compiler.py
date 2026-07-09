@@ -659,6 +659,14 @@ def _mujoco_csd_semantic_blockers(
                     ),
                 )
             )
+        if _quaternion_norm(surface.pose.orientation) == 0.0:
+            blockers.append(
+                _csd_blocker(
+                    csd.csd_id,
+                    surface.surface_id,
+                    f"surface {surface.surface_id} orientation quaternion must be non-zero",
+                )
+            )
     for camera in csd.environment.cameras:
         if camera.xyaxes is not None and not _valid_camera_xyaxes(camera.xyaxes):
             blockers.append(
@@ -681,6 +689,14 @@ def _mujoco_csd_semantic_blockers(
                 )
             )
     for obj in csd.objects:
+        if _quaternion_norm(obj.pose.orientation) == 0.0:
+            blockers.append(
+                _csd_blocker(
+                    csd.csd_id,
+                    obj.name,
+                    f"object {obj.name} orientation quaternion must be non-zero",
+                )
+            )
         blockers.extend(_mujoco_object_physical_blockers(csd.csd_id, obj))
     known_entities = _csd_entity_refs(csd)
     for relationship in csd.relationships:
@@ -1683,10 +1699,19 @@ def _vector3_json(vector: Any) -> list[float]:
 
 def _quaternion_json(quaternion: Any) -> list[float]:
     values = (float(quaternion.w), float(quaternion.x), float(quaternion.y), float(quaternion.z))
-    norm = math.sqrt(sum(value * value for value in values))
+    norm = _quaternion_norm(quaternion)
     if norm == 0.0:
         return [_orientation_float(value) for value in values]
     return [_orientation_float(value / norm) for value in values]
+
+
+def _quaternion_norm(quaternion: Any) -> float:
+    return math.sqrt(
+        float(quaternion.w) * float(quaternion.w)
+        + float(quaternion.x) * float(quaternion.x)
+        + float(quaternion.y) * float(quaternion.y)
+        + float(quaternion.z) * float(quaternion.z)
+    )
 
 
 def _quaternion_sequence_json(values: Any) -> list[float]:
