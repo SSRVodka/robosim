@@ -13,7 +13,8 @@
 - [x] 增加后端目标入口 `compile_csd(..., backend=...)`，避免把 MuJoCo-only
   函数误认为 compiler 抽象本身；
 - [x] MuJoCo compiler 产物目录自包含 mesh resource 文件，避免编译后依赖易丢失
-  的原始 asset cache；
+  的原始 asset cache；当 backend resource adapter 提供独立 visual mesh、
+  collision mesh 或 texture 时，也必须复制到当前 realization package；
 - [x] 将 MuJoCo compiler 提升为完整 realization package：输出到
   `engine_manifests/mujoco/<csd_id>/`，持久化 `manifest.json`，生成可直接加载的
   `scene.xml`，并复制 object assets 与当前 Franka robot-template dependency
@@ -33,6 +34,9 @@
   version、sampled randomization values；
 - [x] 为 CSD realization 增加输入 gate：检查 CSD 引用的 assets 是否具备目标
   backend resource adapter，并为 cache key 提取 resource hashes；
+- [x] 为 MuJoCo compiler 增加 backend resource adapter typed contract，并支持
+  单独 collision mesh resource：MJCF 中 visual geom 关闭 contact，collision
+  geom 承载 collision/mass/friction，相关 mesh 被复制进 backend-local `assets/`；
 - [ ] 为 CSD realization 定义 asset backend compatibility 检查：mesh format、
   material/texture、collision、joint/articulation、sensor、lighting、scale、
   frame/up-axis、contact/inertial semantics；不支持或有损转换必须返回
@@ -40,7 +44,8 @@
 - [x] 增加 MuJoCo compiler fixture MJCF 覆盖当前 demo 用例：Franka tabletop、
   至少一个动态交互物体、至少一个静态支撑物、mesh/material/texture dependency
   copy、world camera 保留、world-template geometry、以及 MuJoCo loadability
-  smoke；collision dependency 仍属于后续 asset compatibility 工作；
+  smoke；另有独立 collision mesh resource fixture 覆盖 visual/collision
+  分离和 dependency copy；
 - [x] 增加 MuJoCo compiler offscreen preview smoke：编译 fixture CSD 后从
   `world_camera` 渲染临时 screenshot 到 `diagnostics/`，并检查对象 pose 语义与
   非空像素，防止 CSD->MJCF 转换只在 XML 层面通过；

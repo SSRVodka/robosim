@@ -3,6 +3,7 @@
 from robosim.core.csd import (
     CsdRealizationBlocker,
     CsdRealizationManifest,
+    asset_resource_hashes_for_csd,
     asset_variant_hashes_for_csd,
     find_csd_realization_blockers,
     make_csd_realization_cache_key,
@@ -123,7 +124,12 @@ def test_csd_realization_extracts_backend_resource_hashes() -> None:
         asset_registry=registry,
         backend="mujoco",
     )
-    hashes = asset_variant_hashes_for_csd(
+    hashes = asset_resource_hashes_for_csd(
+        csd={"csd_id": "csd_0001", "objects": [{"asset_id": "object_mug"}]},
+        asset_registry=registry,
+        backend="mujoco",
+    )
+    alias_hashes = asset_variant_hashes_for_csd(
         csd={"csd_id": "csd_0001", "objects": [{"asset_id": "object_mug"}]},
         asset_registry=registry,
         backend="mujoco",
@@ -131,3 +137,4 @@ def test_csd_realization_extracts_backend_resource_hashes() -> None:
 
     assert blockers == ()
     assert hashes == {"object_mug": "hash_mug_mjcf"}
+    assert alias_hashes == hashes

@@ -25,6 +25,9 @@ CSD realization 需要显式处理 asset backend compatibility。不同 backend 
 mesh 格式、material/texture、collision geometry、articulation/joint、sensor、
 lighting、scale、frame/up-axis、contact 参数和 inertial 语义的支持可能不同；
 不能直接复用或只能有损转换时，应生成 validation failure 或 blocker。
+数值字段也属于 backend 语义的一部分：单位、mesh scale、坐标系/up-axis、
+inertial 默认值、friction/contact 参数和 collision geometry 的解释都必须按目标
+模拟器官方文档实现，不能从另一个 backend 的写法直接照搬。
 
 官方文档起始参考与当前 realization 依据：
 - MuJoCo MJCF XML Reference:
@@ -52,9 +55,9 @@ lighting、scale、frame/up-axis、contact 参数和 inertial 语义的支持可
   `engine_manifests/`。当前 MuJoCo 路径生成 `scene.xml`，Gazebo 路径生成
   `world.sdf`。该路径目前支持具备对应 backend
   resource adapter 的刚体 mesh 对象、CSD 显式 pose、MuJoCo 动态对象
-  `freejoint`、Gazebo SDF model/link/visual/collision、mass/friction 标量，
-  以及 realization cache key。它不替代后续 runtime load/render/physics
-  validation。
+  `freejoint`、MuJoCo visual mesh 与可选 collision mesh 分离、Gazebo SDF
+  model/link/visual/collision、mass/friction 标量，以及 realization cache key。
+  它不替代后续 runtime load/render/physics validation。
 - 后端目标入口：协作者应优先调用 `compile_csd(..., backend=...)`，而不是把
   某个 backend 编译器当作唯一抽象。当前 `backend="mujoco"` 与
   `backend="gazebo"` 已实现第一版文件生成。ROS2 launch/package/share 目录
@@ -123,24 +126,27 @@ MJCF XML Reference（stable）中的 `compiler`、`asset/mesh`、`worldbody/body
 目录内的 `assets/`，并设置 `texturedir` 让 texture 也从 backend-local assets
 解析；有机器人模板时，顶层 `scene.xml` 通过相对 `<include>` 引用 realization
 package 内复制出的 Franka MJCF 模板，并沿用模板内的 `compiler meshdir` 规则。
-CSD object 使用 `<asset><mesh file="relative/path.obj"/></asset>` 注册 mesh
-resource，可带 mesh `scale`；adapter material/texture metadata 会生成 MJCF
-`texture`、`material`，再由 object geom 引用。动态对象以 `freejoint` 表示自由
-刚体。当前支持的 world template 为 `empty_floor` 和 `world_tabletop`；
+CSD object 使用 `<asset><mesh file="relative/path.obj"/></asset>` 注册 visual
+mesh resource，可带 mesh `scale`；若 backend resource adapter 提供
+`collision_mesh_path`，compiler 会注册单独的 collision mesh，并把 visual geom
+设为 `contype="0"`、`conaffinity="0"`，由透明 collision geom 承载 MuJoCo
+collision/mass/friction。adapter material/texture metadata 会生成 MJCF
+`texture`、`material`，再由 object visual geom 引用。动态对象以 `freejoint`
+表示自由刚体。当前支持的 world template 为 `empty_floor` 和 `world_tabletop`；
 `world_tabletop` 会生成 backend-local static tabletop geometry，而不是引用
 `drivers_sim` 的 world scene。MuJoCo loadability 由单元测试通过
 `mujoco.MjModel.from_xml_path` 验证。
 
 编译产物目录必须自包含当前 backend 需要的资产文件。MuJoCo 编译器会把
 CSD 引用的 backend mesh resources 复制到
-`engine_manifests/mujoco/<csd_id>/assets/<variant-relative-path>`，`scene.xml`
+`engine_manifests/mujoco/<csd_id>/assets/<resource-relative-path>`，`scene.xml`
 只引用该目录内的相对路径。当前 MuJoCo compiler 会把该产物提升为
 `engine_manifests/mujoco/<csd_id>/` 下的完整 realization package，持久化
 `manifest.json`，创建 `diagnostics/`，并把临时 Franka robot template 与其 mesh
 dependency closure 复制到当前 realization package。这样即使原始 asset cache
 或 `drivers_sim` 源目录移动或清理，已编译的 MJCF 仍可加载。后续处理 OBJ
-材质、纹理、collision mesh、URDF/SDF resource 时也必须遵守同样原则：native
-scene artifact 不得依赖易丢失的下载缓存路径。
+材质、纹理、URDF/SDF resource 时也必须遵守同样原则：native scene artifact
+不得依赖易丢失的下载缓存路径。
 
 CSD compiler tests must keep scenario definitions as JSON fixtures under
 `tests/fixtures/csd/` instead of embedding large dictionaries in test code.
@@ -152,6 +158,9 @@ material/texture/scale adapter resources. At least one MuJoCo compiler smoke
 test should load the compiled `scene.xml`, render an offscreen screenshot from
 `world_camera` into `diagnostics/`, and assert basic CSD semantic preservation
 such as object presence, pose sanity, and nonblank rendered pixels.
+MuJoCo fixture coverage must also include an adapter with a separate collision
+mesh resource so visual geometry, collision geometry, copied dependencies, and
+loadability are tested together.
 
 Implementation code must not treat CSD JSON as an unstructured `dict[str, Any]`
 after the API boundary. JSON fixtures and package artifacts are parsed into the
@@ -160,6 +169,11 @@ including typed environment, robot, object, pose, camera, light, surface, and
 enum relationship records. Backend compiler code should consume those typed
 objects so collaborator mistakes in key names, relationship types, or shape
 conversions fail at parse time instead of silently changing scene semantics.
+Backend resource adapters are also typed at the compiler boundary. The
+`BackendResourceAdapter` model carries the project asset ID, backend, resource
+hash, visual mesh path, optional mesh scale, optional material/texture, and
+optional collision mesh path. Compiler internals should use this model instead
+of anonymous registry dictionaries.
 
 实现记录（2026-07-09）：第一版 `compile_csd_to_gazebo()` 依据 SDFormat
 1.12 的 `sdf/world/model/link/visual/collision/geometry/mesh/uri` 结构与 Gazebo

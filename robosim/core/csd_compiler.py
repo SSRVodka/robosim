@@ -12,11 +12,14 @@ from shutil import copy2
 from typing import Any, Mapping
 
 from robosim.core.csd import (
+    BackendResourceAdapter,
+    BackendResourceMaterial,
     ConcreteScenarioDefinition,
     CsdObject,
     CsdRealizationBlocker,
     CsdRealizationManifest,
-    asset_variant_hashes_for_csd,
+    asset_resource_hashes_for_csd,
+    backend_resource_adapters_by_asset,
     find_csd_realization_blockers,
     make_csd_realization_cache_key,
 )
@@ -62,10 +65,10 @@ def compile_csd_to_mujoco(
 
     typed_csd = ConcreteScenarioDefinition.from_mapping(csd)
 
-    variants = _variants_by_asset(asset_registry, backend=MUJOCO_BACKEND)
+    resources = backend_resource_adapters_by_asset(asset_registry, backend=MUJOCO_BACKEND)
     mesh_blockers = _mesh_path_blockers(
         csd,
-        variants,
+        resources,
         Path(asset_root),
         backend=MUJOCO_BACKEND,
     )
@@ -81,14 +84,14 @@ def compile_csd_to_mujoco(
     if robot_blockers:
         return CsdCompilationResult(manifest=None, blockers=robot_blockers)
 
-    variant_hashes = asset_variant_hashes_for_csd(
+    resource_hashes = asset_resource_hashes_for_csd(
         csd=csd,
         asset_registry=asset_registry,
         backend=MUJOCO_BACKEND,
     )
     cache_key = make_csd_realization_cache_key(
         csd=csd,
-        asset_variant_hashes=variant_hashes,
+        asset_variant_hashes=resource_hashes,
         backend=MUJOCO_BACKEND,
         realization_config=realization_config,
         realization_version=realization_version,
@@ -99,9 +102,9 @@ def compile_csd_to_mujoco(
     diagnostics_root = scene_root / "diagnostics"
     scene_root.mkdir(parents=True, exist_ok=True)
     diagnostics_root.mkdir(exist_ok=True)
-    generated_asset_files = _copy_variant_files(
+    generated_asset_files = _copy_resource_files(
         csd=csd,
-        variants=variants,
+        resources=resources,
         source_asset_root=Path(asset_root),
         compiled_asset_root=compiled_asset_root,
     )
@@ -116,7 +119,7 @@ def compile_csd_to_mujoco(
         scene_path,
         csd=typed_csd,
         asset_root=compiled_asset_root,
-        variants=variants,
+        resources=resources,
         robot_include=robot_include,
     )
     generated_files = (
@@ -196,10 +199,10 @@ def compile_csd_to_gazebo(
     if blockers:
         return CsdCompilationResult(manifest=None, blockers=blockers)
 
-    variants = _variants_by_asset(asset_registry, backend=GAZEBO_BACKEND)
+    resources = backend_resource_adapters_by_asset(asset_registry, backend=GAZEBO_BACKEND)
     mesh_blockers = _mesh_path_blockers(
         csd,
-        variants,
+        resources,
         Path(asset_root),
         backend=GAZEBO_BACKEND,
     )
@@ -208,14 +211,14 @@ def compile_csd_to_gazebo(
 
     csd_id = _required_str(csd, "csd_id")
     realization_config = dict(realization_config or {})
-    variant_hashes = asset_variant_hashes_for_csd(
+    resource_hashes = asset_resource_hashes_for_csd(
         csd=csd,
         asset_registry=asset_registry,
         backend=GAZEBO_BACKEND,
     )
     cache_key = make_csd_realization_cache_key(
         csd=csd,
-        asset_variant_hashes=variant_hashes,
+        asset_variant_hashes=resource_hashes,
         backend=GAZEBO_BACKEND,
         realization_config=realization_config,
         realization_version=realization_version,
@@ -226,14 +229,14 @@ def compile_csd_to_gazebo(
     diagnostics_root = world_root / "diagnostics"
     world_root.mkdir(parents=True, exist_ok=True)
     diagnostics_root.mkdir(exist_ok=True)
-    generated_asset_files = _copy_variant_files(
+    generated_asset_files = _copy_resource_files(
         csd=csd,
-        variants=variants,
+        resources=resources,
         source_asset_root=Path(asset_root),
         compiled_asset_root=compiled_asset_root,
     )
     world_path = world_root / "world.sdf"
-    _write_sdf(world_path, csd=csd, variants=variants)
+    _write_sdf(world_path, csd=csd, resources=resources)
     generated_files = ("manifest.json", "world.sdf", *generated_asset_files)
     manifest = CsdRealizationManifest(
         manifest_id=f"manifest_{GAZEBO_BACKEND}_{csd_id}",
@@ -256,7 +259,7 @@ def _write_mjcf(
     *,
     csd: ConcreteScenarioDefinition,
     asset_root: Path,
-    variants: Mapping[str, Mapping[str, Any]],
+    resources: Mapping[str, BackendResourceAdapter],
     robot_include: str | None = None,
 ) -> None:
     root = ET.Element("mujoco", {"model": csd.csd_id})
@@ -277,15 +280,25 @@ def _write_mjcf(
     ET.SubElement(root, "statistic", {"center": "0.3 0 0.4", "extent": "1"})
     assets = ET.SubElement(root, "asset")
     for asset_id in _csd_asset_ids(csd.raw):
+        resource = resources[asset_id]
         mesh_attrs = {
             "name": _mjcf_name(asset_id),
-                "file": _resource_mesh_path(variants[asset_id]),
+            "file": resource.mesh_path,
         }
-        mesh_scale = _mesh_scale_text(variants[asset_id])
+        mesh_scale = _mesh_scale_text(resource)
         if mesh_scale is not None:
             mesh_attrs["scale"] = mesh_scale
         ET.SubElement(assets, "mesh", mesh_attrs)
-        material = _variant_material(variants[asset_id])
+        if resource.collision_mesh_path:
+            ET.SubElement(
+                assets,
+                "mesh",
+                {
+                    "name": f"{_mjcf_name(asset_id)}_collision",
+                    "file": resource.collision_mesh_path,
+                },
+            )
+        material = resource.material
         if material is not None:
             _append_mjcf_material(assets, material)
 
@@ -304,7 +317,7 @@ def _write_mjcf(
     )
     _append_environment_surfaces(worldbody, csd)
     for obj in csd.objects:
-        _append_object_body(worldbody, obj, variants)
+        _append_object_body(worldbody, obj, resources)
 
     ET.indent(root, space="  ")
     ET.ElementTree(root).write(scene_path, encoding="utf-8", xml_declaration=True)
@@ -314,14 +327,14 @@ def _write_sdf(
     world_path: Path,
     *,
     csd: Mapping[str, Any],
-    variants: Mapping[str, Mapping[str, Any]],
+    resources: Mapping[str, BackendResourceAdapter],
 ) -> None:
     root = ET.Element("sdf", {"version": "1.12"})
     world = ET.SubElement(root, "world", {"name": _mjcf_name(_required_str(csd, "csd_id"))})
     ET.SubElement(world, "gravity").text = "0 0 -9.81"
     ET.SubElement(world, "light", {"name": "sun", "type": "directional"})
     for obj in _csd_objects(csd):
-        _append_sdf_model(world, obj, variants)
+        _append_sdf_model(world, obj, resources)
 
     ET.indent(root, space="  ")
     ET.ElementTree(root).write(world_path, encoding="utf-8", xml_declaration=True)
@@ -330,11 +343,11 @@ def _write_sdf(
 def _append_sdf_model(
     parent: ET.Element,
     obj: Mapping[str, Any],
-    variants: Mapping[str, Mapping[str, Any]],
+    resources: Mapping[str, BackendResourceAdapter],
 ) -> None:
     asset_id = _required_str(obj, "asset_id")
     name = _mjcf_name(_required_str(obj, "name"))
-    mesh_uri = str(Path("assets") / _resource_mesh_path(variants[asset_id]))
+    mesh_uri = str(Path("assets") / resources[asset_id].mesh_path)
     model = ET.SubElement(parent, "model", {"name": name})
     ET.SubElement(model, "pose").text = _sdf_pose_text(obj)
     ET.SubElement(model, "static").text = "true" if bool(obj.get("static", False)) else "false"
@@ -427,15 +440,15 @@ def _append_environment_surfaces(parent: ET.Element, csd: ConcreteScenarioDefini
         )
 
 
-def _copy_variant_files(
+def _copy_resource_files(
     *,
     csd: Mapping[str, Any],
-    variants: Mapping[str, Mapping[str, Any]],
+    resources: Mapping[str, BackendResourceAdapter],
     source_asset_root: Path,
     compiled_asset_root: Path,
 ) -> tuple[str, ...]:
     generated_files: list[str] = []
-    for relative_path in _variant_relative_paths(csd, variants):
+    for relative_path in _resource_relative_paths(csd, resources):
         source = source_asset_root / relative_path
         destination = compiled_asset_root / relative_path
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -556,24 +569,26 @@ def _unique_files(paths: Iterable[str]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(paths))
 
 
-def _variant_relative_paths(
+def _resource_relative_paths(
     csd: Mapping[str, Any],
-    variants: Mapping[str, Mapping[str, Any]],
+    resources: Mapping[str, BackendResourceAdapter],
 ) -> Iterable[Path]:
     for asset_id in _csd_asset_ids(csd):
-        variant = variants[asset_id]
-        yield Path(_resource_mesh_path(variant))
-        material = _variant_material(variant)
-        if material is not None and material.get("texture_path"):
-            yield Path(str(material["texture_path"]))
+        resource = resources[asset_id]
+        yield Path(resource.mesh_path)
+        if resource.collision_mesh_path:
+            yield Path(resource.collision_mesh_path)
+        if resource.material is not None and resource.material.texture_path:
+            yield Path(resource.material.texture_path)
 
 
 def _append_object_body(
     parent: ET.Element,
     obj: CsdObject,
-    variants: Mapping[str, Mapping[str, Any]],
+    resources: Mapping[str, BackendResourceAdapter],
 ) -> None:
     asset_id = obj.asset_id
+    resource = resources[asset_id]
     body = ET.SubElement(
         parent,
         "body",
@@ -585,24 +600,42 @@ def _append_object_body(
     )
     if not obj.static:
         ET.SubElement(body, "freejoint")
-    geom_attrs = {
+    visual_geom_attrs = {
         "name": f"{_mjcf_name(obj.name)}_geom",
         "type": "mesh",
         "mesh": _mjcf_name(asset_id),
-        "mass": _object_scalar(obj, "mass_kg", 0.1),
-        "friction": _object_scalar(obj, "friction", 0.7),
         "rgba": "0.7 0.7 0.7 1",
     }
-    material = _variant_material(variants[asset_id])
+    material = resource.material
     if material is not None:
-        geom_attrs["material"] = _mjcf_name(str(material.get("name") or f"{asset_id}_material"))
-        geom_attrs.pop("rgba")
-    ET.SubElement(body, "geom", geom_attrs)
+        visual_geom_attrs["material"] = _mjcf_name(material.name or f"{asset_id}_material")
+        visual_geom_attrs.pop("rgba")
+    if resource.collision_mesh_path:
+        visual_geom_attrs["contype"] = "0"
+        visual_geom_attrs["conaffinity"] = "0"
+        ET.SubElement(body, "geom", visual_geom_attrs)
+        ET.SubElement(
+            body,
+            "geom",
+            {
+                "name": f"{_mjcf_name(obj.name)}_collision_geom",
+                "type": "mesh",
+                "mesh": f"{_mjcf_name(asset_id)}_collision",
+                "mass": _object_scalar(obj, "mass_kg", 0.1),
+                "friction": _object_scalar(obj, "friction", 0.7),
+                "rgba": "0 0 0 0",
+            },
+        )
+        return
+
+    visual_geom_attrs["mass"] = _object_scalar(obj, "mass_kg", 0.1)
+    visual_geom_attrs["friction"] = _object_scalar(obj, "friction", 0.7)
+    ET.SubElement(body, "geom", visual_geom_attrs)
 
 
 def _mesh_path_blockers(
     csd: Mapping[str, Any],
-    variants: Mapping[str, Mapping[str, Any]],
+    resources: Mapping[str, BackendResourceAdapter],
     asset_root: Path,
     *,
     backend: str,
@@ -610,7 +643,7 @@ def _mesh_path_blockers(
     csd_id = _required_str(csd, "csd_id")
     blockers: list[CsdRealizationBlocker] = []
     for asset_id in _csd_asset_ids(csd):
-        relative_path = _resource_mesh_path(variants[asset_id])
+        relative_path = resources[asset_id].mesh_path
         if not relative_path:
             blockers.append(
                 _asset_blocker(csd_id, asset_id, backend, "backend resource has no mesh_path")
@@ -618,7 +651,7 @@ def _mesh_path_blockers(
             continue
         if Path(relative_path).is_absolute():
             blockers.append(
-                _asset_blocker(csd_id, asset_id, backend, "asset variant path must be relative")
+                _asset_blocker(csd_id, asset_id, backend, "backend resource path must be relative")
             )
             continue
         if not (asset_root / relative_path).is_file():
@@ -631,10 +664,30 @@ def _mesh_path_blockers(
                 )
             )
             continue
-        material = _variant_material(variants[asset_id])
-        if material is None or not material.get("texture_path"):
+        collision_mesh_path = resources[asset_id].collision_mesh_path
+        if collision_mesh_path:
+            if Path(collision_mesh_path).is_absolute():
+                blockers.append(
+                    _asset_blocker(
+                        csd_id,
+                        asset_id,
+                        backend,
+                        "asset collision mesh path must be relative",
+                    )
+                )
+            elif not (asset_root / collision_mesh_path).is_file():
+                blockers.append(
+                    _asset_blocker(
+                        csd_id,
+                        asset_id,
+                        backend,
+                        f"asset collision mesh file is missing: {collision_mesh_path}",
+                    )
+                )
+        material = resources[asset_id].material
+        if material is None or not material.texture_path:
             continue
-        texture_path = str(material["texture_path"])
+        texture_path = material.texture_path
         if Path(texture_path).is_absolute():
             blockers.append(
                 _asset_blocker(
@@ -657,11 +710,10 @@ def _mesh_path_blockers(
     return tuple(blockers)
 
 
-def _append_mjcf_material(parent: ET.Element, material: Mapping[str, Any]) -> None:
-    material_name = _mjcf_name(str(material.get("name") or "material"))
-    texture_path = material.get("texture_path")
+def _append_mjcf_material(parent: ET.Element, material: BackendResourceMaterial) -> None:
+    material_name = _mjcf_name(material.name or "material")
     material_attrs = {"name": material_name}
-    if texture_path:
+    if material.texture_path:
         texture_name = f"{material_name}_texture"
         ET.SubElement(
             parent,
@@ -669,33 +721,22 @@ def _append_mjcf_material(parent: ET.Element, material: Mapping[str, Any]) -> No
             {
                 "name": texture_name,
                 "type": "2d",
-                "file": str(texture_path),
+                "file": material.texture_path,
             },
         )
         material_attrs["texture"] = texture_name
-    if material.get("rgba") is not None:
-        material_attrs["rgba"] = _numbers_text(tuple(material["rgba"]))
+    if material.rgba is not None:
+        material_attrs["rgba"] = _numbers_text(material.rgba)
     ET.SubElement(parent, "material", material_attrs)
 
 
-def _mesh_scale_text(variant: Mapping[str, Any]) -> str | None:
-    scale = variant.get("mesh_scale") or variant.get("scale")
+def _mesh_scale_text(resource: BackendResourceAdapter) -> str | None:
+    scale = resource.mesh_scale
     if scale is None:
         return None
-    if isinstance(scale, (int, float, str)):
+    if isinstance(scale, (int, float)):
         return _numbers_text((scale, scale, scale))
-    if isinstance(scale, (list, tuple)) and len(scale) == 3:
-        return _numbers_text(tuple(scale))
-    raise ValueError("mesh_scale must be a number or a 3-element sequence")
-
-
-def _variant_material(variant: Mapping[str, Any]) -> Mapping[str, Any] | None:
-    material = variant.get("material")
-    return material if isinstance(material, Mapping) else None
-
-
-def _resource_mesh_path(resource: Mapping[str, Any]) -> str:
-    return str(resource.get("mesh_path") or resource.get("relative_path") or "")
+    return _numbers_text(scale)
 
 
 def _asset_blocker(
@@ -712,39 +753,6 @@ def _asset_blocker(
         scope="asset",
         reason=reason,
     )
-
-
-def _variants_by_asset(
-    asset_registry: Mapping[str, Any],
-    *,
-    backend: str,
-) -> dict[str, Mapping[str, Any]]:
-    variants: dict[str, Mapping[str, Any]] = {}
-    for record in (*asset_registry.get("objects", ()), *asset_registry.get("assets", ())):
-        if not isinstance(record, Mapping):
-            continue
-        asset_id = str(record.get("asset_id") or record.get("object_id") or "")
-        if asset_id and asset_id not in variants:
-            variant = _backend_resource(record, backend=backend)
-            if variant is not None:
-                variants[asset_id] = variant
-    return variants
-
-
-def _backend_resource(
-    record: Mapping[str, Any],
-    *,
-    backend: str,
-) -> Mapping[str, Any] | None:
-    resources = record.get("backend_resources", record.get("variants", ()))
-    if not isinstance(resources, (list, tuple)):
-        return None
-    for resource in resources:
-        if not isinstance(resource, Mapping):
-            continue
-        if str(resource.get("backend") or resource.get("engine") or "") == backend:
-            return resource
-    return None
 
 
 def _csd_objects(csd: Mapping[str, Any]) -> tuple[Mapping[str, Any], ...]:

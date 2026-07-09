@@ -15,9 +15,9 @@
   Definition（CSD）到后端 native scene/artifacts 的 realization、缓存、加载、
   渲染和运行时执行。CSD 是固定 task instance 的定义，不是 distribution。
 - CSD realization 必须把后端 native scene 当作可复现的缓存产物，而不是语义
-  源。缓存 key 至少需要考虑 CSD 内容、asset variant、目标 backend、realization
-  配置、`vsim` realization 版本、可获取的 simulator 版本以及 sampled
-  randomization values。
+  源。缓存 key 至少需要考虑 CSD 内容、asset backend resource adapter hash、目标
+  backend、realization 配置、`vsim` realization 版本、可获取的 simulator 版本以及
+  sampled randomization values。
 - CSD compiler 输出必须遵守 thesis benchmark package 的统一 backend slot：
   `engine_manifests/<backend>/<csd_id>/`。MuJoCo 目标输出至少包括
   `manifest.json`、`scene.xml`、本地 `assets/` 和 `diagnostics/`。生成的 MJCF
@@ -34,9 +34,10 @@
     `https://openusd.org/dev/api/ar_page_front.html`,
     `https://openusd.org/release/glossary.html`
 - 不要假设资产可跨后端直接复用。mesh、material/texture、collision、joint/
-  articulation、sensor、lighting、scale、frame/up-axis、contact 参数等都需要按
-  backend 记录支持情况；无法支持或有损转换时，应返回 validation failure 或
-  blocker，而不是静默降级。
+  articulation、sensor、lighting、numeric units、scale、frame/up-axis、contact
+  参数等都需要按 backend 记录支持情况；如果某个模拟器对数值、单位或测量方式的
+  定义不同，必须查阅对应官方文档后再实现转换；无法支持或有损转换时，应返回
+  validation failure 或 blocker，而不是静默降级。
 - 你需要仔细考虑添加需求后应该如何设计，例如是否需要变更接口和模拟器后端、`recorder_lerobot.py` 的原本实现、怎么变更才能保证架构精简和正确，等等；
 - 为了帮助你实现，我在 `refs/lerobot/` 下存放了 lerobot v0.5.1（目前最新）包的源码和文档。与 lerobot dataset 数据集相关的文档在 `refs/lerobot/docs/source/` 下，建议你仔细阅读 lerobot 的文档，充分利用此库的能力；
 - 如果你不清楚模拟器后端接口/gRPC Server 接口的含义，可以查看 `control_stubs/control_stubs/*.proto` 的注释内容，或者阅读实际的后端代码；

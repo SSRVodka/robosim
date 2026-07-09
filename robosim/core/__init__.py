@@ -2,12 +2,16 @@
 
 from robosim.core.capabilities import Capability
 from robosim.core.csd import (
+    BackendResourceAdapter,
+    BackendResourceMaterial,
     ConcreteScenarioDefinition,
     CsdRealizationBlocker,
     CsdRealizationCacheKey,
     CsdRealizationManifest,
     CsdRelationshipType,
+    asset_resource_hashes_for_csd,
     asset_variant_hashes_for_csd,
+    backend_resource_adapters_by_asset,
     find_csd_realization_blockers,
     make_csd_realization_cache_key,
 )
@@ -20,6 +24,8 @@ from robosim.core.csd_compiler import (
 
 __all__ = [
     "CsdCompilationResult",
+    "BackendResourceAdapter",
+    "BackendResourceMaterial",
     "ConcreteScenarioDefinition",
     "CsdRealizationBlocker",
     "CsdRealizationCacheKey",
@@ -27,7 +33,9 @@ __all__ = [
     "CsdRelationshipType",
     "SimulatorBackend",
     "Capability",
+    "asset_resource_hashes_for_csd",
     "asset_variant_hashes_for_csd",
+    "backend_resource_adapters_by_asset",
     "compile_csd",
     "compile_csd_to_gazebo",
     "compile_csd_to_mujoco",

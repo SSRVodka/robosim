@@ -304,6 +304,71 @@ class ConcreteScenarioDefinition:
 
 
 @dataclass(frozen=True, slots=True)
+class BackendResourceMaterial:
+    """Material/media adapter attached to a backend resource."""
+
+    name: str | None
+    rgba: tuple[float, float, float, float] | None
+    texture_path: str | None
+
+    @classmethod
+    def from_mapping(cls, payload: Mapping[str, Any]) -> "BackendResourceMaterial":
+        rgba = None
+        if payload.get("rgba") is not None:
+            rgba = _number_tuple(payload["rgba"], length=4, field="material.rgba")
+        texture_path = payload.get("texture_path")
+        return cls(
+            name=str(payload["name"]) if payload.get("name") else None,
+            rgba=rgba,
+            texture_path=str(texture_path) if texture_path else None,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class BackendResourceAdapter:
+    """Concrete backend resource adapter for one accepted asset."""
+
+    asset_id: str
+    backend: str
+    resource_id: str | None
+    mesh_path: str
+    resource_hash: str
+    mesh_scale: float | tuple[float, float, float] | None
+    material: BackendResourceMaterial | None
+    collision_mesh_path: str | None
+
+    @classmethod
+    def from_mapping(
+        cls,
+        payload: Mapping[str, Any],
+        *,
+        asset_id: str,
+        backend: str,
+    ) -> "BackendResourceAdapter":
+        mesh_path = str(payload.get("mesh_path") or payload.get("relative_path") or "")
+        resource_hash = str(payload.get("resource_hash") or payload.get("variant_hash") or "")
+        if not resource_hash:
+            raise ValueError(f"{asset_id}.{backend} backend resource requires resource_hash")
+        material_payload = payload.get("material")
+        mesh_scale = _optional_scale(payload.get("mesh_scale", payload.get("scale")))
+        collision_mesh_path = payload.get("collision_mesh_path")
+        return cls(
+            asset_id=asset_id,
+            backend=backend,
+            resource_id=str(payload["resource_id"]) if payload.get("resource_id") else None,
+            mesh_path=mesh_path,
+            resource_hash=resource_hash,
+            mesh_scale=mesh_scale,
+            material=(
+                BackendResourceMaterial.from_mapping(material_payload)
+                if isinstance(material_payload, Mapping)
+                else None
+            ),
+            collision_mesh_path=str(collision_mesh_path) if collision_mesh_path else None,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class CsdRealizationCacheKey:
     """Deterministic cache key for one CSD/backend realization."""
 
@@ -465,7 +530,7 @@ def find_csd_realization_blockers(
     if not backend:
         raise ValueError("backend is required")
     csd_id = _csd_id(csd)
-    resources = _backend_resources_by_asset(asset_registry, backend)
+    resources = backend_resource_adapters_by_asset(asset_registry, backend)
     blockers: list[CsdRealizationBlocker] = []
     for asset_id in _csd_asset_ids(csd):
         if asset_id not in resources:
@@ -482,7 +547,7 @@ def find_csd_realization_blockers(
     return tuple(blockers)
 
 
-def asset_variant_hashes_for_csd(
+def asset_resource_hashes_for_csd(
     *,
     csd: Mapping[str, Any],
     asset_registry: Mapping[str, Any],
@@ -496,13 +561,22 @@ def asset_variant_hashes_for_csd(
     )
     if blockers:
         raise ValueError("CSD has unresolved realization blockers")
-    resources = _backend_resources_by_asset(asset_registry, backend)
-    return {
-        asset_id: str(
-            resources[asset_id].get("resource_hash") or resources[asset_id]["variant_hash"]
-        )
-        for asset_id in _csd_asset_ids(csd)
-    }
+    resources = backend_resource_adapters_by_asset(asset_registry, backend)
+    return {asset_id: resources[asset_id].resource_hash for asset_id in _csd_asset_ids(csd)}
+
+
+def asset_variant_hashes_for_csd(
+    *,
+    csd: Mapping[str, Any],
+    asset_registry: Mapping[str, Any],
+    backend: str,
+) -> dict[str, str]:
+    """Backward-compatible alias for backend resource hashes."""
+    return asset_resource_hashes_for_csd(
+        csd=csd,
+        asset_registry=asset_registry,
+        backend=backend,
+    )
 
 
 def _canonical_hash(payload: Mapping[str, Any]) -> str:
@@ -580,18 +654,19 @@ def _scenario(csd: Mapping[str, Any]) -> Mapping[str, Any]:
     return scenario if isinstance(scenario, Mapping) else csd
 
 
-def _backend_resources_by_asset(
+def backend_resource_adapters_by_asset(
     asset_registry: Mapping[str, Any],
     backend: str,
-) -> dict[str, Mapping[str, Any]]:
-    resources: dict[str, Mapping[str, Any]] = {}
+) -> dict[str, BackendResourceAdapter]:
+    """Return typed backend resource adapters keyed by accepted asset id."""
+    resources: dict[str, BackendResourceAdapter] = {}
     for obj in asset_registry.get("objects", []):
         if not isinstance(obj, Mapping):
             continue
         asset_id = str(obj.get("asset_id") or obj.get("object_id") or "")
         if not asset_id:
             continue
-        resource = _backend_resource(obj, backend)
+        resource = _backend_resource_adapter(obj, backend)
         if resource is not None:
             resources[asset_id] = resource
     for asset in asset_registry.get("assets", []):
@@ -600,22 +675,39 @@ def _backend_resources_by_asset(
         asset_id = str(asset.get("asset_id", ""))
         if not asset_id or asset_id in resources:
             continue
-        resource = _backend_resource(asset, backend)
+        resource = _backend_resource_adapter(asset, backend)
         if resource is not None:
             resources[asset_id] = resource
     return resources
 
 
-def _backend_resource(
+def _backend_resource_adapter(
     record: Mapping[str, Any],
     backend: str,
-) -> Mapping[str, Any] | None:
+) -> BackendResourceAdapter | None:
     entries = record.get("backend_resources", record.get("variants", ()))
     if not isinstance(entries, (list, tuple)):
+        return None
+    asset_id = str(record.get("asset_id") or record.get("object_id") or "")
+    if not asset_id:
         return None
     for entry in entries:
         if not isinstance(entry, Mapping):
             continue
         if str(entry.get("backend") or entry.get("engine") or "") == backend:
-            return entry
+            return BackendResourceAdapter.from_mapping(
+                entry,
+                asset_id=asset_id,
+                backend=backend,
+            )
     return None
+
+
+def _optional_scale(value: object) -> float | tuple[float, float, float] | None:
+    if value is None:
+        return None
+    if isinstance(value, (int, float, str)):
+        return float(value)
+    if isinstance(value, (list, tuple)) and len(value) == 3:
+        return (float(value[0]), float(value[1]), float(value[2]))
+    raise ValueError("mesh_scale must be a number or a 3-element sequence")

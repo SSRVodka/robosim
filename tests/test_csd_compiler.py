@@ -94,6 +94,9 @@ def _write_fixture_asset_files(asset_root: Path, asset_registry: Mapping[str, ob
             relative_path = variant.get("mesh_path") or variant.get("relative_path")
             if relative_path:
                 _write_tetra_mesh(asset_root / str(relative_path))
+            collision_mesh_path = variant.get("collision_mesh_path")
+            if collision_mesh_path:
+                _write_tetra_mesh(asset_root / str(collision_mesh_path))
             material = variant.get("material")
             if isinstance(material, Mapping) and material.get("texture_path"):
                 texture_path = asset_root / str(material["texture_path"])
@@ -289,6 +292,57 @@ def test_compile_csd_to_mujoco_preserves_texture_material_and_mesh_scale(
     (asset_root / "textures" / "can_label.png").unlink()
     model = mujoco.MjModel.from_xml_path(str(scene_path))
     assert model.ngeom >= 2
+
+
+def test_compile_csd_to_mujoco_preserves_separate_collision_mesh(
+    tmp_path: Path,
+) -> None:
+    asset_root = tmp_path / "assets"
+    csd = _load_json_fixture("object_only_static_and_dynamic.json")
+    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    records = asset_registry["objects"]
+    assert isinstance(records, list)
+    for record in records:
+        if isinstance(record, dict) and record.get("asset_id") == "object_mug":
+            resources = record["backend_resources"]
+            assert isinstance(resources, list)
+            resource = resources[0]
+            assert isinstance(resource, dict)
+            resource["collision_mesh_path"] = "collision/mug_collision.obj"
+    _write_fixture_asset_files(asset_root, asset_registry)
+
+    result = compile_csd_to_mujoco(
+        csd=csd,
+        asset_registry=asset_registry,
+        output_root=tmp_path / "engine_manifests",
+        asset_root=asset_root,
+    )
+
+    scene_root = tmp_path / "engine_manifests" / "mujoco" / "csd_object_only_0001"
+    scene_path = scene_root / "scene.xml"
+    root = ET.parse(scene_path).getroot()
+    meshes = {mesh.attrib["name"]: mesh for mesh in root.findall("asset/mesh")}
+    mug_body = _required_element(root, "worldbody/body[@name='mug']")
+    visual_geom = _required_element(mug_body, "geom[@name='mug_geom']")
+    collision_geom = _required_element(mug_body, "geom[@name='mug_collision_geom']")
+
+    assert result.blockers == ()
+    assert isinstance(result.manifest, CsdRealizationManifest)
+    assert meshes["object_mug"].attrib["file"] == "objects/mug.obj"
+    assert meshes["object_mug_collision"].attrib["file"] == "collision/mug_collision.obj"
+    assert visual_geom.attrib["mesh"] == "object_mug"
+    assert visual_geom.attrib["contype"] == "0"
+    assert visual_geom.attrib["conaffinity"] == "0"
+    assert "mass" not in visual_geom.attrib
+    assert collision_geom.attrib["mesh"] == "object_mug_collision"
+    assert collision_geom.attrib["mass"] == "0.2"
+    assert collision_geom.attrib["rgba"] == "0 0 0 0"
+    assert "assets/collision/mug_collision.obj" in result.manifest.generated_files
+
+    (asset_root / "objects" / "mug.obj").unlink()
+    (asset_root / "collision" / "mug_collision.obj").unlink()
+    model = mujoco.MjModel.from_xml_path(str(scene_path))
+    assert model.ngeom >= 4
 
 
 def test_compile_csd_to_mujoco_renders_semantic_preview_screenshot(
