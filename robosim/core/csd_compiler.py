@@ -685,6 +685,28 @@ def _write_mujoco_load_check(
                         details={"reason": "body not found in loaded MuJoCo model"},
                     )
                 )
+        for surface in csd.environment.surfaces:
+            body_name = _mjcf_name(surface.surface_id)
+            try:
+                body = model.body(body_name)
+                actual = _float_sequence_json(body.pos)
+                expected = _vector3_json(surface.pose.position)
+                checks.append(
+                    _load_check(
+                        f"surface_pose:{body_name}",
+                        expected=expected,
+                        actual=actual,
+                    )
+                )
+            except KeyError:
+                checks.append(
+                    _load_check(
+                        f"surface_pose:{body_name}",
+                        passed=False,
+                        expected=_vector3_json(surface.pose.position),
+                        details={"reason": "surface body not found in loaded MuJoCo model"},
+                    )
+                )
     except Exception as exc:
         checks.append(
             _load_check(

@@ -268,6 +268,16 @@ def test_compile_csd_to_mujoco_realizes_world_template_geometry(tmp_path: Path) 
     tabletop_root = ET.parse(
         tmp_path / "engine_manifests" / "mujoco" / "csd_tabletop_0001" / "scene.xml"
     ).getroot()
+    tabletop_load_check_path = (
+        tmp_path
+        / "engine_manifests"
+        / "mujoco"
+        / "csd_tabletop_0001"
+        / "diagnostics"
+        / "load_check.json"
+    )
+    tabletop_load_check = json.loads(tabletop_load_check_path.read_text(encoding="utf-8"))
+    load_checks = {check["name"]: check for check in tabletop_load_check["checks"]}
     empty_floor_root = ET.parse(
         tmp_path / "engine_manifests" / "mujoco" / "csd_object_only_0001" / "scene.xml"
     ).getroot()
@@ -286,6 +296,9 @@ def test_compile_csd_to_mujoco_realizes_world_template_geometry(tmp_path: Path) 
         "rgba": "0.42 0.36 0.28 1",
         "friction": "1.2 0.2 0.2",
     }
+    assert load_checks["surface_pose:surface_tabletop"]["status"] == "passed"
+    assert load_checks["surface_pose:surface_tabletop"]["expected"] == [0.5, 0.0, 0.74]
+    assert load_checks["surface_pose:surface_tabletop"]["actual"] == [0.5, 0.0, 0.74]
     assert empty_floor_root.find("worldbody/body[@name='surface_tabletop']") is None
 
 

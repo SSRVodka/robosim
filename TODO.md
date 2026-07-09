@@ -56,7 +56,7 @@
   blocker；
 - [x] 为 MuJoCo compiler 产物增加 package-local load check：写出 MJCF 后使用
   `mujoco.MjModel.from_xml_path()` 加载当前 realization 目录中的 `scene.xml`，
-  并将 model load、gravity、CSD object body pose 检查写入
+  并将 model load、gravity、CSD object body pose、environment surface pose 检查写入
   `diagnostics/load_check.json`；检查失败时返回
   `CsdRealizationBlocker(scope="vsim_realization")`，不发布 manifest；
 - [ ] 为 CSD realization 定义 asset backend compatibility 检查：mesh format、

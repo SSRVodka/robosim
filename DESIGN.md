@@ -145,8 +145,8 @@ entry XML 的 `<option gravity="...">`，不修改源 template，也不在顶层
 `world_tabletop` 会生成 backend-local static tabletop geometry，而不是引用
 `drivers_sim` 的 world scene。编译器写出 MJCF 后会立即用
 `mujoco.MjModel.from_xml_path` 做 package-local load check，并在
-`diagnostics/load_check.json` 记录 `model_load`、gravity 和 CSD object body pose
-检查结果；若该检查失败，compiler 返回
+`diagnostics/load_check.json` 记录 `model_load`、gravity、CSD object body pose
+和 environment surface pose 检查结果；若该检查失败，compiler 返回
 `CsdRealizationBlocker(scope="vsim_realization")`，不发布 manifest。
 
 MuJoCo compiler 会在写出文件前执行语义 gate，避免生成可加载但语义错误的
