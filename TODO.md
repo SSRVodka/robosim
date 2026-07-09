@@ -25,6 +25,10 @@
   到本地 `assets/`，并返回可审计的 backend manifest；
 - [ ] 将 CSD compiler 产物接入 MuJoCoBackend runtime load/render/physics
   validation；
+- [x] 将 MuJoCo compiler 产物接入 MuJoCoBackend runtime load 入口：
+  `MuJoCoBackend.from_csd_realization_manifest()` 与
+  `from_csd_realization_manifest_file()` 可加载 compiled CSD manifest，并复用现有
+  `scene_path` 初始化路径；
 - [x] 设计 Gazebo compiler artifact layout，包括 SDF resource path 与资产复制
   规则；不要求编译产物位于 ROS2 package 或 launch 目录；
 - [ ] 将 CSD compiler 产物接入 GazeboBackend runtime load/render/physics

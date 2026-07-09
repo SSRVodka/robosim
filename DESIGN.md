@@ -176,6 +176,13 @@ package。这样即使原始 asset cache 或 `drivers_sim` 源目录移动或清
 MJCF 仍可加载。后续处理 OBJ 材质、纹理、URDF/SDF resource 时也必须遵守同样
 原则：native scene artifact 不得依赖易丢失的下载缓存路径。
 
+MuJoCo runtime loading 通过 `MuJoCoBackend.from_csd_realization_manifest()` 或
+`MuJoCoBackend.from_csd_realization_manifest_file()` 消费 compiler 输出的
+`CsdRealizationManifest`。文件入口以 `manifest.json` 所在目录作为 package root
+解析 `entry_file`，避免依赖可能过期的绝对 `root_path`。解析后的 `scene.xml`
+仍交给现有 `MuJoCoBackend(scene_path=...)` 初始化路径处理，避免复制或绕过现有
+servo、sensing、recording、policy runtime 行为。
+
 CSD compiler tests must keep scenario definitions as JSON fixtures under
 `tests/fixtures/csd/` instead of embedding large dictionaries in test code.
 Fixtures must use the structured CSD scenario contract: `environment`, `robot`,

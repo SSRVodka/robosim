@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 import xml.etree.ElementTree as ET
@@ -20,6 +21,7 @@ from control_stubs import sensing_pb2 as sensing_pb2
 from control_stubs.sensing_pb2 import SensorType
 from robosim.core.backend import SimulatorBackend
 from robosim.core.capabilities import Capability
+from robosim.core.csd import CsdRealizationManifest
 
 JOINT_SENSOR_NAME = "joint_states"
 DEFAULT_CAMERA_WIDTH = 320
@@ -136,6 +138,39 @@ class MuJoCoBackend(SimulatorBackend):
             daemon=True,
         )
         self._step_thread.start()
+
+    @classmethod
+    def from_csd_realization_manifest(
+        cls,
+        manifest: CsdRealizationManifest,
+        *,
+        headless: bool = True,
+    ) -> "MuJoCoBackend":
+        """Create a backend from a compiled CSD realization manifest."""
+        if manifest.backend != "mujoco":
+            raise ValueError(f"manifest backend must be mujoco, got {manifest.backend!r}")
+        scene_path = (Path(manifest.root_path) / manifest.entry_file).resolve()
+        if not scene_path.is_file():
+            raise FileNotFoundError(f"MuJoCo realization entry file is missing: {scene_path}")
+        return cls(scene_path=str(scene_path), headless=headless)
+
+    @classmethod
+    def from_csd_realization_manifest_file(
+        cls,
+        manifest_path: Path,
+        *,
+        headless: bool = True,
+    ) -> "MuJoCoBackend":
+        """Create a backend from a persisted CSD realization manifest."""
+        manifest = CsdRealizationManifest.from_json_dict(
+            json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+        )
+        if manifest.backend != "mujoco":
+            raise ValueError(f"manifest backend must be mujoco, got {manifest.backend!r}")
+        scene_path = (Path(manifest_path).resolve().parent / manifest.entry_file).resolve()
+        if not scene_path.is_file():
+            raise FileNotFoundError(f"MuJoCo realization entry file is missing: {scene_path}")
+        return cls(scene_path=str(scene_path), headless=headless)
 
     @property
     def capabilities(self) -> Capability:
