@@ -46,6 +46,30 @@ from robosim.grpc_server import (
 DATA_REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
+def create_backend(
+    *,
+    backend_type: str,
+    robot_name: str,
+    scene: str | None,
+    csd_manifest: str | None,
+    headless: bool,
+) -> SimulatorBackend:
+    """Create a simulator backend for server startup."""
+    if backend_type == "gazebo":
+        return GazeboBackend(robot_name=robot_name)
+    if backend_type == "mujoco":
+        if csd_manifest is not None:
+            return MuJoCoBackend.from_csd_realization_manifest_file(
+                Path(csd_manifest),
+                headless=headless,
+            )
+        return MuJoCoBackend(
+            scene_path=scene or "drivers_sim/mujoco/assets/robots/franka_panda/scene.xml",
+            headless=headless,
+        )
+    raise ValueError(f"Unknown backend type: {backend_type}")
+
+
 def create_server(
     backend: SimulatorBackend,
     recorder: LerobotDataRecorder,
@@ -90,6 +114,7 @@ async def serve_async(
     robot_name: str = "robot",
     port: int = 50051,
     scene: str | None = None,
+    csd_manifest: str | None = None,
     headless: bool = True,
 ) -> None:
     """Run the gRPC server asynchronously."""
@@ -131,14 +156,13 @@ async def serve_async(
         activity = ActivityCoordinator()
         if backend_type == "gazebo":
             rclpy.init()
-            backend = GazeboBackend(robot_name=robot_name)
-        elif backend_type == "mujoco":
-            backend = MuJoCoBackend(
-                scene_path=scene or "drivers_sim/mujoco/assets/robots/franka_panda/scene.xml",
-                headless=headless,
-            )
-        else:
-            raise ValueError(f"Unknown backend type: {backend_type}")
+        backend = create_backend(
+            backend_type=backend_type,
+            robot_name=robot_name,
+            scene=scene,
+            csd_manifest=csd_manifest,
+            headless=headless,
+        )
 
         recorder = LerobotDataRecorder(DATA_REPO_ROOT, backend, activity_coordinator=activity)
         policy_runner = LerobotPolicyRunner(
@@ -198,6 +222,12 @@ def main() -> None:
         help="Path to MuJoCo scene XML file (for mujoco backend)",
     )
     parser.add_argument(
+        "--csd-manifest",
+        type=str,
+        default=None,
+        help="Path to a compiled CSD realization manifest.json (for mujoco backend)",
+    )
+    parser.add_argument(
         "--headless",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -210,6 +240,7 @@ def main() -> None:
         robot_name=args.robot_name,
         port=args.port,
         scene=args.scene,
+        csd_manifest=args.csd_manifest,
         headless=args.headless,
     ))
 

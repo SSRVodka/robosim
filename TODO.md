@@ -29,6 +29,9 @@
   `MuJoCoBackend.from_csd_realization_manifest()` 与
   `from_csd_realization_manifest_file()` 可加载 compiled CSD manifest，并复用现有
   `scene_path` 初始化路径；
+- [x] 将 compiled CSD manifest 接入 server 启动入口：
+  `python -m robosim.server --backend mujoco --csd-manifest <manifest.json>` 可复用
+  MuJoCoBackend manifest loading；
 - [x] 设计 Gazebo compiler artifact layout，包括 SDF resource path 与资产复制
   规则；不要求编译产物位于 ROS2 package 或 launch 目录；
 - [ ] 将 CSD compiler 产物接入 GazeboBackend runtime load/render/physics
