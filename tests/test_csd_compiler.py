@@ -677,6 +677,33 @@ def test_csd_parser_exposes_typed_object_contact_parameters() -> None:
     )
 
 
+def test_csd_parser_exposes_typed_object_inertial_parameters() -> None:
+    csd = _load_json_fixture("object_only_static_and_dynamic.json")
+    scenario = csd["scenario"]
+    assert isinstance(scenario, dict)
+    objects = scenario["objects"]
+    assert isinstance(objects, list)
+    mug = objects[1]
+    assert isinstance(mug, dict)
+    initial_state = mug["initial_state"]
+    assert isinstance(initial_state, dict)
+    initial_state["inertial"] = {
+        "center_of_mass": {"x": 0.01, "y": 0.0, "z": 0.02},
+        "diagonal_inertia_kg_m2": [0.002, 0.003, 0.004],
+    }
+
+    typed = ConcreteScenarioDefinition.from_mapping(csd)
+    typed_mug = next(obj for obj in typed.objects if obj.name == "mug")
+
+    assert typed_mug.initial_state.inertial is not None
+    assert typed_mug.initial_state.inertial.center_of_mass.x == 0.01
+    assert typed_mug.initial_state.inertial.diagonal_inertia_kg_m2 == (
+        0.002,
+        0.003,
+        0.004,
+    )
+
+
 def test_compile_csd_to_mujoco_preserves_explicit_friction_tuple(tmp_path: Path) -> None:
     asset_root = tmp_path / "assets"
     csd = _load_json_fixture("object_only_static_and_dynamic.json")
@@ -775,6 +802,62 @@ def test_compile_csd_to_mujoco_preserves_object_contact_parameters(
     }
 
 
+def test_compile_csd_to_mujoco_preserves_explicit_object_inertial(
+    tmp_path: Path,
+) -> None:
+    asset_root = tmp_path / "assets"
+    csd = _load_json_fixture("object_only_static_and_dynamic.json")
+    scenario = csd["scenario"]
+    assert isinstance(scenario, dict)
+    objects = scenario["objects"]
+    assert isinstance(objects, list)
+    mug = objects[1]
+    assert isinstance(mug, dict)
+    initial_state = mug["initial_state"]
+    assert isinstance(initial_state, dict)
+    initial_state["inertial"] = {
+        "center_of_mass": {"x": 0.01, "y": 0.0, "z": 0.02},
+        "diagonal_inertia_kg_m2": [0.002, 0.003, 0.004],
+    }
+    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    _write_fixture_asset_files(asset_root, asset_registry)
+
+    result = compile_csd_to_mujoco(
+        csd=csd,
+        asset_registry=asset_registry,
+        output_root=tmp_path / "engine_manifests",
+        asset_root=asset_root,
+    )
+
+    scene_root = tmp_path / "engine_manifests" / "mujoco" / "csd_object_only_0001"
+    scene_path = scene_root / "scene.xml"
+    root = ET.parse(scene_path).getroot()
+    mug_body = _required_element(root, "worldbody/body[@name='mug']")
+    inertial = _required_element(mug_body, "inertial")
+    geom = _required_element(mug_body, "geom")
+    model = mujoco.MjModel.from_xml_path(str(scene_path))
+    loaded_mug = model.body("mug")
+    load_check = json.loads((scene_root / "diagnostics" / "load_check.json").read_text())
+    checks = {check["name"]: check for check in load_check["checks"]}
+
+    assert result.blockers == ()
+    assert inertial.attrib == {
+        "pos": "0.01 0 0.02",
+        "mass": "0.2",
+        "diaginertia": "0.002 0.003 0.004",
+    }
+    assert geom.attrib["density"] == "0"
+    assert "mass" not in geom.attrib
+    assert tuple(round(float(value), 6) for value in loaded_mug.ipos) == (0.01, 0.0, 0.02)
+    assert tuple(round(float(value), 6) for value in loaded_mug.inertia) == (
+        0.002,
+        0.003,
+        0.004,
+    )
+    assert checks["body_inertial_pos:mug"]["status"] == "passed"
+    assert checks["body_inertia:mug"]["status"] == "passed"
+
+
 def test_compile_csd_to_mujoco_blocks_invalid_physical_parameters(
     tmp_path: Path,
 ) -> None:
@@ -832,6 +915,46 @@ def test_compile_csd_to_mujoco_blocks_invalid_physical_parameters(
             "reason": "object mug contact gap_m must be less than or equal to margin_m",
         },
     ]
+
+
+def test_compile_csd_to_mujoco_blocks_invalid_inertial_parameters(
+    tmp_path: Path,
+) -> None:
+    asset_root = tmp_path / "assets"
+    csd = _load_json_fixture("object_only_static_and_dynamic.json")
+    scenario = csd["scenario"]
+    assert isinstance(scenario, dict)
+    objects = scenario["objects"]
+    assert isinstance(objects, list)
+    mug = objects[1]
+    assert isinstance(mug, dict)
+    initial_state = mug["initial_state"]
+    assert isinstance(initial_state, dict)
+    initial_state["inertial"] = {
+        "center_of_mass": {"x": 0.0, "y": 0.0, "z": 0.0},
+        "diagonal_inertia_kg_m2": [0.002, 0.0, 0.004],
+    }
+    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    _write_fixture_asset_files(asset_root, asset_registry)
+
+    result = compile_csd_to_mujoco(
+        csd=csd,
+        asset_registry=asset_registry,
+        output_root=tmp_path,
+        asset_root=asset_root,
+    )
+
+    assert result.manifest is None
+    assert result.blockers[0].to_json_dict() == {
+        "blocker_id": "csd_object_only_0001_mujoco_mug_inertial_compile_blocked",
+        "csd_id": "csd_object_only_0001",
+        "backend": "mujoco",
+        "asset_id": "mug",
+        "scope": "csd",
+        "reason": (
+            "object mug diagonal_inertia_kg_m2 values must be positive and finite"
+        ),
+    }
 
 
 def test_compile_csd_to_mujoco_preserves_texture_material_and_mesh_scale(

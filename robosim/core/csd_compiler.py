@@ -918,6 +918,25 @@ def _write_mujoco_load_check(
                         actual=_float_sequence_json(body.mass),
                     )
                 )
+                if obj.initial_state.inertial is not None:
+                    checks.append(
+                        _load_check(
+                            f"body_inertial_pos:{body_name}",
+                            expected=_vector3_json(
+                                obj.initial_state.inertial.center_of_mass
+                            ),
+                            actual=_float_sequence_json(body.ipos),
+                        )
+                    )
+                    checks.append(
+                        _load_check(
+                            f"body_inertia:{body_name}",
+                            expected=_float_sequence_json(
+                                obj.initial_state.inertial.diagonal_inertia_kg_m2
+                            ),
+                            actual=_float_sequence_json(body.inertia),
+                        )
+                    )
             except KeyError:
                 checks.append(
                     _load_check(
@@ -943,6 +962,27 @@ def _write_mujoco_load_check(
                         details={"reason": "body not found in loaded MuJoCo model"},
                     )
                 )
+                if obj.initial_state.inertial is not None:
+                    checks.append(
+                        _load_check(
+                            f"body_inertial_pos:{body_name}",
+                            passed=False,
+                            expected=_vector3_json(
+                                obj.initial_state.inertial.center_of_mass
+                            ),
+                            details={"reason": "body not found in loaded MuJoCo model"},
+                        )
+                    )
+                    checks.append(
+                        _load_check(
+                            f"body_inertia:{body_name}",
+                            passed=False,
+                            expected=_float_sequence_json(
+                                obj.initial_state.inertial.diagonal_inertia_kg_m2
+                            ),
+                            details={"reason": "body not found in loaded MuJoCo model"},
+                        )
+                    )
             geom_name = _mujoco_collision_geom_name(model, body_name)
             try:
                 geom = model.geom(geom_name)
@@ -1383,6 +1423,17 @@ def _append_object_body(
             "quat": _quaternion_text(obj.pose.orientation),
         },
     )
+    inertial = obj.initial_state.inertial
+    if inertial is not None:
+        ET.SubElement(
+            body,
+            "inertial",
+            {
+                "pos": _vector3_text(inertial.center_of_mass),
+                "mass": _number_text(obj.initial_state.mass_kg),
+                "diaginertia": _numbers_text(inertial.diagonal_inertia_kg_m2),
+            },
+        )
     if not obj.static:
         ET.SubElement(body, "freejoint")
     visual_geom_attrs = {
@@ -1407,16 +1458,16 @@ def _append_object_body(
                 "name": f"{_mjcf_name(obj.name)}_collision_geom",
                 "type": "mesh",
                 "mesh": f"{_mjcf_name(asset_id)}_collision",
-                "mass": _number_text(obj.initial_state.mass_kg),
                 "friction": _numbers_text(obj.initial_state.friction),
                 "rgba": "0 0 0 0",
+                **_mujoco_geom_mass_attrs(obj),
                 **_mujoco_contact_attrs(obj),
             },
         )
         return
 
-    visual_geom_attrs["mass"] = _number_text(obj.initial_state.mass_kg)
     visual_geom_attrs["friction"] = _numbers_text(obj.initial_state.friction)
+    visual_geom_attrs.update(_mujoco_geom_mass_attrs(obj))
     visual_geom_attrs.update(_mujoco_contact_attrs(obj))
     ET.SubElement(body, "geom", visual_geom_attrs)
 
@@ -1444,6 +1495,32 @@ def _mujoco_object_physical_blockers(
                 f"object {obj.name} friction values must be non-negative",
             )
         )
+    inertial = obj.initial_state.inertial
+    if inertial is not None:
+        if not _finite_vector(inertial.center_of_mass):
+            blockers.append(
+                _object_csd_blocker(
+                    csd_id,
+                    obj.name,
+                    "inertial",
+                    f"object {obj.name} inertial center_of_mass values must be finite",
+                )
+            )
+        if any(
+            not math.isfinite(float(value)) or value <= 0.0
+            for value in inertial.diagonal_inertia_kg_m2
+        ):
+            blockers.append(
+                _object_csd_blocker(
+                    csd_id,
+                    obj.name,
+                    "inertial",
+                    (
+                        f"object {obj.name} diagonal_inertia_kg_m2 values "
+                        "must be positive and finite"
+                    ),
+                )
+            )
     contact = obj.initial_state.contact
     if contact is None:
         return tuple(blockers)
@@ -1479,6 +1556,12 @@ def _mujoco_object_physical_blockers(
             )
         )
     return tuple(blockers)
+
+
+def _mujoco_geom_mass_attrs(obj: CsdObject) -> dict[str, str]:
+    if obj.initial_state.inertial is not None:
+        return {"density": "0"}
+    return {"mass": _number_text(obj.initial_state.mass_kg)}
 
 
 def _mujoco_contact_attrs(obj: CsdObject) -> dict[str, str]:
@@ -1785,6 +1868,10 @@ def _positive_finite_vector(vector: Any) -> bool:
         math.isfinite(float(value)) and float(value) > 0.0
         for value in (vector.x, vector.y, vector.z)
     )
+
+
+def _finite_vector(vector: Any) -> bool:
+    return all(math.isfinite(float(value)) for value in (vector.x, vector.y, vector.z))
 
 
 def _cross(

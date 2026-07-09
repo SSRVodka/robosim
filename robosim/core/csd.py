@@ -240,22 +240,51 @@ class CsdObjectContact:
 
 
 @dataclass(frozen=True, slots=True)
+class CsdObjectInertial:
+    """Optional explicit object inertia in the object body frame."""
+
+    center_of_mass: CsdVector3
+    diagonal_inertia_kg_m2: tuple[float, float, float]
+
+    @classmethod
+    def from_mapping(cls, payload: Mapping[str, Any]) -> "CsdObjectInertial":
+        return cls(
+            center_of_mass=CsdVector3.from_mapping(
+                _required_mapping(payload, "center_of_mass", field="inertial"),
+                field="inertial.center_of_mass",
+            ),
+            diagonal_inertia_kg_m2=_number_tuple(
+                payload.get("diagonal_inertia_kg_m2"),
+                length=3,
+                field="inertial.diagonal_inertia_kg_m2",
+            ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class CsdObjectInitialState:
     """Backend-neutral object physical state requested by CSD."""
 
     mass_kg: float
     friction: tuple[float, float, float]
     contact: CsdObjectContact | None
+    inertial: CsdObjectInertial | None
 
     @classmethod
     def from_mapping(cls, payload: Mapping[str, Any]) -> "CsdObjectInitialState":
         contact_payload = payload.get("contact")
+        inertial_payload = payload.get("inertial")
         return cls(
             mass_kg=float(payload.get("mass_kg", 0.1)),
             friction=_friction_tuple(payload.get("friction", DEFAULT_MUJOCO_OBJECT_FRICTION)),
             contact=(
                 CsdObjectContact.from_mapping(contact_payload)
                 if isinstance(contact_payload, Mapping)
+                else None
+            ),
+            inertial=(
+                CsdObjectInertial.from_mapping(inertial_payload)
+                if isinstance(inertial_payload, Mapping)
                 else None
             ),
         )

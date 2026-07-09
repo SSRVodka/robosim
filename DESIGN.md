@@ -135,7 +135,11 @@ mesh resource，可带 mesh `scale`；若 backend resource adapter 提供
 设为 `contype="0"`、`conaffinity="0"`，由透明 collision geom 承载 MuJoCo
 collision/mass/friction，并将 visual-only geom 显式设为 `density="0"`，避免
 MuJoCo 默认 density 让 visual geom 额外贡献 body mass。object `initial_state` 解析为 typed physical state，
-当前支持 `mass_kg` 与 `friction`，并由 compiler 显式写入对应 object geom。
+当前支持 `mass_kg`、`friction` 与可选 explicit `inertial`。若 CSD 提供
+`initial_state.inertial.center_of_mass` 和 `diagonal_inertia_kg_m2`，compiler 会在
+object body 下写出 MJCF `<inertial pos="..." mass="..." diaginertia="...">`，
+并将该 object 的 compiler-generated geoms 设为 massless，使 object mass/inertia
+只由显式 inertial 承载；若未提供 explicit inertial，则沿用 geom `mass` 路径。
 MuJoCo geom `friction` 按 MJCF `real(3)` 输出；CSD scalar friction 被解释为
 sliding friction，并保留 MuJoCo 默认 torsional/rolling friction
 `0.005 0.0001`，CSD 3-vector friction 则原样写出。CSD object
@@ -156,8 +160,8 @@ entry XML 的 `<option gravity="...">`，不修改源 template，也不在顶层
 `drivers_sim` 的 world scene。编译器写出 MJCF 后会立即用
 `mujoco.MjModel.from_xml_path` 做 package-local load check，并在
 `diagnostics/load_check.json` 记录 `model_load`、gravity、CSD object body pose
-和 orientation、body mass、collision-bearing geom friction/contact、environment
-camera pose、light pose/direction、surface pose 和 orientation 检查结果。
+和 orientation、body mass、explicit body inertial position/inertia、
+collision-bearing geom friction/contact、environment camera pose、light pose/direction、surface pose 和 orientation 检查结果。
 object/surface orientation check 使用单位归一化后的 CSD quaternion，与 MuJoCo 加载
 MJCF 后的 quaternion normalization 行为一致；camera orientation check 使用 CSD
 `xyaxes` 解析得到的 camera-frame quaternion。surface geom check 还会验证 CSD
