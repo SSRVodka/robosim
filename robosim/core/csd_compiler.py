@@ -27,6 +27,7 @@ from robosim.core.csd import (
 MUJOCO_BACKEND = "mujoco"
 GAZEBO_BACKEND = "gazebo"
 DEFAULT_REALIZATION_VERSION = "csd-compiler-0.2"
+MUJOCO_MESH_EXTENSIONS = frozenset({".obj", ".stl", ".msh"})
 @dataclass(frozen=True, slots=True)
 class CsdCompilationResult:
     """Result of compiling one fixed CSD into backend-native artifacts."""
@@ -716,6 +717,16 @@ def _mesh_path_blockers(
                 _asset_blocker(csd_id, asset_id, backend, "backend resource path must be relative")
             )
             continue
+        if backend == MUJOCO_BACKEND and not _is_supported_mujoco_mesh_path(relative_path):
+            blockers.append(
+                _asset_blocker(
+                    csd_id,
+                    asset_id,
+                    backend,
+                    f"MuJoCo mesh resource format is unsupported: {relative_path}",
+                )
+            )
+            continue
         if not (asset_root / relative_path).is_file():
             blockers.append(
                 _asset_blocker(
@@ -735,6 +746,20 @@ def _mesh_path_blockers(
                         asset_id,
                         backend,
                         "asset collision mesh path must be relative",
+                    )
+                )
+            elif backend == MUJOCO_BACKEND and not _is_supported_mujoco_mesh_path(
+                collision_mesh_path
+            ):
+                blockers.append(
+                    _asset_blocker(
+                        csd_id,
+                        asset_id,
+                        backend,
+                        (
+                            "MuJoCo collision mesh resource format is unsupported: "
+                            f"{collision_mesh_path}"
+                        ),
                     )
                 )
             elif not (asset_root / collision_mesh_path).is_file():
@@ -770,6 +795,10 @@ def _mesh_path_blockers(
                 )
             )
     return tuple(blockers)
+
+
+def _is_supported_mujoco_mesh_path(path: str) -> bool:
+    return Path(path).suffix.lower() in MUJOCO_MESH_EXTENSIONS
 
 
 def _append_mjcf_material(parent: ET.Element, material: BackendResourceMaterial) -> None:
