@@ -18,6 +18,7 @@ from robosim.core.csd import (
     CsdObject,
     CsdRealizationBlocker,
     CsdRealizationManifest,
+    CsdRelationshipType,
     asset_resource_hashes_for_csd,
     backend_resource_adapters_by_asset,
     find_csd_realization_blockers,
@@ -139,6 +140,13 @@ def compile_csd_to_mujoco(
     )
     if load_check_blockers:
         return CsdCompilationResult(manifest=None, blockers=load_check_blockers)
+    relationship_check_file, relationship_check_blockers = _write_mujoco_relationship_check(
+        scene_path=scene_path,
+        diagnostics_root=diagnostics_root,
+        csd=typed_csd,
+    )
+    if relationship_check_blockers:
+        return CsdCompilationResult(manifest=None, blockers=relationship_check_blockers)
     physics_check_file, physics_check_blockers = _write_mujoco_physics_check(
         scene_path=scene_path,
         diagnostics_root=diagnostics_root,
@@ -157,6 +165,7 @@ def compile_csd_to_mujoco(
         "manifest.json",
         "scene.xml",
         load_check_file,
+        relationship_check_file,
         physics_check_file,
         *generated_asset_files,
         *generated_robot_files,
@@ -805,6 +814,96 @@ def _load_check(
     if details is not None:
         check["details"] = dict(details)
     return check
+
+
+def _write_mujoco_relationship_check(
+    *,
+    scene_path: Path,
+    diagnostics_root: Path,
+    csd: ConcreteScenarioDefinition,
+) -> tuple[str, tuple[CsdRealizationBlocker, ...]]:
+    checks: list[dict[str, object]] = []
+    blockers: list[CsdRealizationBlocker] = []
+    try:
+        import mujoco
+
+        model = mujoco.MjModel.from_xml_path(str(scene_path))
+        data = mujoco.MjData(model)
+        mujoco.mj_forward(model, data)
+        for relationship in csd.relationships:
+            if relationship.type != CsdRelationshipType.AVOID_CONTACT:
+                continue
+            subject_body = _relationship_body_name(relationship.subject)
+            object_body = _relationship_body_name(relationship.object)
+            min_distance_m = float(relationship.parameters.get("min_distance_m", 0.0))
+            subject_pos = _float_sequence_json(model.body(subject_body).pos)
+            object_pos = _float_sequence_json(model.body(object_body).pos)
+            distance_m = _distance(subject_pos, object_pos)
+            passed = distance_m >= min_distance_m
+            checks.append(
+                _load_check(
+                    f"avoid_contact:{relationship.relation_id}",
+                    passed=passed,
+                    details={
+                        "subject": relationship.subject,
+                        "object": relationship.object,
+                        "distance_m": distance_m,
+                        "min_distance_m": min_distance_m,
+                    },
+                )
+            )
+            if not passed:
+                blockers.append(
+                    _csd_blocker(
+                        csd.csd_id,
+                        relationship.relation_id,
+                        (
+                            "MuJoCo initial state violates avoid_contact relationship "
+                            f"{relationship.relation_id}"
+                        ),
+                    )
+                )
+    except Exception as exc:
+        checks.append(
+            _load_check(
+                "relationship_check",
+                passed=False,
+                details={"reason": str(exc)},
+            )
+        )
+        blockers.append(
+            CsdRealizationBlocker(
+                blocker_id=f"{csd.csd_id}_{MUJOCO_BACKEND}_relationship_check_failed",
+                csd_id=csd.csd_id,
+                backend=MUJOCO_BACKEND,
+                asset_id="relationships",
+                scope="vsim_realization",
+                reason="generated MuJoCo scene failed relationship diagnostics",
+            )
+        )
+
+    payload = {
+        "schema_version": "0.1",
+        "backend": MUJOCO_BACKEND,
+        "csd_id": csd.csd_id,
+        "entry_file": scene_path.name,
+        "status": "passed" if not blockers else "failed",
+        "checks": checks,
+    }
+    path = diagnostics_root / "relationship_check.json"
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return "diagnostics/relationship_check.json", tuple(blockers)
+
+
+def _relationship_body_name(entity_ref: str) -> str:
+    entity_type, _, entity_id = entity_ref.partition(":")
+    if entity_type in {"object", "surface"} and entity_id:
+        return _mjcf_name(entity_id)
+    raise ValueError(f"MuJoCo relationship diagnostics cannot resolve body for {entity_ref}")
+
+
+def _distance(left: list[float], right: list[float]) -> float:
+    return math.sqrt(sum((a - b) ** 2 for a, b in zip(left, right, strict=True)))
 
 
 def _write_mujoco_physics_check(

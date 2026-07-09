@@ -188,15 +188,27 @@ def test_compile_csd_to_mujoco_handles_multi_object_static_dynamic_scene(
     )
 
     scene_path = tmp_path / "engine_manifests" / "mujoco" / "csd_tabletop_multi_0001" / "scene.xml"
+    relationship_check_path = (
+        tmp_path
+        / "engine_manifests"
+        / "mujoco"
+        / "csd_tabletop_multi_0001"
+        / "diagnostics"
+        / "relationship_check.json"
+    )
     root = ET.parse(scene_path).getroot()
     bodies = {body.attrib["name"]: body for body in root.findall("worldbody/body")}
 
     assert result.blockers == ()
+    assert isinstance(result.manifest, CsdRealizationManifest)
+    assert "diagnostics/relationship_check.json" in result.manifest.generated_files
     assert {"mug", "tray", "marker", "surface_tabletop"} <= set(bodies)
     assert bodies["mug"].find("freejoint") is not None
     assert bodies["marker"].find("freejoint") is not None
     assert bodies["tray"].find("freejoint") is None
     assert _required_element(bodies["mug"], "geom").attrib["friction"] == "0.8 0.005 0.0001"
+    relationship_check = json.loads(relationship_check_path.read_text(encoding="utf-8"))
+    assert relationship_check["status"] == "passed"
     model = mujoco.MjModel.from_xml_path(str(scene_path))
     assert model.nbody >= 4
 
@@ -749,6 +761,55 @@ def test_compile_csd_to_mujoco_blocks_unknown_relationship_entity(
             "relationship rel_mug_on_table subject references unknown entity: object:ghost"
         ),
     }
+
+
+def test_compile_csd_to_mujoco_blocks_avoid_contact_violation(
+    tmp_path: Path,
+) -> None:
+    asset_root = tmp_path / "assets"
+    csd = _load_json_fixture("franka_tabletop_multi_object.json")
+    scenario = csd["scenario"]
+    assert isinstance(scenario, dict)
+    objects = scenario["objects"]
+    assert isinstance(objects, list)
+    mug = objects[0]
+    marker = objects[2]
+    assert isinstance(mug, dict)
+    assert isinstance(marker, dict)
+    marker["pose"] = mug["pose"]
+    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    _write_fixture_asset_files(asset_root, asset_registry)
+
+    result = compile_csd_to_mujoco(
+        csd=csd,
+        asset_registry=asset_registry,
+        output_root=tmp_path,
+        asset_root=asset_root,
+    )
+
+    relationship_check = (
+        tmp_path
+        / "mujoco"
+        / "csd_tabletop_multi_0001"
+        / "diagnostics"
+        / "relationship_check.json"
+    )
+
+    assert result.manifest is None
+    assert result.blockers[0].to_json_dict() == {
+        "blocker_id": "csd_tabletop_multi_0001_mujoco_rel_mug_avoid_marker_compile_blocked",
+        "csd_id": "csd_tabletop_multi_0001",
+        "backend": "mujoco",
+        "asset_id": "rel_mug_avoid_marker",
+        "scope": "csd",
+        "reason": (
+            "MuJoCo initial state violates avoid_contact relationship "
+            "rel_mug_avoid_marker"
+        ),
+    }
+    payload = json.loads(relationship_check.read_text(encoding="utf-8"))
+    assert payload["status"] == "failed"
+    assert payload["checks"][0]["name"] == "avoid_contact:rel_mug_avoid_marker"
 
 
 def test_compile_csd_to_mujoco_applies_template_nondefault_gravity(tmp_path: Path) -> None:

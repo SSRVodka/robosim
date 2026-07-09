@@ -59,6 +59,10 @@
   的 `subject`/`object` 必须能解析到当前 CSD 的 object、environment surface
   或 robot，否则返回 `CsdRealizationBlocker(scope="csd")`；暂不在 compiler
   中推断 `inside`/`on_top_of` 等几何关系成立性；
+- [x] 为 MuJoCo compiler 增加 `avoid_contact` relationship diagnostic：读取
+  typed `min_distance_m`，比较已加载 MuJoCo body 的初始位置距离，违反时写入
+  `diagnostics/relationship_check.json` 并返回
+  `CsdRealizationBlocker(scope="csd")`；
 - [x] 为 MuJoCo compiler 增加 mesh resource format gate：visual/collision mesh
   仅允许 MJCF mesh asset 支持的 `.obj`、`.stl`、`.msh`，否则返回 typed asset
   blocker；

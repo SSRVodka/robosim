@@ -148,12 +148,12 @@ entry XML 的 `<option gravity="...">`，不修改源 template，也不在顶层
 `diagnostics/load_check.json` 记录 `model_load`、gravity、CSD object body pose
 和 environment surface pose 检查结果；若该检查失败，compiler 返回
 `CsdRealizationBlocker(scope="vsim_realization")`，不发布 manifest。
-load check 通过后，compiler 会运行短 MuJoCo forward/step stability check，写入
-`diagnostics/physics_check.json`；该检查只证明基本数值稳定，不代表 task success
-或 rollout 质量。随后 compiler 会使用第一个 CSD camera 做 MuJoCo offscreen
-render，写入 `diagnostics/semantic_preview.ppm`，并在 `manifest.preview_files`
-中记录该 preview artifact；若 physics check、渲染或输出为空失败，同样返回
-`CsdRealizationBlocker(scope="vsim_realization")`。
+load check 通过后，compiler 会写入 `diagnostics/relationship_check.json`，再运行
+短 MuJoCo forward/step stability check，写入 `diagnostics/physics_check.json`；
+该检查只证明基本数值稳定，不代表 task success 或 rollout 质量。随后 compiler
+会使用第一个 CSD camera 做 MuJoCo offscreen render，写入
+`diagnostics/semantic_preview.ppm`，并在 `manifest.preview_files` 中记录该 preview
+artifact；若 relationship/physics check、渲染或输出为空失败，同样返回 blocker。
 
 MuJoCo compiler 会在写出文件前执行语义 gate，避免生成可加载但语义错误的
 MJCF。当前会阻止非 `units="m"`、非 `frame="world"`、以及非 `box` 类型的
@@ -162,10 +162,14 @@ environment surface。被阻止的情况返回 typed
 明确转换策略，而不是依赖静默降级。
 compiler 还会检查 enum relationship 的 `subject` 和 `object` entity refs 是否
 能解析到当前 CSD 中的 object、environment surface 或 robot；无法解析的
-relationship 会作为 CSD blocker 返回。当前不在 compiler 中推断 `inside`、
+relationship 会作为 CSD blocker 返回。当前 MuJoCo relationship diagnostics
+还会对 `avoid_contact` 做确定性数值检查：读取关系中的 `min_distance_m`，比较
+已加载 MuJoCo body 的初始位置距离，失败时写入
+`diagnostics/relationship_check.json` 并返回
+`CsdRealizationBlocker(scope="csd")`。当前不在 compiler 中推断 `inside`、
 `on_top_of` 等关系的几何成立性，因为这需要 asset extents、support/contact
-semantics 和 evaluator predicate 共同定义；在这些契约补齐前，compiler 只做
-结构性关系检查，不做自然语言或 AI 判定。
+semantics 和 evaluator predicate 共同定义；在这些契约补齐前，compiler 不做
+自然语言或 AI 判定。
 MuJoCo asset compatibility gate 还会阻止不受 MJCF mesh asset 支持的 mesh
 resource 扩展名；当前允许 `.obj`、`.stl`、`.msh`，visual mesh 与 collision
 mesh 都适用。此检查发生在复制资源和写出 MJCF 之前，返回
@@ -177,11 +181,12 @@ CSD 引用的 backend mesh resources 复制到
 只引用该目录内的相对路径。当前 MuJoCo compiler 会把该产物提升为
 `engine_manifests/mujoco/<csd_id>/` 下的完整 realization package，持久化
 `manifest.json`，创建 `diagnostics/`，写入 `diagnostics/load_check.json` 与
-`diagnostics/physics_check.json`、`diagnostics/semantic_preview.ppm`，并把临时
-Franka robot template 与其 mesh dependency closure 复制到当前 realization
-package。这样即使原始 asset cache 或 `drivers_sim` 源目录移动或清理，已编译的
-MJCF 仍可加载。后续处理 OBJ 材质、纹理、URDF/SDF resource 时也必须遵守同样
-原则：native scene artifact 不得依赖易丢失的下载缓存路径。
+`diagnostics/relationship_check.json`、`diagnostics/physics_check.json`、
+`diagnostics/semantic_preview.ppm`，并把临时 Franka robot template 与其 mesh
+dependency closure 复制到当前 realization package。这样即使原始 asset cache 或
+`drivers_sim` 源目录移动或清理，已编译的 MJCF 仍可加载。后续处理 OBJ 材质、
+纹理、URDF/SDF resource 时也必须遵守同样原则：native scene artifact 不得依赖
+易丢失的下载缓存路径。
 
 MuJoCo runtime loading 通过 `MuJoCoBackend.from_csd_realization_manifest()` 或
 `MuJoCoBackend.from_csd_realization_manifest_file()` 消费 compiler 输出的
