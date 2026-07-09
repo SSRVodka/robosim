@@ -148,6 +148,10 @@ entry XML 的 `<option gravity="...">`，不修改源 template，也不在顶层
 `diagnostics/load_check.json` 记录 `model_load`、gravity、CSD object body pose
 和 environment surface pose 检查结果；若该检查失败，compiler 返回
 `CsdRealizationBlocker(scope="vsim_realization")`，不发布 manifest。
+load check 通过后，compiler 会使用第一个 CSD camera 做 MuJoCo offscreen render，
+写入 `diagnostics/semantic_preview.ppm`，并在 `manifest.preview_files` 中记录该
+preview artifact；若渲染失败或输出为空，同样返回
+`CsdRealizationBlocker(scope="vsim_realization")`。
 
 MuJoCo compiler 会在写出文件前执行语义 gate，避免生成可加载但语义错误的
 MJCF。当前会阻止非 `units="m"`、非 `frame="world"`、以及非 `box` 类型的
@@ -170,11 +174,12 @@ CSD 引用的 backend mesh resources 复制到
 `engine_manifests/mujoco/<csd_id>/assets/<resource-relative-path>`，`scene.xml`
 只引用该目录内的相对路径。当前 MuJoCo compiler 会把该产物提升为
 `engine_manifests/mujoco/<csd_id>/` 下的完整 realization package，持久化
-`manifest.json`，创建 `diagnostics/`，写入 `diagnostics/load_check.json`，并把
-临时 Franka robot template 与其 mesh dependency closure 复制到当前 realization
-package。这样即使原始 asset cache 或 `drivers_sim` 源目录移动或清理，已编译的
-MJCF 仍可加载。后续处理 OBJ 材质、纹理、URDF/SDF resource 时也必须遵守同样
-原则：native scene artifact 不得依赖易丢失的下载缓存路径。
+`manifest.json`，创建 `diagnostics/`，写入 `diagnostics/load_check.json` 与
+`diagnostics/semantic_preview.ppm`，并把临时 Franka robot template 与其 mesh
+dependency closure 复制到当前 realization package。这样即使原始 asset cache 或
+`drivers_sim` 源目录移动或清理，已编译的 MJCF 仍可加载。后续处理 OBJ 材质、
+纹理、URDF/SDF resource 时也必须遵守同样原则：native scene artifact 不得依赖
+易丢失的下载缓存路径。
 
 MuJoCo runtime loading 通过 `MuJoCoBackend.from_csd_realization_manifest()` 或
 `MuJoCoBackend.from_csd_realization_manifest_file()` 消费 compiler 输出的

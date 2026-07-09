@@ -67,6 +67,9 @@
   并将 model load、gravity、CSD object body pose、environment surface pose 检查写入
   `diagnostics/load_check.json`；检查失败时返回
   `CsdRealizationBlocker(scope="vsim_realization")`，不发布 manifest；
+- [x] 为 MuJoCo compiler 产物增加 package-local preview artifact：load check
+  通过后从 CSD camera 进行 offscreen render，写入
+  `diagnostics/semantic_preview.ppm`，并记录到 `manifest.preview_files`；
 - [ ] 为 CSD realization 定义 asset backend compatibility 检查：mesh format、
   material/texture、collision、joint/articulation、sensor、lighting、scale、
   frame/up-axis、contact/inertial semantics；不支持或有损转换必须返回

@@ -9,7 +9,6 @@ import zlib
 from collections.abc import Mapping
 from pathlib import Path
 from shutil import copytree
-from typing import Any
 
 import mujoco
 
@@ -71,12 +70,6 @@ def _write_png_1x1(path: Path) -> None:
     )
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(png)
-
-
-def _write_ppm(path: Path, pixels: Any) -> None:
-    height, width = pixels.shape[:2]
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(f"P6\n{width} {height}\n255\n".encode("ascii") + pixels.tobytes())
 
 
 def _write_fixture_asset_files(asset_root: Path, asset_registry: Mapping[str, object]) -> None:
@@ -482,24 +475,23 @@ def test_compile_csd_to_mujoco_renders_semantic_preview_screenshot(
 
     scene_root = tmp_path / "engine_manifests" / "mujoco" / "csd_object_only_0001"
     scene_path = scene_root / "scene.xml"
+    screenshot_path = scene_root / "diagnostics" / "semantic_preview.ppm"
     model = mujoco.MjModel.from_xml_path(str(scene_path))
-    data = mujoco.MjData(model)
     tray_body = model.body("tray")
     mug_body = model.body("mug")
     assert result.blockers == ()
+    assert isinstance(result.manifest, CsdRealizationManifest)
+    assert result.manifest.preview_files == ("diagnostics/semantic_preview.ppm",)
     assert tuple(round(float(value), 6) for value in tray_body.pos) == (0.0, 0.0, 0.15)
     assert tuple(round(float(value), 6) for value in mug_body.pos) == (0.05, 0.0, 0.32)
 
-    with mujoco.Renderer(model, height=128, width=128) as renderer:
-        mujoco.mj_forward(model, data)
-        renderer.update_scene(data, camera="world_camera")
-        pixels = renderer.render()
+    payload = screenshot_path.read_bytes()
 
-    screenshot_path = scene_root / "diagnostics" / "semantic_preview.ppm"
-    _write_ppm(screenshot_path, pixels)
-
+    header = b"P6\n128 128\n255\n"
+    assert payload.startswith(header)
     assert screenshot_path.stat().st_size > 128 * 128
-    assert int(pixels.max()) > int(pixels.min())
+    pixels = payload[len(header):]
+    assert max(pixels) > min(pixels)
 
 
 def test_compile_csd_to_mujoco_reports_missing_resource_adapter(tmp_path: Path) -> None:

@@ -139,6 +139,13 @@ def compile_csd_to_mujoco(
     )
     if load_check_blockers:
         return CsdCompilationResult(manifest=None, blockers=load_check_blockers)
+    preview_file, preview_blockers = _write_mujoco_preview(
+        scene_path=scene_path,
+        diagnostics_root=diagnostics_root,
+        csd=typed_csd,
+    )
+    if preview_blockers:
+        return CsdCompilationResult(manifest=None, blockers=preview_blockers)
     generated_files = (
         "manifest.json",
         "scene.xml",
@@ -154,7 +161,7 @@ def compile_csd_to_mujoco(
         root_path=str(scene_root),
         entry_file="scene.xml",
         generated_files=_unique_files(generated_files),
-        preview_files=(),
+        preview_files=(preview_file,),
     )
     _write_manifest(scene_root / "manifest.json", manifest)
     return CsdCompilationResult(
@@ -790,6 +797,52 @@ def _load_check(
     if details is not None:
         check["details"] = dict(details)
     return check
+
+
+def _write_mujoco_preview(
+    *,
+    scene_path: Path,
+    diagnostics_root: Path,
+    csd: ConcreteScenarioDefinition,
+) -> tuple[str, tuple[CsdRealizationBlocker, ...]]:
+    try:
+        import mujoco
+
+        model = mujoco.MjModel.from_xml_path(str(scene_path))
+        data = mujoco.MjData(model)
+        with mujoco.Renderer(model, height=128, width=128) as renderer:
+            mujoco.mj_forward(model, data)
+            renderer.update_scene(data, camera=_mujoco_preview_camera(csd))
+            pixels = renderer.render()
+        if int(pixels.max()) <= int(pixels.min()):
+            raise ValueError("rendered preview has no pixel variation")
+        _write_ppm(diagnostics_root / "semantic_preview.ppm", pixels)
+        return "diagnostics/semantic_preview.ppm", ()
+    except Exception as exc:
+        return (
+            "diagnostics/semantic_preview.ppm",
+            (
+                CsdRealizationBlocker(
+                    blocker_id=f"{csd.csd_id}_{MUJOCO_BACKEND}_preview_render_failed",
+                    csd_id=csd.csd_id,
+                    backend=MUJOCO_BACKEND,
+                    asset_id="scene",
+                    scope="vsim_realization",
+                    reason=f"generated MuJoCo scene failed preview rendering: {exc}",
+                ),
+            ),
+        )
+
+
+def _mujoco_preview_camera(csd: ConcreteScenarioDefinition) -> str:
+    if csd.environment.cameras:
+        return _mjcf_name(csd.environment.cameras[0].camera_id)
+    return "world_camera"
+
+
+def _write_ppm(path: Path, pixels: Any) -> None:
+    height, width = pixels.shape[:2]
+    path.write_bytes(f"P6\n{width} {height}\n255\n".encode("ascii") + pixels.tobytes())
 
 
 def _unique_files(paths: Iterable[str]) -> tuple[str, ...]:
