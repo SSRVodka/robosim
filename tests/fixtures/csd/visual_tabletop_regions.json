@@ -1,0 +1,99 @@
+{
+  "csd_id": "csd_visual_tabletop_regions_0001",
+  "schema_version": "0.2",
+  "scenario": {
+    "task": {
+      "task_instance_id": "task_visual_tabletop_regions_0001",
+      "objective": "verify that the compiler preserves distinct background, support, and object placement semantics",
+      "evaluator_refs": ["predicate_colored_regions_visible", "predicate_objects_on_support_regions"]
+    },
+    "frame": "world",
+    "units": "m",
+    "environment": {
+      "environment_id": "env_visual_tabletop_regions",
+      "type": "tabletop",
+      "gravity": [0.0, 0.0, -9.81],
+      "surfaces": [
+        {
+          "surface_id": "surface_green_backdrop",
+          "type": "box",
+          "pose": {
+            "position": {"x": -0.08, "y": 0.0, "z": 0.5},
+            "orientation": {"w": 1.0, "x": 0.0, "y": 0.0, "z": 0.0}
+          },
+          "size": {"x": 0.02, "y": 0.55, "z": 0.34},
+          "rgba": [0.02, 0.8, 0.08, 1.0],
+          "friction": [1.0, 0.1, 0.1]
+        },
+        {
+          "surface_id": "surface_red_left_pad",
+          "type": "box",
+          "pose": {
+            "position": {"x": 0.3, "y": -0.2, "z": 0.08},
+            "orientation": {"w": 1.0, "x": 0.0, "y": 0.0, "z": 0.0}
+          },
+          "size": {"x": 0.22, "y": 0.16, "z": 0.03},
+          "rgba": [0.9, 0.04, 0.04, 1.0],
+          "friction": [1.1, 0.15, 0.15]
+        },
+        {
+          "surface_id": "surface_blue_right_pad",
+          "type": "box",
+          "pose": {
+            "position": {"x": 0.3, "y": 0.2, "z": 0.08},
+            "orientation": {"w": 1.0, "x": 0.0, "y": 0.0, "z": 0.0}
+          },
+          "size": {"x": 0.22, "y": 0.16, "z": 0.03},
+          "rgba": [0.04, 0.08, 0.9, 1.0],
+          "friction": [1.1, 0.15, 0.15]
+        }
+      ],
+      "cameras": [
+        {
+          "camera_id": "overview_camera",
+          "pose": {
+            "position": {"x": 1.35, "y": 0.0, "z": 0.85},
+            "xyaxes": [0.0, 1.0, 0.0, -0.38, 0.0, 0.925]
+          },
+          "mode": "fixed"
+        }
+      ],
+      "lighting": [
+        {"light_id": "key_light", "position": [0.4, -0.8, 2.6], "direction": [0.0, 0.0, -1.0]}
+      ]
+    },
+    "objects": [
+      {
+        "name": "mug_left",
+        "asset_id": "object_mug",
+        "role": "interactive_object",
+        "pose": {"position": {"x": 0.28, "y": -0.2, "z": 0.16}, "orientation": {"w": 1.0, "x": 0.0, "y": 0.0, "z": 0.0}},
+        "static": false,
+        "initial_state": {"mass_kg": 0.2, "friction": 0.8}
+      },
+      {
+        "name": "tray_right",
+        "asset_id": "object_tray",
+        "role": "receptacle",
+        "pose": {"position": {"x": 0.32, "y": 0.2, "z": 0.16}, "orientation": {"w": 1.0, "x": 0.0, "y": 0.0, "z": 0.0}},
+        "static": true,
+        "initial_state": {"mass_kg": 1.0, "friction": 0.7}
+      },
+      {
+        "name": "marker_center",
+        "asset_id": "object_marker",
+        "role": "distractor",
+        "pose": {"position": {"x": 0.18, "y": 0.0, "z": 0.16}, "orientation": {"w": 0.9238795, "x": 0.0, "y": 0.0, "z": 0.3826834}},
+        "static": false,
+        "initial_state": {"mass_kg": 0.05, "friction": 0.6}
+      }
+    ],
+    "relationships": [
+      {"relation_id": "rel_mug_on_red_pad", "type": "on_top_of", "subject": "object:mug_left", "object": "surface:surface_red_left_pad", "parameters": {"contact_required": true, "position_tolerance_m": 0.04}},
+      {"relation_id": "rel_tray_on_blue_pad", "type": "on_top_of", "subject": "object:tray_right", "object": "surface:surface_blue_right_pad", "parameters": {"contact_required": true, "position_tolerance_m": 0.04}},
+      {"relation_id": "rel_mug_avoid_marker", "type": "avoid_contact", "subject": "object:mug_left", "object": "object:marker_center", "parameters": {"min_distance_m": 0.05}}
+    ],
+    "randomization": {"seed": 29, "values": {"surface_layout": "fixed_visual_regions"}},
+    "sensor_requirements": {"cameras": ["overview_camera"]}
+  }
+}

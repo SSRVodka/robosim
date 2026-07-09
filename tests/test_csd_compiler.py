@@ -6,7 +6,7 @@ import json
 import struct
 import xml.etree.ElementTree as ET
 import zlib
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from shutil import copytree
 
@@ -96,6 +96,25 @@ def _write_fixture_asset_files(asset_root: Path, asset_registry: Mapping[str, ob
             if isinstance(material, Mapping) and material.get("texture_path"):
                 texture_path = asset_root / str(material["texture_path"])
                 _write_png_1x1(texture_path)
+
+
+def _read_ppm_rgb(path: Path, *, width: int = 128, height: int = 128) -> list[tuple[int, int, int]]:
+    header = f"P6\n{width} {height}\n255\n".encode()
+    payload = path.read_bytes()
+    assert payload.startswith(header)
+    pixels = payload[len(header) :]
+    assert len(pixels) == width * height * 3
+    return [
+        (pixels[index], pixels[index + 1], pixels[index + 2])
+        for index in range(0, len(pixels), 3)
+    ]
+
+
+def _count_pixels(
+    pixels: list[tuple[int, int, int]],
+    predicate: Callable[[tuple[int, int, int]], bool],
+) -> int:
+    return sum(1 for pixel in pixels if predicate(pixel))
 
 
 def test_compile_csd_to_mujoco_writes_loadable_mjcf_and_manifest(tmp_path: Path) -> None:
@@ -938,6 +957,52 @@ def test_compile_csd_to_mujoco_renders_semantic_preview_screenshot(
     assert max(pixels) > min(pixels)
 
 
+def test_compile_csd_to_mujoco_preview_contains_distinct_visual_regions(
+    tmp_path: Path,
+) -> None:
+    asset_root = tmp_path / "assets"
+    csd = _load_json_fixture("visual_tabletop_regions.json")
+    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    _write_fixture_asset_files(asset_root, asset_registry)
+
+    result = compile_csd_to_mujoco(
+        csd=csd,
+        asset_registry=asset_registry,
+        output_root=tmp_path / "engine_manifests",
+        asset_root=asset_root,
+    )
+
+    scene_root = tmp_path / "engine_manifests" / "mujoco" / "csd_visual_tabletop_regions_0001"
+    scene_path = scene_root / "scene.xml"
+    screenshot_path = scene_root / "diagnostics" / "semantic_preview.ppm"
+    load_check = json.loads(
+        (scene_root / "diagnostics" / "load_check.json").read_text(encoding="utf-8")
+    )
+    checks = {check["name"]: check for check in load_check["checks"]}
+    model = mujoco.MjModel.from_xml_path(str(scene_path))
+    pixels = _read_ppm_rgb(screenshot_path)
+
+    assert result.blockers == ()
+    assert isinstance(result.manifest, CsdRealizationManifest)
+    assert result.manifest.preview_files == ("diagnostics/semantic_preview.ppm",)
+    assert checks["surface_rgba:surface_green_backdrop_geom"]["status"] == "passed"
+    assert checks["surface_rgba:surface_red_left_pad_geom"]["status"] == "passed"
+    assert checks["surface_rgba:surface_blue_right_pad_geom"]["status"] == "passed"
+    assert tuple(round(float(value), 6) for value in model.body("mug_left").pos) == (
+        0.28,
+        -0.2,
+        0.16,
+    )
+    assert tuple(round(float(value), 6) for value in model.body("tray_right").pos) == (
+        0.32,
+        0.2,
+        0.16,
+    )
+    assert _count_pixels(pixels, lambda pixel: pixel[0] > pixel[1] + 20) > 40
+    assert _count_pixels(pixels, lambda pixel: pixel[2] > pixel[1] + 20) > 40
+    assert _count_pixels(pixels, lambda pixel: pixel[1] > pixel[0] + 20) > 40
+
+
 def test_compile_csd_to_mujoco_reports_missing_resource_adapter(tmp_path: Path) -> None:
     result = compile_csd_to_mujoco(
         csd={
@@ -1162,6 +1227,43 @@ def test_compile_csd_to_mujoco_blocks_zero_surface_quaternion(
         "asset_id": "surface_tabletop",
         "scope": "csd",
         "reason": "surface surface_tabletop orientation quaternion must be non-zero",
+    }
+
+
+def test_compile_csd_to_mujoco_blocks_invalid_surface_size(
+    tmp_path: Path,
+) -> None:
+    asset_root = tmp_path / "assets"
+    csd = _load_json_fixture("franka_tabletop_single_object.json")
+    scenario = csd["scenario"]
+    assert isinstance(scenario, dict)
+    environment = scenario["environment"]
+    assert isinstance(environment, dict)
+    surfaces = environment["surfaces"]
+    assert isinstance(surfaces, list)
+    surface = surfaces[0]
+    assert isinstance(surface, dict)
+    size = surface["size"]
+    assert isinstance(size, dict)
+    size["z"] = -0.04
+    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    _write_fixture_asset_files(asset_root, asset_registry)
+
+    result = compile_csd_to_mujoco(
+        csd=csd,
+        asset_registry=asset_registry,
+        output_root=tmp_path,
+        asset_root=asset_root,
+    )
+
+    assert result.manifest is None
+    assert result.blockers[0].to_json_dict() == {
+        "blocker_id": "csd_tabletop_0001_mujoco_surface_tabletop_compile_blocked",
+        "csd_id": "csd_tabletop_0001",
+        "backend": "mujoco",
+        "asset_id": "surface_tabletop",
+        "scope": "csd",
+        "reason": "surface surface_tabletop box size values must be positive and finite",
     }
 
 

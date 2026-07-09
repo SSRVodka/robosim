@@ -104,9 +104,9 @@
   copy、world camera 保留、world-template geometry、以及 MuJoCo loadability
   smoke；另有独立 collision mesh resource fixture 覆盖 visual/collision
   分离和 dependency copy；
-- [x] 增加 MuJoCo compiler offscreen preview smoke：编译 fixture CSD 后从
-  `world_camera` 渲染临时 screenshot 到 `diagnostics/`，并检查对象 pose 语义与
-  非空像素，防止 CSD->MJCF 转换只在 XML 层面通过；
+- [x] 增加 MuJoCo compiler offscreen preview 检查：编译 fixture CSD 后从
+  CSD camera 渲染临时 screenshot 到 `diagnostics/`，检查对象 pose、surface
+  RGBA 语义与 distinct visual regions，防止 CSD->MJCF 转换只在 XML 层面通过；
 - [x] 在实现 MuJoCo realization 前记录官方文档依据：MuJoCo MJCF XML
   Reference、ROS URDF XML documentation、SDFormat specification；
 - [x] 在设计 realization output layout 前记录 OpenUSD asset resolution /

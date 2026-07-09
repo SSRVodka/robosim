@@ -659,6 +659,14 @@ def _mujoco_csd_semantic_blockers(
                     ),
                 )
             )
+        if not _positive_finite_vector(surface.size):
+            blockers.append(
+                _csd_blocker(
+                    csd.csd_id,
+                    surface.surface_id,
+                    f"surface {surface.surface_id} box size values must be positive and finite",
+                )
+            )
         if _quaternion_norm(surface.pose.orientation) == 0.0:
             blockers.append(
                 _csd_blocker(
@@ -1761,6 +1769,13 @@ def _unit_vector(vector: tuple[float, float, float]) -> tuple[float, float, floa
 
 def _vector_norm(vector: tuple[float, float, float]) -> float:
     return math.sqrt(sum(value * value for value in vector))
+
+
+def _positive_finite_vector(vector: Any) -> bool:
+    return all(
+        math.isfinite(float(value)) and float(value) > 0.0
+        for value in (vector.x, vector.y, vector.z)
+    )
 
 
 def _cross(
