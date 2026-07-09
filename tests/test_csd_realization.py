@@ -3,6 +3,7 @@
 from robosim.core.csd import (
     CsdRealizationBlocker,
     CsdRealizationManifest,
+    CsdRealizationValidationRecord,
     asset_resource_hashes_for_csd,
     asset_variant_hashes_for_csd,
     find_csd_realization_blockers,
@@ -75,6 +76,26 @@ def test_csd_realization_manifest_round_trips_backend_artifacts() -> None:
     restored = CsdRealizationManifest.from_json_dict(manifest.to_json_dict())
 
     assert restored == manifest
+
+
+def test_csd_realization_validation_record_round_trips() -> None:
+    record = CsdRealizationValidationRecord(
+        validation_id="validation_mujoco_csd_0001",
+        csd_id="csd_0001",
+        backend="mujoco",
+        manifest_id="manifest_mujoco_csd_0001",
+        cache_key="abc123",
+        status="passed",
+        evidence_files=(
+            "diagnostics/load_check.json",
+            "diagnostics/physics_check.json",
+        ),
+        preview_files=("diagnostics/semantic_preview.ppm",),
+    )
+
+    restored = CsdRealizationValidationRecord.from_json_dict(record.to_json_dict())
+
+    assert restored == record
 
 
 def test_csd_realization_reports_missing_backend_resource_adapter() -> None:

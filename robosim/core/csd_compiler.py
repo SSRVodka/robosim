@@ -18,6 +18,7 @@ from robosim.core.csd import (
     CsdObject,
     CsdRealizationBlocker,
     CsdRealizationManifest,
+    CsdRealizationValidationRecord,
     CsdRelationshipType,
     asset_resource_hashes_for_csd,
     backend_resource_adapters_by_asset,
@@ -27,7 +28,7 @@ from robosim.core.csd import (
 
 MUJOCO_BACKEND = "mujoco"
 GAZEBO_BACKEND = "gazebo"
-DEFAULT_REALIZATION_VERSION = "csd-compiler-0.2"
+DEFAULT_REALIZATION_VERSION = "csd-compiler-0.3"
 MUJOCO_MESH_EXTENSIONS = frozenset({".obj", ".stl", ".msh"})
 
 
@@ -165,12 +166,14 @@ def compile_csd_to_mujoco(
     )
     if preview_blockers:
         return CsdCompilationResult(manifest=None, blockers=preview_blockers)
+    validation_record_file = "diagnostics/validation_record.json"
     generated_files = (
         "manifest.json",
         "scene.xml",
         load_check_file,
         relationship_check_file,
         physics_check_file,
+        validation_record_file,
         *generated_asset_files,
         *generated_robot_files,
     )
@@ -183,6 +186,19 @@ def compile_csd_to_mujoco(
         entry_file="scene.xml",
         generated_files=_unique_files(generated_files),
         preview_files=(preview_file,),
+    )
+    _write_validation_record(
+        scene_root / validation_record_file,
+        CsdRealizationValidationRecord(
+            validation_id=f"validation_{MUJOCO_BACKEND}_{csd_id}",
+            csd_id=csd_id,
+            backend=MUJOCO_BACKEND,
+            manifest_id=manifest.manifest_id,
+            cache_key=manifest.cache_key,
+            status="passed",
+            evidence_files=(load_check_file, relationship_check_file, physics_check_file),
+            preview_files=manifest.preview_files,
+        ),
     )
     _write_manifest(scene_root / "manifest.json", manifest)
     return CsdCompilationResult(
@@ -689,6 +705,16 @@ def _patch_mujoco_template_gravity(path: Path, *, gravity: str) -> None:
 def _write_manifest(path: Path, manifest: CsdRealizationManifest) -> None:
     path.write_text(
         json.dumps(manifest.to_json_dict(), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _write_validation_record(
+    path: Path,
+    record: CsdRealizationValidationRecord,
+) -> None:
+    path.write_text(
+        json.dumps(record.to_json_dict(), indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
 

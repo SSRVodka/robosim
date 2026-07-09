@@ -369,6 +369,45 @@ def test_compile_csd_to_mujoco_writes_physics_check_diagnostics(tmp_path: Path) 
     assert checks["finite_state_after_steps"]["details"]["steps"] == 25
 
 
+def test_compile_csd_to_mujoco_writes_validation_record(tmp_path: Path) -> None:
+    asset_root = tmp_path / "assets"
+    csd = _load_json_fixture("object_only_static_and_dynamic.json")
+    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    _write_fixture_asset_files(asset_root, asset_registry)
+
+    result = compile_csd_to_mujoco(
+        csd=csd,
+        asset_registry=asset_registry,
+        output_root=tmp_path / "engine_manifests",
+        asset_root=asset_root,
+    )
+
+    scene_root = tmp_path / "engine_manifests" / "mujoco" / "csd_object_only_0001"
+    validation_record_path = scene_root / "diagnostics" / "validation_record.json"
+
+    assert result.blockers == ()
+    assert isinstance(result.manifest, CsdRealizationManifest)
+    assert "diagnostics/validation_record.json" in result.manifest.generated_files
+
+    payload = json.loads(validation_record_path.read_text(encoding="utf-8"))
+
+    assert payload == {
+        "backend": "mujoco",
+        "cache_key": result.manifest.cache_key,
+        "csd_id": "csd_object_only_0001",
+        "evidence_files": [
+            "diagnostics/load_check.json",
+            "diagnostics/relationship_check.json",
+            "diagnostics/physics_check.json",
+        ],
+        "manifest_id": "manifest_mujoco_csd_object_only_0001",
+        "preview_files": ["diagnostics/semantic_preview.ppm"],
+        "schema_version": "0.1",
+        "status": "passed",
+        "validation_id": "validation_mujoco_csd_object_only_0001",
+    }
+
+
 def test_compile_csd_to_mujoco_realizes_world_template_geometry(tmp_path: Path) -> None:
     asset_root = tmp_path / "assets"
     asset_registry = _load_json_fixture("asset_registry_mujoco.json")

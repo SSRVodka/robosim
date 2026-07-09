@@ -87,6 +87,9 @@
 - [x] 为 MuJoCo compiler 产物增加 package-local preview artifact：load check
   通过后从 CSD camera 进行 offscreen render，写入
   `diagnostics/semantic_preview.ppm`，并记录到 `manifest.preview_files`；
+- [x] 为 MuJoCo compiler 产物增加 typed validation record：写入
+  `diagnostics/validation_record.json`，关联 CSD ID、backend manifest ID、cache
+  key、diagnostic evidence files 和 preview files；
 - [ ] 为 CSD realization 定义 asset backend compatibility 检查：mesh format、
   material/texture、collision、joint/articulation、sensor、lighting、scale、
   frame/up-axis、contact/inertial semantics；MuJoCo mesh format、scale、

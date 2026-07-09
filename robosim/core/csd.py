@@ -505,6 +505,75 @@ class CsdRealizationManifest:
 
 
 @dataclass(frozen=True, slots=True)
+class CsdRealizationValidationRecord:
+    """Validation summary for one realized backend manifest."""
+
+    validation_id: str
+    csd_id: str
+    backend: str
+    manifest_id: str
+    cache_key: str
+    status: str
+    evidence_files: tuple[str, ...]
+    preview_files: tuple[str, ...]
+    schema_version: str = "0.1"
+
+    def __post_init__(self) -> None:
+        if not self.validation_id:
+            raise ValueError("validation_id is required")
+        if not self.csd_id:
+            raise ValueError("csd_id is required")
+        if not self.backend:
+            raise ValueError("backend is required")
+        if not self.manifest_id:
+            raise ValueError("manifest_id is required")
+        if not self.cache_key:
+            raise ValueError("cache_key is required")
+        if self.status not in {"passed", "failed"}:
+            raise ValueError("validation status must be 'passed' or 'failed'")
+        object.__setattr__(
+            self,
+            "evidence_files",
+            tuple(str(path) for path in self.evidence_files),
+        )
+        object.__setattr__(
+            self,
+            "preview_files",
+            tuple(str(path) for path in self.preview_files),
+        )
+
+    def to_json_dict(self) -> dict[str, object]:
+        return {
+            "backend": self.backend,
+            "cache_key": self.cache_key,
+            "csd_id": self.csd_id,
+            "evidence_files": list(self.evidence_files),
+            "manifest_id": self.manifest_id,
+            "preview_files": list(self.preview_files),
+            "schema_version": self.schema_version,
+            "status": self.status,
+            "validation_id": self.validation_id,
+        }
+
+    @classmethod
+    def from_json_dict(
+        cls,
+        payload: Mapping[str, Any],
+    ) -> "CsdRealizationValidationRecord":
+        return cls(
+            validation_id=str(payload["validation_id"]),
+            csd_id=str(payload["csd_id"]),
+            backend=str(payload["backend"]),
+            manifest_id=str(payload["manifest_id"]),
+            cache_key=str(payload["cache_key"]),
+            status=str(payload["status"]),
+            evidence_files=tuple(str(path) for path in payload.get("evidence_files", [])),
+            preview_files=tuple(str(path) for path in payload.get("preview_files", [])),
+            schema_version=str(payload.get("schema_version", "0.1")),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class CsdRealizationBlocker:
     """Typed reason a CSD cannot be realized for one backend yet."""
 
