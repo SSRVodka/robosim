@@ -35,6 +35,9 @@ lighting、scale、frame/up-axis、contact 参数和 inertial 语义的支持可
   `https://gazebosim.org/api/sim/8/resources.html`
 - Gazebo Sim SDF/resource migration notes:
   `https://gazebosim.org/api/sim/8/migrationsdf.html`
+- OpenUSD asset resolution and composition references:
+  `https://openusd.org/dev/api/ar_page_front.html`,
+  `https://openusd.org/release/glossary.html`
 
 当前 CSD realization 的已实现范围包括：
 
@@ -42,9 +45,11 @@ lighting、scale、frame/up-axis、contact 参数和 inertial 语义的支持可
   的 passed variant，并提取参与 cache key 的 variant hashes。若缺失 passed
   variant，会返回 typed blocker。
 - 第一版 CSD compiler：`compile_csd(..., backend=...)` 将固定 CSD 和 asset
-  registry 编译为 `<output_root>/<backend>/<csd_id>/...` 下的 backend-native
-  派生产物，并返回 `CsdRealizationManifest`。当前 MuJoCo 路径生成
-  `scene.xml`，Gazebo 路径生成 `world.sdf`。该路径目前支持具备对应 backend
+  registry 编译到 benchmark package 的
+  `engine_manifests/<backend>/<csd_id>/...` backend slot，并返回
+  `CsdRealizationManifest`。调用 API 时应把 `output_root` 传为 package 下的
+  `engine_manifests/`。当前 MuJoCo 路径生成 `scene.xml`，Gazebo 路径生成
+  `world.sdf`。该路径目前支持具备对应 backend
   passed mesh variant 的刚体 mesh 对象、CSD 显式 pose、MuJoCo 动态对象
   `freejoint`、Gazebo SDF model/link/visual/collision、mass/friction 标量，
   以及 realization cache key。它不替代后续 runtime load/render/physics
@@ -53,6 +58,54 @@ lighting、scale、frame/up-axis、contact 参数和 inertial 语义的支持可
   某个 backend 编译器当作唯一抽象。当前 `backend="mujoco"` 与
   `backend="gazebo"` 已实现第一版文件生成。ROS2 launch/package/share 目录
   属于后续 runtime integration 约定，不是 Gazebo SDF 编译产物的前置条件。
+
+### CSD realization 输出布局
+
+`vsim` 的 compiler 输出必须落在 thesis benchmark package 的统一 backend slot
+中，而不是写到 backend 自己的临时目录或 `drivers_sim` 源目录：
+
+```text
+engine_manifests/
+  <backend>/
+    <csd_id>/
+      manifest.json
+      <backend-entry-file>
+      assets/
+        ...
+      diagnostics/
+        ...
+```
+
+调用方应把 `compile_csd(..., output_root=...)` 的 `output_root` 设为 benchmark
+package 下的 `engine_manifests/`。MuJoCo 目标写入
+`engine_manifests/mujoco/<csd_id>/scene.xml`；Gazebo 目标写入
+`engine_manifests/gazebo/<csd_id>/world.sdf`。`manifest.json` 持久化
+`CsdRealizationManifest`，并记录 cache key、entry file、generated files、
+copied dependency files、backend、simulator/compiler version 和后续 preview
+files。
+
+该布局借鉴 OpenUSD 对 asset identity、composition 与 resolved asset path 的
+分离，但 MVP 不要求生成 USD 文件。CSD 和 asset registry 持有 project-owned
+asset IDs、语义、provenance 和 backend variant；MuJoCo/Gazebo compiler 负责把
+这些逻辑 asset 解析为当前 realization 目录中的相对路径。机器人模板、world
+模板、交互物体、材质、collision 与 domain-randomization override 应作为概念
+上分层的输入处理，即使最终需要为 MuJoCo 生成一个可加载的 MJCF entry file。
+
+MuJoCo realization 的路径规则：
+
+- `scene.xml` 必须能从 `engine_manifests/mujoco/<csd_id>/scene.xml` 直接被
+  `mujoco.MjModel.from_xml_path()` 加载；
+- MJCF 中的 mesh、texture、include 等依赖不得指向原始下载 cache 或
+  `drivers_sim` 源目录；
+- CSD object variants 必须复制到
+  `engine_manifests/mujoco/<csd_id>/assets/...` 后再被 MJCF 引用；
+- 临时复用 `drivers_sim/mujoco/assets/robots/...` 中的 robot/world 模板是允许的，
+  但 compiler 必须复制所需 XML、mesh、texture、SRDF/metadata 等 dependency
+  closure 到当前 realization 目录，不能把源目录当作永久运行时依赖；
+- 需要依据 MuJoCo XML Reference 使用 `compiler meshdir`、`texturedir` 或
+  `assetdir` 等机制保证 entry file 内路径清晰、相对、可移动；
+- compiler 可以先支持 Franka/tabletop manipulation MVP，但接口和目录结构不得把
+  Franka、tabletop 或 MuJoCo 写死为唯一目标。
 
 实现记录（2026-07-08）：MuJoCo 路径设计前已查阅 MuJoCo MJCF XML Reference
 中关于 `asset/mesh`、`geom` mesh 引用、mesh scale、mesh frame centering、
@@ -71,16 +124,19 @@ MJCF XML Reference（stable）中的 `compiler`、`asset/mesh`、`worldbody/body
 
 编译产物目录必须自包含当前 backend 需要的资产文件。第一版 MuJoCo 编译器会把
 CSD 引用的 passed mesh variant 复制到
-`<output_root>/mujoco/<csd_id>/assets/<variant-relative-path>`，`scene.xml`
-只引用该目录内的相对路径。这样即使原始 asset cache 移动或清理，已编译的
-MJCF 仍可加载。后续处理 OBJ 材质、纹理、collision mesh、URDF/SDF resource
-时也必须遵守同样原则：native scene artifact 不得依赖易丢失的下载缓存路径。
+`engine_manifests/mujoco/<csd_id>/assets/<variant-relative-path>`，`scene.xml`
+只引用该目录内的相对路径。下一版 MuJoCo compiler 必须把该产物明确提升为
+`engine_manifests/mujoco/<csd_id>/` 下的完整 realization package，并补齐
+robot/world template dependency closure 与 `manifest.json` 持久化。这样即使原始
+asset cache 或 `drivers_sim` 源目录移动或清理，已编译的 MJCF 仍可加载。后续
+处理 OBJ 材质、纹理、collision mesh、URDF/SDF resource 时也必须遵守同样原则：
+native scene artifact 不得依赖易丢失的下载缓存路径。
 
 实现记录（2026-07-09）：第一版 `compile_csd_to_gazebo()` 依据 SDFormat
 1.12 的 `sdf/world/model/link/visual/collision/geometry/mesh/uri` 结构与 Gazebo
 Sim resource lookup 文档实现。Gazebo 产物写入
-`<output_root>/gazebo/<csd_id>/world.sdf`，并复制 CSD 引用的 passed Gazebo
-asset variant 到 `<output_root>/gazebo/<csd_id>/assets/...`。SDF 内 mesh URI
+`engine_manifests/gazebo/<csd_id>/world.sdf`，并复制 CSD 引用的 passed Gazebo
+asset variant 到 `engine_manifests/gazebo/<csd_id>/assets/...`。SDF 内 mesh URI
 使用相对路径 `assets/...`，使 `world.sdf` 可随 artifact root 移动；不要求生成
 ROS2 package、launch 目录或安装到 package share。后续 runtime 加载时可通过
 当前工作目录、绝对路径或 `GZ_SIM_RESOURCE_PATH` 暴露 artifact root，但编译器

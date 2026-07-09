@@ -18,12 +18,21 @@
   源。缓存 key 至少需要考虑 CSD 内容、asset variant、目标 backend、realization
   配置、`vsim` realization 版本、可获取的 simulator 版本以及 sampled
   randomization values。
+- CSD compiler 输出必须遵守 thesis benchmark package 的统一 backend slot：
+  `engine_manifests/<backend>/<csd_id>/`。MuJoCo 目标输出至少包括
+  `manifest.json`、`scene.xml`、本地 `assets/` 和 `diagnostics/`。生成的 MJCF
+  不得依赖原始 `drivers_sim` 路径或下载 cache；若临时复用 `drivers_sim` 中的
+  robot/world 模板，必须先把所需 XML、mesh、texture、SRDF/metadata 等 dependency
+  closure 复制到当前 realization package，再从 MJCF 以相对路径引用。
 - 实现 CSD 到 MJCF/URDF/SDF/Gazebo 等格式前，必须仔细阅读对应官方文档，并在
   `DESIGN.md`、实现注释或相关任务文档中记录已依据的版本/链接。起始参考：
   - MuJoCo MJCF XML Reference:
     `https://mujoco.readthedocs.io/en/stable/XMLreference.html`
   - ROS URDF XML documentation: `https://wiki.ros.org/urdf/XML`
   - SDFormat specification: `https://sdformat.org/spec/`
+  - OpenUSD Asset Resolution / Glossary:
+    `https://openusd.org/dev/api/ar_page_front.html`,
+    `https://openusd.org/release/glossary.html`
 - 不要假设资产可跨后端直接复用。mesh、material/texture、collision、joint/
   articulation、sensor、lighting、scale、frame/up-axis、contact 参数等都需要按
   backend 记录支持情况；无法支持或有损转换时，应返回 validation failure 或

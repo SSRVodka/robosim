@@ -14,9 +14,13 @@
   函数误认为 compiler 抽象本身；
 - [x] MuJoCo compiler 产物目录自包含 mesh variant 文件，避免编译后依赖易丢失
   的原始 asset cache；
+- [ ] 将 MuJoCo compiler 提升为完整 realization package：输出到
+  `engine_manifests/mujoco/<csd_id>/`，持久化 `manifest.json`，生成可直接加载的
+  `scene.xml`，并复制 object、robot template、world template 的 dependency
+  closure 到本地 `assets/`；
 - [x] 定义并实现第一版 CSD -> Gazebo SDF compiler：生成
-  `<output_root>/gazebo/<csd_id>/world.sdf`，复制 passed Gazebo asset variants
-  到本地 `assets/`，并返回可审计的 backend manifest；
+  `engine_manifests/gazebo/<csd_id>/world.sdf`，复制 passed Gazebo asset
+  variants 到本地 `assets/`，并返回可审计的 backend manifest；
 - [ ] 将 CSD compiler 产物接入 MuJoCoBackend runtime load/render/physics
   validation；
 - [x] 设计 Gazebo compiler artifact layout，包括 SDF resource path 与资产复制
@@ -32,8 +36,14 @@
   material/texture、collision、joint/articulation、sensor、lighting、scale、
   frame/up-axis、contact/inertial semantics；不支持或有损转换必须返回
   validation failure/blocker；
+- [ ] 增加 MuJoCo compiler fixture MJCF 覆盖当前 demo 用例：Franka tabletop、
+  至少一个动态交互物体、至少一个静态支撑物、mesh/material/collision dependency
+  copy、sensor/camera 保留、以及 MuJoCo loadability smoke；
 - [x] 在实现 MuJoCo realization 前记录官方文档依据：MuJoCo MJCF XML
   Reference、ROS URDF XML documentation、SDFormat specification；
+- [x] 在设计 realization output layout 前记录 OpenUSD asset resolution /
+  composition 的官方参考，用于区分 logical asset identity 与 resolved backend
+  paths；
 - [x] 在实现 Gazebo/SDF realization 前记录官方 Gazebo resource lookup 与
   SDFormat specification 版本和语义假设；
 - [ ] 在实现 URDF realization 前记录官方 ROS URDF XML documentation 版本和

@@ -23,10 +23,11 @@
 `vsim` exposes the CSD compiler boundary through `robosim.core.compile_csd`.
 Pass `backend="mujoco"` or `backend="gazebo"`. The compiler consumes a fixed
 Concrete Scenario Definition, an asset registry with passed backend variants,
-an output root, and an asset root. The MuJoCo target writes
-`<output_root>/mujoco/<csd_id>/scene.xml`; the Gazebo target writes
-`<output_root>/gazebo/<csd_id>/world.sdf`. Both targets copy referenced assets
-under the backend artifact's local `assets/` directory, then return a
+an output root, and an asset root. In benchmark packages, pass
+`output_root=Path("<package>/engine_manifests")`. The MuJoCo target writes
+`engine_manifests/mujoco/<csd_id>/scene.xml`; the Gazebo target writes
+`engine_manifests/gazebo/<csd_id>/world.sdf`. Backend targets copy referenced
+assets under the backend artifact's local `assets/` directory, then return a
 `CsdCompilationResult` containing either a `CsdRealizationManifest` or typed
 `CsdRealizationBlocker` records.
 
@@ -43,13 +44,31 @@ they use. MuJoCo `scene.xml` points `compiler meshdir` at the copied local
 `assets/objects/mug.obj`; the compiler does not require a ROS2 package, launch
 directory, or package share layout.
 
+The next MuJoCo compiler target is a complete realization package:
+
+```text
+engine_manifests/
+  mujoco/
+    <csd_id>/
+      manifest.json
+      scene.xml
+      assets/
+      diagnostics/
+```
+
+`scene.xml` must be loadable from that directory without depending on the
+source `drivers_sim` tree or download caches. Existing `drivers_sim` robot/world
+assets may be used as temporary template sources, but the compiler must copy
+their required dependency closure into the realization directory before
+referencing them from generated MJCF.
+
 ```python
 from pathlib import Path
 
 from robosim.core import compile_csd
 
 result = compile_csd(
-    backend="gazebo",
+    backend="mujoco",
     csd=csd_json,
     asset_registry=asset_registry_json,
     output_root=Path("engine_manifests"),
