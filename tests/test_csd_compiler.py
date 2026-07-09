@@ -344,6 +344,15 @@ def test_compile_csd_to_mujoco_writes_load_check_diagnostics(tmp_path: Path) -> 
     assert checks["geom_friction:mug_geom"]["status"] == "passed"
     assert checks["geom_friction:mug_geom"]["expected"] == [0.8, 0.005, 0.0001]
     assert checks["geom_friction:mug_geom"]["actual"] == [0.8, 0.005, 0.0001]
+    assert checks["camera_pose:world_camera"]["status"] == "passed"
+    assert checks["camera_pose:world_camera"]["expected"] == [1.4, 0.0, 1.2]
+    assert checks["camera_pose:world_camera"]["actual"] == [1.4, 0.0, 1.2]
+    assert checks["light_pose:key_light"]["status"] == "passed"
+    assert checks["light_pose:key_light"]["expected"] == [0.0, -1.0, 3.0]
+    assert checks["light_pose:key_light"]["actual"] == [0.0, -1.0, 3.0]
+    assert checks["light_direction:key_light"]["status"] == "passed"
+    assert checks["light_direction:key_light"]["expected"] == [0.0, 0.0, -1.0]
+    assert checks["light_direction:key_light"]["actual"] == [0.0, 0.0, -1.0]
 
 
 def test_compile_csd_to_mujoco_writes_orientation_load_diagnostics(

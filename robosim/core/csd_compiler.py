@@ -765,6 +765,61 @@ def _write_mujoco_load_check(
                 actual=_float_sequence_json(model.opt.gravity),
             )
         )
+        for camera in csd.environment.cameras:
+            camera_name = _mjcf_name(camera.camera_id)
+            try:
+                loaded_camera = model.camera(camera_name)
+                checks.append(
+                    _load_check(
+                        f"camera_pose:{camera_name}",
+                        expected=_vector3_json(camera.position),
+                        actual=_float_sequence_json(loaded_camera.pos),
+                    )
+                )
+            except KeyError:
+                checks.append(
+                    _load_check(
+                        f"camera_pose:{camera_name}",
+                        passed=False,
+                        expected=_vector3_json(camera.position),
+                        details={"reason": "camera not found in loaded MuJoCo model"},
+                    )
+                )
+        for light in csd.environment.lighting:
+            light_name = _mjcf_name(light.light_id)
+            try:
+                loaded_light = model.light(light_name)
+                checks.append(
+                    _load_check(
+                        f"light_pose:{light_name}",
+                        expected=_vector3_json(light.position),
+                        actual=_float_sequence_json(loaded_light.pos),
+                    )
+                )
+                checks.append(
+                    _load_check(
+                        f"light_direction:{light_name}",
+                        expected=_vector3_json(light.direction),
+                        actual=_float_sequence_json(loaded_light.dir),
+                    )
+                )
+            except KeyError:
+                checks.append(
+                    _load_check(
+                        f"light_pose:{light_name}",
+                        passed=False,
+                        expected=_vector3_json(light.position),
+                        details={"reason": "light not found in loaded MuJoCo model"},
+                    )
+                )
+                checks.append(
+                    _load_check(
+                        f"light_direction:{light_name}",
+                        passed=False,
+                        expected=_vector3_json(light.direction),
+                        details={"reason": "light not found in loaded MuJoCo model"},
+                    )
+                )
         for obj in csd.objects:
             body_name = _mjcf_name(obj.name)
             try:

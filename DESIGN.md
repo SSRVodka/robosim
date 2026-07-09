@@ -157,8 +157,9 @@ entry XML 的 `<option gravity="...">`，不修改源 template，也不在顶层
 `mujoco.MjModel.from_xml_path` 做 package-local load check，并在
 `diagnostics/load_check.json` 记录 `model_load`、gravity、CSD object body pose
 和 orientation、body mass、collision-bearing geom friction/contact、environment
-surface pose 和 orientation 检查结果。orientation check 使用单位归一化后的 CSD
-quaternion，与 MuJoCo 加载 MJCF 后的 quaternion normalization 行为一致；若该检查失败，compiler 返回
+camera pose、light pose/direction、surface pose 和 orientation 检查结果。
+orientation check 使用单位归一化后的 CSD quaternion，与 MuJoCo 加载 MJCF 后的
+quaternion normalization 行为一致；若该检查失败，compiler 返回
 `CsdRealizationBlocker(scope="vsim_realization")`，不发布 manifest。
 load check 通过后，compiler 会写入 `diagnostics/relationship_check.json`，再运行
 短 MuJoCo forward/step stability check，写入 `diagnostics/physics_check.json`；
