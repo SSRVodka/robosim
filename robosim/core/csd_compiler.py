@@ -139,6 +139,13 @@ def compile_csd_to_mujoco(
     )
     if load_check_blockers:
         return CsdCompilationResult(manifest=None, blockers=load_check_blockers)
+    physics_check_file, physics_check_blockers = _write_mujoco_physics_check(
+        scene_path=scene_path,
+        diagnostics_root=diagnostics_root,
+        csd=typed_csd,
+    )
+    if physics_check_blockers:
+        return CsdCompilationResult(manifest=None, blockers=physics_check_blockers)
     preview_file, preview_blockers = _write_mujoco_preview(
         scene_path=scene_path,
         diagnostics_root=diagnostics_root,
@@ -150,6 +157,7 @@ def compile_csd_to_mujoco(
         "manifest.json",
         "scene.xml",
         load_check_file,
+        physics_check_file,
         *generated_asset_files,
         *generated_robot_files,
     )
@@ -797,6 +805,76 @@ def _load_check(
     if details is not None:
         check["details"] = dict(details)
     return check
+
+
+def _write_mujoco_physics_check(
+    *,
+    scene_path: Path,
+    diagnostics_root: Path,
+    csd: ConcreteScenarioDefinition,
+    steps: int = 25,
+) -> tuple[str, tuple[CsdRealizationBlocker, ...]]:
+    checks: list[dict[str, object]] = []
+    try:
+        import mujoco
+
+        model = mujoco.MjModel.from_xml_path(str(scene_path))
+        data = mujoco.MjData(model)
+        mujoco.mj_forward(model, data)
+        checks.append(_load_check("mj_forward", passed=True))
+        for _ in range(steps):
+            mujoco.mj_step(model, data)
+        finite_state = _all_finite(data.qpos) and _all_finite(data.qvel)
+        checks.append(
+            _load_check(
+                "finite_state_after_steps",
+                passed=finite_state,
+                details={
+                    "steps": steps,
+                    "nq": int(model.nq),
+                    "nv": int(model.nv),
+                },
+            )
+        )
+    except Exception as exc:
+        checks.append(
+            _load_check(
+                "mj_forward",
+                passed=False,
+                details={"reason": str(exc)},
+            )
+        )
+
+    passed = all(check["status"] == "passed" for check in checks)
+    payload = {
+        "schema_version": "0.1",
+        "backend": MUJOCO_BACKEND,
+        "csd_id": csd.csd_id,
+        "entry_file": scene_path.name,
+        "status": "passed" if passed else "failed",
+        "checks": checks,
+    }
+    path = diagnostics_root / "physics_check.json"
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    if passed:
+        return "diagnostics/physics_check.json", ()
+    return (
+        "diagnostics/physics_check.json",
+        (
+            CsdRealizationBlocker(
+                blocker_id=f"{csd.csd_id}_{MUJOCO_BACKEND}_physics_check_failed",
+                csd_id=csd.csd_id,
+                backend=MUJOCO_BACKEND,
+                asset_id="scene",
+                scope="vsim_realization",
+                reason="generated MuJoCo scene failed short physics stability check",
+            ),
+        ),
+    )
+
+
+def _all_finite(values: Any) -> bool:
+    return all(math.isfinite(float(value)) for value in values.flat)
 
 
 def _write_mujoco_preview(

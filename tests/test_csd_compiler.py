@@ -240,6 +240,38 @@ def test_compile_csd_to_mujoco_writes_load_check_diagnostics(tmp_path: Path) -> 
     assert checks["body_pose:mug"]["actual"] == [0.05, 0.0, 0.32]
 
 
+def test_compile_csd_to_mujoco_writes_physics_check_diagnostics(tmp_path: Path) -> None:
+    asset_root = tmp_path / "assets"
+    csd = _load_json_fixture("object_only_static_and_dynamic.json")
+    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    _write_fixture_asset_files(asset_root, asset_registry)
+
+    result = compile_csd_to_mujoco(
+        csd=csd,
+        asset_registry=asset_registry,
+        output_root=tmp_path / "engine_manifests",
+        asset_root=asset_root,
+    )
+
+    scene_root = tmp_path / "engine_manifests" / "mujoco" / "csd_object_only_0001"
+    physics_check_path = scene_root / "diagnostics" / "physics_check.json"
+
+    assert result.blockers == ()
+    assert isinstance(result.manifest, CsdRealizationManifest)
+    assert "diagnostics/physics_check.json" in result.manifest.generated_files
+
+    payload = json.loads(physics_check_path.read_text(encoding="utf-8"))
+    checks = {check["name"]: check for check in payload["checks"]}
+
+    assert payload["schema_version"] == "0.1"
+    assert payload["backend"] == "mujoco"
+    assert payload["csd_id"] == "csd_object_only_0001"
+    assert payload["status"] == "passed"
+    assert checks["mj_forward"]["status"] == "passed"
+    assert checks["finite_state_after_steps"]["status"] == "passed"
+    assert checks["finite_state_after_steps"]["details"]["steps"] == 25
+
+
 def test_compile_csd_to_mujoco_realizes_world_template_geometry(tmp_path: Path) -> None:
     asset_root = tmp_path / "assets"
     asset_registry = _load_json_fixture("asset_registry_mujoco.json")

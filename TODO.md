@@ -67,6 +67,9 @@
   并将 model load、gravity、CSD object body pose、environment surface pose 检查写入
   `diagnostics/load_check.json`；检查失败时返回
   `CsdRealizationBlocker(scope="vsim_realization")`，不发布 manifest；
+- [x] 为 MuJoCo compiler 产物增加 package-local physics check：load check
+  通过后运行短 MuJoCo forward/step stability check，写入
+  `diagnostics/physics_check.json`；该检查不替代 rollout/evaluator；
 - [x] 为 MuJoCo compiler 产物增加 package-local preview artifact：load check
   通过后从 CSD camera 进行 offscreen render，写入
   `diagnostics/semantic_preview.ppm`，并记录到 `manifest.preview_files`；
