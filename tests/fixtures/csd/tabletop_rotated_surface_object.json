@@ -1,0 +1,48 @@
+{
+  "csd_id": "csd_tabletop_rotated_surface_0001",
+  "schema_version": "0.2",
+  "scenario": {
+    "task": {
+      "task_instance_id": "task_tabletop_rotated_surface_0001",
+      "objective": "verify rotated environment surface and rotated object realization",
+      "evaluator_refs": ["predicate_rotated_tabletop_visible"]
+    },
+    "frame": "world",
+    "units": "m",
+    "environment": {
+      "environment_id": "env_rotated_tabletop",
+      "type": "tabletop",
+      "gravity": [0.0, 0.0, -9.81],
+      "surfaces": [
+        {
+          "surface_id": "surface_rotated_tabletop",
+          "type": "box",
+          "pose": {
+            "position": {"x": 0.45, "y": 0.0, "z": 0.62},
+            "orientation": {"w": 0.9659258, "x": 0.0, "y": 0.0, "z": 0.258819}
+          },
+          "size": {"x": 0.36, "y": 0.24, "z": 0.035},
+          "rgba": [0.35, 0.28, 0.2, 1.0],
+          "friction": [1.0, 0.15, 0.15]
+        }
+      ],
+      "cameras": [{"camera_id": "world_camera", "pose": {"position": {"x": 1.35, "y": 0.0, "z": 1.0}, "xyaxes": [0.0, 1.0, 0.0, -0.45, 0.0, 0.89]}, "mode": "fixed"}],
+      "lighting": [{"light_id": "key_light", "position": [0.2, -1.0, 2.8], "direction": [0.0, 0.0, -1.0]}]
+    },
+    "objects": [
+      {
+        "name": "marker_rotated",
+        "asset_id": "object_marker",
+        "role": "distractor",
+        "pose": {"position": {"x": 0.45, "y": 0.0, "z": 0.72}, "orientation": {"w": 0.7071068, "x": 0.0, "y": 0.0, "z": 0.7071068}},
+        "static": false,
+        "initial_state": {"mass_kg": 0.05, "friction": 0.6}
+      }
+    ],
+    "relationships": [
+      {"relation_id": "rel_marker_on_rotated_surface", "type": "on_top_of", "subject": "object:marker_rotated", "object": "surface:surface_rotated_tabletop", "parameters": {"contact_required": true, "position_tolerance_m": 0.04}}
+    ],
+    "randomization": {"seed": 41, "values": {"surface_rotation": "30deg_z"}},
+    "sensor_requirements": {"cameras": ["world_camera"]}
+  }
+}

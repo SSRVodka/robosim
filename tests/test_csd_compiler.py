@@ -11,6 +11,7 @@ from pathlib import Path
 from shutil import copytree
 
 import mujoco
+import pytest
 
 from robosim.core import (
     ConcreteScenarioDefinition,
@@ -22,6 +23,18 @@ from robosim.core import (
 )
 
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "csd"
+MIN_CSD_FIXTURE_COUNT = 10
+MUJOCO_POSITIVE_CSD_FIXTURES = (
+    "franka_tabletop_single_object.json",
+    "franka_tabletop_multi_object.json",
+    "object_only_static_and_dynamic.json",
+    "textured_scaled_object.json",
+    "visual_tabletop_regions.json",
+    "object_only_default_camera.json",
+    "object_inertial_contact.json",
+    "tabletop_rotated_surface_object.json",
+    "low_gravity_static_layout.json",
+)
 
 
 def _load_json_fixture(name: str) -> dict[str, object]:
@@ -115,6 +128,46 @@ def _count_pixels(
     predicate: Callable[[tuple[int, int, int]], bool],
 ) -> int:
     return sum(1 for pixel in pixels if predicate(pixel))
+
+
+def test_csd_fixture_set_has_broad_demo_coverage() -> None:
+    csd_fixture_names = sorted(
+        path.name
+        for path in FIXTURE_ROOT.glob("*.json")
+        if not path.name.startswith("asset_registry_")
+    )
+
+    assert len(csd_fixture_names) >= MIN_CSD_FIXTURE_COUNT
+
+
+@pytest.mark.parametrize("fixture_name", MUJOCO_POSITIVE_CSD_FIXTURES)
+def test_compile_csd_to_mujoco_loads_and_renders_positive_fixtures(
+    tmp_path: Path,
+    fixture_name: str,
+) -> None:
+    asset_root = tmp_path / "assets"
+    csd = _load_json_fixture(fixture_name)
+    csd_id = str(csd["csd_id"])
+    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    _write_fixture_asset_files(asset_root, asset_registry)
+
+    result = compile_csd_to_mujoco(
+        csd=csd,
+        asset_registry=asset_registry,
+        output_root=tmp_path / "engine_manifests",
+        asset_root=asset_root,
+    )
+
+    scene_root = tmp_path / "engine_manifests" / "mujoco" / csd_id
+    scene_path = scene_root / "scene.xml"
+    preview_path = scene_root / "diagnostics" / "semantic_preview.ppm"
+
+    assert result.blockers == ()
+    assert isinstance(result.manifest, CsdRealizationManifest)
+    assert scene_path.is_file()
+    mujoco.MjModel.from_xml_path(str(scene_path))
+    pixels = _read_ppm_rgb(preview_path)
+    assert max(max(pixel) for pixel in pixels) > min(min(pixel) for pixel in pixels)
 
 
 def test_compile_csd_to_mujoco_writes_loadable_mjcf_and_manifest(tmp_path: Path) -> None:
