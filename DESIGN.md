@@ -132,6 +132,9 @@ mesh resource，可带 mesh `scale`；若 backend resource adapter 提供
 设为 `contype="0"`、`conaffinity="0"`，由透明 collision geom 承载 MuJoCo
 collision/mass/friction。object `initial_state` 解析为 typed physical state，
 当前支持 `mass_kg` 与 `friction`，并由 compiler 显式写入对应 object geom。
+MuJoCo geom `friction` 按 MJCF `real(3)` 输出；CSD scalar friction 被解释为
+sliding friction，并保留 MuJoCo 默认 torsional/rolling friction
+`0.005 0.0001`，CSD 3-vector friction 则原样写出。
 adapter material/texture metadata 会生成 MJCF `texture`、`material`，再由 object
 visual geom 引用。动态对象以 `freejoint` 表示自由刚体。无 robot template 的
 MuJoCo scene 会把 CSD `environment.gravity` 写入 `<option gravity="...">`；带

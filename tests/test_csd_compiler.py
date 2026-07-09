@@ -203,6 +203,7 @@ def test_compile_csd_to_mujoco_handles_multi_object_static_dynamic_scene(
     assert bodies["mug"].find("freejoint") is not None
     assert bodies["marker"].find("freejoint") is not None
     assert bodies["tray"].find("freejoint") is None
+    assert _required_element(bodies["mug"], "geom").attrib["friction"] == "0.8 0.005 0.0001"
     model = mujoco.MjModel.from_xml_path(str(scene_path))
     assert model.nbody >= 4
 
@@ -281,7 +282,38 @@ def test_csd_parser_exposes_typed_object_physical_state() -> None:
     mug = next(obj for obj in csd.objects if obj.name == "mug")
 
     assert mug.initial_state.mass_kg == 0.2
-    assert mug.initial_state.friction == 0.8
+    assert mug.initial_state.friction == (0.8, 0.005, 0.0001)
+
+
+def test_compile_csd_to_mujoco_preserves_explicit_friction_tuple(tmp_path: Path) -> None:
+    asset_root = tmp_path / "assets"
+    csd = _load_json_fixture("object_only_static_and_dynamic.json")
+    scenario = csd["scenario"]
+    assert isinstance(scenario, dict)
+    objects = scenario["objects"]
+    assert isinstance(objects, list)
+    mug = objects[1]
+    assert isinstance(mug, dict)
+    initial_state = mug["initial_state"]
+    assert isinstance(initial_state, dict)
+    initial_state["friction"] = [0.9, 0.02, 0.003]
+    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    _write_fixture_asset_files(asset_root, asset_registry)
+
+    result = compile_csd_to_mujoco(
+        csd=csd,
+        asset_registry=asset_registry,
+        output_root=tmp_path / "engine_manifests",
+        asset_root=asset_root,
+    )
+
+    scene_path = tmp_path / "engine_manifests" / "mujoco" / "csd_object_only_0001" / "scene.xml"
+    root = ET.parse(scene_path).getroot()
+    mug_body = _required_element(root, "worldbody/body[@name='mug']")
+    geom = _required_element(mug_body, "geom")
+
+    assert result.blockers == ()
+    assert geom.attrib["friction"] == "0.9 0.02 0.003"
 
 
 def test_compile_csd_to_mujoco_preserves_texture_material_and_mesh_scale(

@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Mapping
 
+DEFAULT_MUJOCO_OBJECT_FRICTION = (0.7, 0.005, 0.0001)
+
 
 class CsdRelationshipType(StrEnum):
     """Machine-readable CSD relationship types supported by the compiler."""
@@ -215,13 +217,13 @@ class CsdObjectInitialState:
     """Backend-neutral object physical state requested by CSD."""
 
     mass_kg: float
-    friction: float
+    friction: tuple[float, float, float]
 
     @classmethod
     def from_mapping(cls, payload: Mapping[str, Any]) -> "CsdObjectInitialState":
         return cls(
             mass_kg=float(payload.get("mass_kg", 0.1)),
-            friction=float(payload.get("friction", 0.7)),
+            friction=_friction_tuple(payload.get("friction", DEFAULT_MUJOCO_OBJECT_FRICTION)),
         )
 
 
@@ -648,6 +650,13 @@ def _number_tuple(value: object, *, length: int, field: str) -> tuple[Any, ...]:
     if not isinstance(value, (list, tuple)) or len(value) != length:
         raise ValueError(f"{field} must be a {length}-element sequence")
     return tuple(float(item) for item in value)
+
+
+def _friction_tuple(value: object) -> tuple[float, float, float]:
+    if isinstance(value, (int, float, str)):
+        return (float(value), DEFAULT_MUJOCO_OBJECT_FRICTION[1], DEFAULT_MUJOCO_OBJECT_FRICTION[2])
+    friction = _number_tuple(value, length=3, field="initial_state.friction")
+    return (float(friction[0]), float(friction[1]), float(friction[2]))
 
 
 def _vector_from_sequence(value: object, *, field: str) -> CsdVector3:

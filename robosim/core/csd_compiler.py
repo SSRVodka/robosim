@@ -688,14 +688,14 @@ def _append_object_body(
                 "type": "mesh",
                 "mesh": f"{_mjcf_name(asset_id)}_collision",
                 "mass": _number_text(obj.initial_state.mass_kg),
-                "friction": _number_text(obj.initial_state.friction),
+                "friction": _numbers_text(obj.initial_state.friction),
                 "rgba": "0 0 0 0",
             },
         )
         return
 
     visual_geom_attrs["mass"] = _number_text(obj.initial_state.mass_kg)
-    visual_geom_attrs["friction"] = _number_text(obj.initial_state.friction)
+    visual_geom_attrs["friction"] = _numbers_text(obj.initial_state.friction)
     ET.SubElement(body, "geom", visual_geom_attrs)
 
 

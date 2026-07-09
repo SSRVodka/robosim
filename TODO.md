@@ -40,6 +40,9 @@
 - [x] 将 MuJoCo compiler 使用的 CSD object physical state 从 loose
   `initial_state` map 收紧为 typed `CsdObjectInitialState`，并覆盖
   `mass_kg`/`friction` 到 MJCF object geom；
+- [x] 将 object friction 输出改为 MuJoCo MJCF `real(3)`：CSD scalar friction
+  映射为 sliding friction，torsional/rolling 使用 MuJoCo 默认值；CSD 3-vector
+  friction 原样写出；
 - [x] 在无 robot template 的 MuJoCo realization 中将 CSD
   `environment.gravity` 写入 MJCF `<option gravity="...">`；
 - [x] 为 MuJoCo compiler 增加语义 gate：不支持的 CSD units/frame、
