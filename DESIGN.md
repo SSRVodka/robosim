@@ -130,9 +130,14 @@ CSD object 使用 `<asset><mesh file="relative/path.obj"/></asset>` 注册 visua
 mesh resource，可带 mesh `scale`；若 backend resource adapter 提供
 `collision_mesh_path`，compiler 会注册单独的 collision mesh，并把 visual geom
 设为 `contype="0"`、`conaffinity="0"`，由透明 collision geom 承载 MuJoCo
-collision/mass/friction。adapter material/texture metadata 会生成 MJCF
-`texture`、`material`，再由 object visual geom 引用。动态对象以 `freejoint`
-表示自由刚体。当前支持的 world template 为 `empty_floor` 和 `world_tabletop`；
+collision/mass/friction。object `initial_state` 解析为 typed physical state，
+当前支持 `mass_kg` 与 `friction`，并由 compiler 显式写入对应 object geom。
+adapter material/texture metadata 会生成 MJCF `texture`、`material`，再由 object
+visual geom 引用。动态对象以 `freejoint` 表示自由刚体。无 robot template 的
+MuJoCo scene 会把 CSD `environment.gravity` 写入 `<option gravity="...">`；带
+robot include 的 template 当前沿用 template 自身的 `<option>`，非默认 gravity
+override 需要单独设计以避免重复/冲突的 MuJoCo option 节点。当前支持的 world
+template 为 `empty_floor` 和 `world_tabletop`；
 `world_tabletop` 会生成 backend-local static tabletop geometry，而不是引用
 `drivers_sim` 的 world scene。MuJoCo loadability 由单元测试通过
 `mujoco.MjModel.from_xml_path` 验证。
@@ -166,9 +171,11 @@ Implementation code must not treat CSD JSON as an unstructured `dict[str, Any]`
 after the API boundary. JSON fixtures and package artifacts are parsed into the
 typed `ConcreteScenarioDefinition` dataclass model in `robosim.core.csd`,
 including typed environment, robot, object, pose, camera, light, surface, and
-enum relationship records. Backend compiler code should consume those typed
-objects so collaborator mistakes in key names, relationship types, or shape
-conversions fail at parse time instead of silently changing scene semantics.
+enum relationship records. Object physical state is represented by
+`CsdObjectInitialState`, not by ad hoc map access. Backend compiler code should
+consume those typed objects so collaborator mistakes in key names, relationship
+types, or shape conversions fail at parse time instead of silently changing
+scene semantics.
 Backend resource adapters are also typed at the compiler boundary. The
 `BackendResourceAdapter` model carries the project asset ID, backend, resource
 hash, visual mesh path, optional mesh scale, optional material/texture, and

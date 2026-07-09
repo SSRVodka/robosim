@@ -276,7 +276,7 @@ def _write_mjcf(
                 "texturedir": str(asset_root),
             },
         )
-        ET.SubElement(root, "option", {"gravity": "0 0 -9.81"})
+        ET.SubElement(root, "option", {"gravity": _vector3_text(csd.environment.gravity)})
     ET.SubElement(root, "statistic", {"center": "0.3 0 0.4", "extent": "1"})
     assets = ET.SubElement(root, "asset")
     for asset_id in _csd_asset_ids(csd.raw):
@@ -621,15 +621,15 @@ def _append_object_body(
                 "name": f"{_mjcf_name(obj.name)}_collision_geom",
                 "type": "mesh",
                 "mesh": f"{_mjcf_name(asset_id)}_collision",
-                "mass": _object_scalar(obj, "mass_kg", 0.1),
-                "friction": _object_scalar(obj, "friction", 0.7),
+                "mass": _number_text(obj.initial_state.mass_kg),
+                "friction": _number_text(obj.initial_state.friction),
                 "rgba": "0 0 0 0",
             },
         )
         return
 
-    visual_geom_attrs["mass"] = _object_scalar(obj, "mass_kg", 0.1)
-    visual_geom_attrs["friction"] = _object_scalar(obj, "friction", 0.7)
+    visual_geom_attrs["mass"] = _number_text(obj.initial_state.mass_kg)
+    visual_geom_attrs["friction"] = _number_text(obj.initial_state.friction)
     ET.SubElement(body, "geom", visual_geom_attrs)
 
 

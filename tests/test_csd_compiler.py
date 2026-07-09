@@ -14,6 +14,7 @@ from typing import Any
 import mujoco
 
 from robosim.core import (
+    ConcreteScenarioDefinition,
     CsdRealizationManifest,
     compile_csd,
     compile_csd_to_gazebo,
@@ -246,6 +247,41 @@ def test_compile_csd_to_mujoco_realizes_world_template_geometry(tmp_path: Path) 
         "friction": "1.2 0.2 0.2",
     }
     assert empty_floor_root.find("worldbody/body[@name='surface_tabletop']") is None
+
+
+def test_compile_csd_to_mujoco_uses_typed_environment_gravity(tmp_path: Path) -> None:
+    asset_root = tmp_path / "assets"
+    csd = _load_json_fixture("object_only_static_and_dynamic.json")
+    scenario = csd["scenario"]
+    assert isinstance(scenario, dict)
+    environment = scenario["environment"]
+    assert isinstance(environment, dict)
+    environment["gravity"] = [0.0, 0.0, -1.62]
+    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    _write_fixture_asset_files(asset_root, asset_registry)
+
+    result = compile_csd_to_mujoco(
+        csd=csd,
+        asset_registry=asset_registry,
+        output_root=tmp_path / "engine_manifests",
+        asset_root=asset_root,
+    )
+
+    scene_path = tmp_path / "engine_manifests" / "mujoco" / "csd_object_only_0001" / "scene.xml"
+    root = ET.parse(scene_path).getroot()
+
+    assert result.blockers == ()
+    assert _required_element(root, "option").attrib["gravity"] == "0 0 -1.62"
+
+
+def test_csd_parser_exposes_typed_object_physical_state() -> None:
+    csd = ConcreteScenarioDefinition.from_mapping(
+        _load_json_fixture("object_only_static_and_dynamic.json")
+    )
+    mug = next(obj for obj in csd.objects if obj.name == "mug")
+
+    assert mug.initial_state.mass_kg == 0.2
+    assert mug.initial_state.friction == 0.8
 
 
 def test_compile_csd_to_mujoco_preserves_texture_material_and_mesh_scale(

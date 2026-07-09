@@ -37,6 +37,13 @@
 - [x] 为 MuJoCo compiler 增加 backend resource adapter typed contract，并支持
   单独 collision mesh resource：MJCF 中 visual geom 关闭 contact，collision
   geom 承载 collision/mass/friction，相关 mesh 被复制进 backend-local `assets/`；
+- [x] 将 MuJoCo compiler 使用的 CSD object physical state 从 loose
+  `initial_state` map 收紧为 typed `CsdObjectInitialState`，并覆盖
+  `mass_kg`/`friction` 到 MJCF object geom；
+- [x] 在无 robot template 的 MuJoCo realization 中将 CSD
+  `environment.gravity` 写入 MJCF `<option gravity="...">`；
+- [ ] 设计带 robot include/template 的 MuJoCo gravity override 策略，避免与
+  template 内已有 `<option>` 节点冲突后再支持非默认 gravity；
 - [ ] 为 CSD realization 定义 asset backend compatibility 检查：mesh format、
   material/texture、collision、joint/articulation、sensor、lighting、scale、
   frame/up-axis、contact/inertial semantics；不支持或有损转换必须返回

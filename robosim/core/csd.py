@@ -164,6 +164,7 @@ class CsdEnvironment:
 
     environment_id: str
     environment_type: str
+    gravity: CsdVector3
     surfaces: tuple[CsdSurface, ...]
     cameras: tuple[CsdCamera, ...]
     lighting: tuple[CsdLight, ...]
@@ -173,6 +174,10 @@ class CsdEnvironment:
         return cls(
             environment_id=_required_str(payload, "environment_id", field="environment"),
             environment_type=_required_str(payload, "type", field="environment"),
+            gravity=_vector_from_sequence(
+                payload.get("gravity", (0.0, 0.0, -9.81)),
+                field="environment.gravity",
+            ),
             surfaces=tuple(
                 CsdSurface.from_mapping(surface)
                 for surface in _mapping_list(
@@ -206,6 +211,21 @@ class CsdRobot:
 
 
 @dataclass(frozen=True, slots=True)
+class CsdObjectInitialState:
+    """Backend-neutral object physical state requested by CSD."""
+
+    mass_kg: float
+    friction: float
+
+    @classmethod
+    def from_mapping(cls, payload: Mapping[str, Any]) -> "CsdObjectInitialState":
+        return cls(
+            mass_kg=float(payload.get("mass_kg", 0.1)),
+            friction=float(payload.get("friction", 0.7)),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class CsdObject:
     """Concrete object instance in a CSD scenario."""
 
@@ -214,7 +234,7 @@ class CsdObject:
     role: str
     pose: CsdPose
     static: bool
-    initial_state: Mapping[str, Any]
+    initial_state: CsdObjectInitialState
 
     @classmethod
     def from_mapping(cls, payload: Mapping[str, Any]) -> "CsdObject":
@@ -227,7 +247,9 @@ class CsdObject:
                 field="object.pose",
             ),
             static=bool(payload.get("static", False)),
-            initial_state=_optional_mapping(payload, "initial_state"),
+            initial_state=CsdObjectInitialState.from_mapping(
+                _optional_mapping(payload, "initial_state")
+            ),
         )
 
 
