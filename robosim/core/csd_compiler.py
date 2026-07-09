@@ -776,6 +776,14 @@ def _write_mujoco_load_check(
                         actual=_float_sequence_json(loaded_camera.pos),
                     )
                 )
+                if camera.xyaxes is not None:
+                    checks.append(
+                        _load_check(
+                            f"camera_orientation:{camera_name}",
+                            expected=_camera_xyaxes_quaternion_json(camera.xyaxes),
+                            actual=_quaternion_sequence_json(loaded_camera.quat),
+                        )
+                    )
             except KeyError:
                 checks.append(
                     _load_check(
@@ -785,6 +793,15 @@ def _write_mujoco_load_check(
                         details={"reason": "camera not found in loaded MuJoCo model"},
                     )
                 )
+                if camera.xyaxes is not None:
+                    checks.append(
+                        _load_check(
+                            f"camera_orientation:{camera_name}",
+                            passed=False,
+                            expected=_camera_xyaxes_quaternion_json(camera.xyaxes),
+                            details={"reason": "camera not found in loaded MuJoCo model"},
+                        )
+                    )
         for light in csd.environment.lighting:
             light_name = _mjcf_name(light.light_id)
             try:
@@ -1620,6 +1637,82 @@ def _quaternion_json(quaternion: Any) -> list[float]:
 
 def _quaternion_sequence_json(values: Any) -> list[float]:
     return [_orientation_float(value) for value in values]
+
+
+def _camera_xyaxes_quaternion_json(
+    xyaxes: tuple[float, float, float, float, float, float],
+) -> list[float]:
+    x_axis = _unit_vector((xyaxes[0], xyaxes[1], xyaxes[2]))
+    y_axis = _unit_vector((xyaxes[3], xyaxes[4], xyaxes[5]))
+    z_axis = _unit_vector(_cross(x_axis, y_axis))
+    matrix = (
+        x_axis[0],
+        y_axis[0],
+        z_axis[0],
+        x_axis[1],
+        y_axis[1],
+        z_axis[1],
+        x_axis[2],
+        y_axis[2],
+        z_axis[2],
+    )
+    return [_orientation_float(value) for value in _matrix_to_quaternion(matrix)]
+
+
+def _unit_vector(vector: tuple[float, float, float]) -> tuple[float, float, float]:
+    norm = math.sqrt(sum(value * value for value in vector))
+    if norm == 0.0:
+        raise ValueError("camera xyaxes must not contain a zero axis")
+    return (vector[0] / norm, vector[1] / norm, vector[2] / norm)
+
+
+def _cross(
+    left: tuple[float, float, float],
+    right: tuple[float, float, float],
+) -> tuple[float, float, float]:
+    return (
+        left[1] * right[2] - left[2] * right[1],
+        left[2] * right[0] - left[0] * right[2],
+        left[0] * right[1] - left[1] * right[0],
+    )
+
+
+def _matrix_to_quaternion(
+    matrix: tuple[float, float, float, float, float, float, float, float, float],
+) -> tuple[float, float, float, float]:
+    r00, r01, r02, r10, r11, r12, r20, r21, r22 = matrix
+    trace = r00 + r11 + r22
+    if trace > 0.0:
+        scale = math.sqrt(trace + 1.0) * 2.0
+        return (
+            0.25 * scale,
+            (r21 - r12) / scale,
+            (r02 - r20) / scale,
+            (r10 - r01) / scale,
+        )
+    if r00 > r11 and r00 > r22:
+        scale = math.sqrt(1.0 + r00 - r11 - r22) * 2.0
+        return (
+            (r21 - r12) / scale,
+            0.25 * scale,
+            (r01 + r10) / scale,
+            (r02 + r20) / scale,
+        )
+    if r11 > r22:
+        scale = math.sqrt(1.0 + r11 - r00 - r22) * 2.0
+        return (
+            (r02 - r20) / scale,
+            (r01 + r10) / scale,
+            0.25 * scale,
+            (r12 + r21) / scale,
+        )
+    scale = math.sqrt(1.0 + r22 - r00 - r11) * 2.0
+    return (
+        (r10 - r01) / scale,
+        (r02 + r20) / scale,
+        (r12 + r21) / scale,
+        0.25 * scale,
+    )
 
 
 def _float_sequence_json(values: Any) -> list[float]:
