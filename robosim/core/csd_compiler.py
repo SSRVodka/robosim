@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import xml.etree.ElementTree as ET
 from collections.abc import Iterable
@@ -71,6 +72,13 @@ def compile_csd_to_mujoco(
 
     csd_id = _required_str(csd, "csd_id")
     realization_config = dict(realization_config or {})
+    robot_blockers = _mujoco_robot_template_blockers(
+        csd=csd,
+        realization_config=realization_config,
+    )
+    if robot_blockers:
+        return CsdCompilationResult(manifest=None, blockers=robot_blockers)
+
     variant_hashes = asset_variant_hashes_for_csd(
         csd=csd,
         asset_registry=asset_registry,
@@ -86,11 +94,19 @@ def compile_csd_to_mujoco(
     )
     scene_root = Path(output_root) / MUJOCO_BACKEND / csd_id
     compiled_asset_root = scene_root / "assets"
+    diagnostics_root = scene_root / "diagnostics"
     scene_root.mkdir(parents=True, exist_ok=True)
+    diagnostics_root.mkdir(exist_ok=True)
     generated_asset_files = _copy_variant_files(
         csd=csd,
         variants=variants,
         source_asset_root=Path(asset_root),
+        compiled_asset_root=compiled_asset_root,
+    )
+    robot_include, generated_robot_files = _copy_mujoco_robot_template(
+        csd=csd,
+        realization_config=realization_config,
+        scene_root=scene_root,
         compiled_asset_root=compiled_asset_root,
     )
     scene_path = scene_root / "scene.xml"
@@ -99,18 +115,27 @@ def compile_csd_to_mujoco(
         csd=csd,
         asset_root=compiled_asset_root,
         variants=variants,
+        robot_include=robot_include,
     )
+    generated_files = (
+        "manifest.json",
+        "scene.xml",
+        *generated_asset_files,
+        *generated_robot_files,
+    )
+    manifest = CsdRealizationManifest(
+        manifest_id=f"manifest_{MUJOCO_BACKEND}_{csd_id}",
+        csd_id=csd_id,
+        backend=MUJOCO_BACKEND,
+        cache_key=cache_key.digest,
+        root_path=str(scene_root),
+        entry_file="scene.xml",
+        generated_files=_unique_files(generated_files),
+        preview_files=(),
+    )
+    _write_manifest(scene_root / "manifest.json", manifest)
     return CsdCompilationResult(
-        manifest=CsdRealizationManifest(
-            manifest_id=f"manifest_{MUJOCO_BACKEND}_{csd_id}",
-            csd_id=csd_id,
-            backend=MUJOCO_BACKEND,
-            cache_key=cache_key.digest,
-            root_path=str(scene_root),
-            entry_file="scene.xml",
-            generated_files=("scene.xml", *generated_asset_files),
-            preview_files=(),
-        )
+        manifest=manifest
     )
 
 
@@ -196,7 +221,9 @@ def compile_csd_to_gazebo(
     )
     world_root = Path(output_root) / GAZEBO_BACKEND / csd_id
     compiled_asset_root = world_root / "assets"
+    diagnostics_root = world_root / "diagnostics"
     world_root.mkdir(parents=True, exist_ok=True)
+    diagnostics_root.mkdir(exist_ok=True)
     generated_asset_files = _copy_variant_files(
         csd=csd,
         variants=variants,
@@ -205,17 +232,20 @@ def compile_csd_to_gazebo(
     )
     world_path = world_root / "world.sdf"
     _write_sdf(world_path, csd=csd, variants=variants)
+    generated_files = ("manifest.json", "world.sdf", *generated_asset_files)
+    manifest = CsdRealizationManifest(
+        manifest_id=f"manifest_{GAZEBO_BACKEND}_{csd_id}",
+        csd_id=csd_id,
+        backend=GAZEBO_BACKEND,
+        cache_key=cache_key.digest,
+        root_path=str(world_root),
+        entry_file="world.sdf",
+        generated_files=_unique_files(generated_files),
+        preview_files=(),
+    )
+    _write_manifest(world_root / "manifest.json", manifest)
     return CsdCompilationResult(
-        manifest=CsdRealizationManifest(
-            manifest_id=f"manifest_{GAZEBO_BACKEND}_{csd_id}",
-            csd_id=csd_id,
-            backend=GAZEBO_BACKEND,
-            cache_key=cache_key.digest,
-            root_path=str(world_root),
-            entry_file="world.sdf",
-            generated_files=("world.sdf", *generated_asset_files),
-            preview_files=(),
-        )
+        manifest=manifest
     )
 
 
@@ -225,18 +255,23 @@ def _write_mjcf(
     csd: Mapping[str, Any],
     asset_root: Path,
     variants: Mapping[str, Mapping[str, Any]],
+    robot_include: str | None = None,
 ) -> None:
     root = ET.Element("mujoco", {"model": _required_str(csd, "csd_id")})
-    ET.SubElement(
-        root,
-        "compiler",
-        {
-            "angle": "radian",
-            "coordinate": "local",
-            "meshdir": str(asset_root),
-        },
-    )
-    ET.SubElement(root, "option", {"gravity": "0 0 -9.81"})
+    if robot_include:
+        ET.SubElement(root, "include", {"file": robot_include})
+    else:
+        ET.SubElement(
+            root,
+            "compiler",
+            {
+                "angle": "radian",
+                "coordinate": "local",
+                "meshdir": str(asset_root),
+            },
+        )
+        ET.SubElement(root, "option", {"gravity": "0 0 -9.81"})
+    ET.SubElement(root, "statistic", {"center": "0.3 0 0.4", "extent": "1"})
     assets = ET.SubElement(root, "asset")
     for asset_id in _csd_asset_ids(csd):
         ET.SubElement(
@@ -253,6 +288,16 @@ def _write_mjcf(
         worldbody,
         "light",
         {"name": "key_light", "pos": "0 -1 3", "dir": "0 0 -1"},
+    )
+    ET.SubElement(
+        worldbody,
+        "camera",
+        {
+            "name": "world_camera",
+            "pos": "1.4 0 1.2",
+            "xyaxes": "0 1 0 -0.5 0 0.866",
+            "mode": "fixed",
+        },
     )
     ET.SubElement(
         worldbody,
@@ -335,6 +380,118 @@ def _copy_variant_files(
         copy2(source, destination)
         generated_files.append(str(Path("assets") / relative_path))
     return tuple(generated_files)
+
+
+def _copy_mujoco_robot_template(
+    *,
+    csd: Mapping[str, Any],
+    realization_config: Mapping[str, Any],
+    scene_root: Path,
+    compiled_asset_root: Path,
+) -> tuple[str | None, tuple[str, ...]]:
+    template_dir = _mujoco_robot_template_dir(csd, realization_config)
+    if template_dir is None:
+        return None, ()
+
+    entry_file = str(realization_config.get("robot_template_entry", "panda.xml"))
+    source_entry = template_dir / entry_file
+    if not source_entry.is_file():
+        raise FileNotFoundError(f"MuJoCo robot template entry is missing: {source_entry}")
+
+    robot_dir = scene_root / "assets" / "robots" / template_dir.name
+    generated_files: list[str] = []
+    for source in template_dir.iterdir():
+        if source.is_file() and source.suffix.lower() in {".xml", ".srdf", ".yaml", ".yml"}:
+            destination = robot_dir / source.name
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            copy2(source, destination)
+            generated_files.append(str(destination.relative_to(scene_root)))
+
+    mesh_source_root = template_dir / "assets"
+    if mesh_source_root.is_dir():
+        for source in sorted(path for path in mesh_source_root.rglob("*") if path.is_file()):
+            relative_path = source.relative_to(mesh_source_root)
+            destination = compiled_asset_root / relative_path
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            copy2(source, destination)
+            generated_files.append(str(destination.relative_to(scene_root)))
+
+    include_path = str((Path("assets") / "robots" / template_dir.name / entry_file).as_posix())
+    return include_path, tuple(generated_files)
+
+
+def _mujoco_robot_template_dir(
+    csd: Mapping[str, Any],
+    realization_config: Mapping[str, Any],
+) -> Path | None:
+    configured = realization_config.get("robot_template_dir")
+    if configured:
+        return Path(str(configured))
+
+    robot_asset_id = str(csd.get("robot_asset_id", ""))
+    if robot_asset_id in {"robot_franka_panda", "franka_panda"}:
+        return (
+            Path(__file__).resolve().parents[2]
+            / "drivers_sim"
+            / "mujoco"
+            / "assets"
+            / "robots"
+            / "franka_panda"
+        )
+    return None
+
+
+def _mujoco_robot_template_blockers(
+    *,
+    csd: Mapping[str, Any],
+    realization_config: Mapping[str, Any],
+) -> tuple[CsdRealizationBlocker, ...]:
+    robot_asset_id = str(csd.get("robot_asset_id", ""))
+    if not robot_asset_id:
+        return ()
+
+    csd_id = _required_str(csd, "csd_id")
+    template_dir = _mujoco_robot_template_dir(csd, realization_config)
+    if template_dir is None:
+        return (
+            _asset_blocker(
+                csd_id,
+                robot_asset_id,
+                MUJOCO_BACKEND,
+                "no MuJoCo robot template is configured for robot asset",
+            ),
+        )
+    if not template_dir.is_dir():
+        return (
+            _asset_blocker(
+                csd_id,
+                robot_asset_id,
+                MUJOCO_BACKEND,
+                f"MuJoCo robot template directory is missing: {template_dir}",
+            ),
+        )
+    entry_file = str(realization_config.get("robot_template_entry", "panda.xml"))
+    if not (template_dir / entry_file).is_file():
+        return (
+            _asset_blocker(
+                csd_id,
+                robot_asset_id,
+                MUJOCO_BACKEND,
+                f"MuJoCo robot template entry is missing: {entry_file}",
+            ),
+        )
+    return ()
+
+
+def _write_manifest(path: Path, manifest: CsdRealizationManifest) -> None:
+    path.write_text(
+        json.dumps(manifest.to_json_dict(), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _unique_files(paths: Iterable[str]) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(paths))
 
 
 def _variant_relative_paths(
