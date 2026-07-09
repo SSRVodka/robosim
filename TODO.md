@@ -12,7 +12,7 @@
   生成 MuJoCo native `scene.xml` 派生产物，并返回可审计的 backend manifest；
 - [x] 增加后端目标入口 `compile_csd(..., backend=...)`，避免把 MuJoCo-only
   函数误认为 compiler 抽象本身；
-- [x] MuJoCo compiler 产物目录自包含 mesh variant 文件，避免编译后依赖易丢失
+- [x] MuJoCo compiler 产物目录自包含 mesh resource 文件，避免编译后依赖易丢失
   的原始 asset cache；
 - [x] 将 MuJoCo compiler 提升为完整 realization package：输出到
   `engine_manifests/mujoco/<csd_id>/`，持久化 `manifest.json`，生成可直接加载的
@@ -20,19 +20,19 @@
   closure 到本地 `assets/`；当前 tabletop/floor world 元素由 compiler 生成，
   尚未接入独立 world-template source closure；
 - [x] 定义并实现第一版 CSD -> Gazebo SDF compiler：生成
-  `engine_manifests/gazebo/<csd_id>/world.sdf`，复制 passed Gazebo asset
-  variants 到本地 `assets/`，并返回可审计的 backend manifest；
+  `engine_manifests/gazebo/<csd_id>/world.sdf`，复制 Gazebo backend resources
+  到本地 `assets/`，并返回可审计的 backend manifest；
 - [ ] 将 CSD compiler 产物接入 MuJoCoBackend runtime load/render/physics
   validation；
 - [x] 设计 Gazebo compiler artifact layout，包括 SDF resource path 与资产复制
   规则；不要求编译产物位于 ROS2 package 或 launch 目录；
 - [ ] 将 CSD compiler 产物接入 GazeboBackend runtime load/render/physics
   validation；
-- [x] 为 CSD realization 定义缓存 key：CSD content hash、asset variant hash、
+- [x] 为 CSD realization 定义缓存 key：CSD content hash、backend resource hash、
   backend target、realization config、`vsim` realization version、simulator
   version、sampled randomization values；
 - [x] 为 CSD realization 增加输入 gate：检查 CSD 引用的 assets 是否具备目标
-  backend 的 passed variant，并为 cache key 提取 asset variant hashes；
+  backend resource adapter，并为 cache key 提取 resource hashes；
 - [ ] 为 CSD realization 定义 asset backend compatibility 检查：mesh format、
   material/texture、collision、joint/articulation、sensor、lighting、scale、
   frame/up-axis、contact/inertial semantics；不支持或有损转换必须返回

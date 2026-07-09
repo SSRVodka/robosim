@@ -17,7 +17,7 @@ joint、material、mesh、contact 参数以及 compiler defaults 等语义。
 
 同一个 CSD 可以 realization 到多个 backend，并缓存各自的 native artifacts
 和 backend manifest。缓存 key 至少应包含 CSD 内容 hash、所选 asset IDs 与
-asset variant hashes、目标 backend、realization config、`vsim` realization
+backend adapter/resource hashes、目标 backend、realization config、`vsim` realization
 版本、可获取的 simulator 版本以及 sampled randomization values。CSD 始终是
 场景语义源，MJCF/URDF/SDF/Gazebo 资源等只是可复现的派生产物。
 
@@ -42,15 +42,16 @@ lighting、scale、frame/up-axis、contact 参数和 inertial 语义的支持可
 当前 CSD realization 的已实现范围包括：
 
 - 后端输入 gate：`vsim` 可以检查一个 CSD 引用的 asset 是否具备目标 backend
-  的 passed variant，并提取参与 cache key 的 variant hashes。若缺失 passed
-  variant，会返回 typed blocker。
+  resource adapter，并提取参与 cache key 的 adapter/resource hashes。若缺失
+  adapter，会返回 typed blocker。发布到 asset library 的记录应已经通过
+  catalog 质量门禁，失败或待修复候选不应出现在这里。
 - 第一版 CSD compiler：`compile_csd(..., backend=...)` 将固定 CSD 和 asset
   registry 编译到 benchmark package 的
   `engine_manifests/<backend>/<csd_id>/...` backend slot，并返回
   `CsdRealizationManifest`。调用 API 时应把 `output_root` 传为 package 下的
   `engine_manifests/`。当前 MuJoCo 路径生成 `scene.xml`，Gazebo 路径生成
   `world.sdf`。该路径目前支持具备对应 backend
-  passed mesh variant 的刚体 mesh 对象、CSD 显式 pose、MuJoCo 动态对象
+  resource adapter 的刚体 mesh 对象、CSD 显式 pose、MuJoCo 动态对象
   `freejoint`、Gazebo SDF model/link/visual/collision、mass/friction 标量，
   以及 realization cache key。它不替代后续 runtime load/render/physics
   validation。
@@ -86,10 +87,11 @@ files。
 
 该布局借鉴 OpenUSD 对 asset identity、composition 与 resolved asset path 的
 分离，但 MVP 不要求生成 USD 文件。CSD 和 asset registry 持有 project-owned
-asset IDs、语义、provenance 和 backend variant；MuJoCo/Gazebo compiler 负责把
-这些逻辑 asset 解析为当前 realization 目录中的相对路径。机器人模板、world
-模板、交互物体、材质、collision 与 domain-randomization override 应作为概念
-上分层的输入处理，即使最终需要为 MuJoCo 生成一个可加载的 MJCF entry file。
+asset IDs、语义、provenance 和 backend resource adapters；MuJoCo/Gazebo
+compiler 负责把这些逻辑 asset 解析为当前 realization 目录中的相对路径。CSD
+中的 environment、robot、objects、enum relationships、材质、collision 与
+domain-randomization override 应作为概念上分层的输入处理，即使最终需要为
+MuJoCo 生成一个可加载的 MJCF entry file。
 
 MuJoCo realization 的路径规则：
 
@@ -97,7 +99,7 @@ MuJoCo realization 的路径规则：
   `mujoco.MjModel.from_xml_path()` 加载；
 - MJCF 中的 mesh、texture、include 等依赖不得指向原始下载 cache 或
   `drivers_sim` 源目录；
-- CSD object variants 必须复制到
+- CSD object backend resources 必须复制到
   `engine_manifests/mujoco/<csd_id>/assets/...` 后再被 MJCF 引用；
 - 临时复用 `drivers_sim/mujoco/assets/robots/...` 中的 robot/world 模板是允许的，
   但 compiler 必须复制所需 XML、mesh、texture、SRDF/metadata 等 dependency
@@ -111,7 +113,7 @@ MuJoCo realization 的路径规则：
 中关于 `asset/mesh`、`geom` mesh 引用、mesh scale、mesh frame centering、
 collision convex hull、material 与 contact/friction 参数的说明。由此确认第一
 阶段不能把 project asset ID 直接当作 MJCF 文件路径使用，必须先通过 asset
-backend variant/compatibility gate，再进入后续 MJCF 生成。
+backend adapter/compatibility gate，再进入后续 MJCF 生成。
 
 实现记录（2026-07-09）：当前 `compile_csd_to_mujoco()` 继续依据 MuJoCo
 MJCF XML Reference（stable）中的 `compiler`、`asset/mesh`、`worldbody/body`、
@@ -122,15 +124,15 @@ MJCF XML Reference（stable）中的 `compiler`、`asset/mesh`、`worldbody/body
 解析；有机器人模板时，顶层 `scene.xml` 通过相对 `<include>` 引用 realization
 package 内复制出的 Franka MJCF 模板，并沿用模板内的 `compiler meshdir` 规则。
 CSD object 使用 `<asset><mesh file="relative/path.obj"/></asset>` 注册 mesh
-variant，可带 mesh `scale`；variant material/texture metadata 会生成 MJCF
+resource，可带 mesh `scale`；adapter material/texture metadata 会生成 MJCF
 `texture`、`material`，再由 object geom 引用。动态对象以 `freejoint` 表示自由
 刚体。当前支持的 world template 为 `empty_floor` 和 `world_tabletop`；
 `world_tabletop` 会生成 backend-local static tabletop geometry，而不是引用
 `drivers_sim` 的 world scene。MuJoCo loadability 由单元测试通过
 `mujoco.MjModel.from_xml_path` 验证。
 
-编译产物目录必须自包含当前 backend 需要的资产文件。第一版 MuJoCo 编译器会把
-CSD 引用的 passed mesh variant 复制到
+编译产物目录必须自包含当前 backend 需要的资产文件。MuJoCo 编译器会把
+CSD 引用的 backend mesh resources 复制到
 `engine_manifests/mujoco/<csd_id>/assets/<variant-relative-path>`，`scene.xml`
 只引用该目录内的相对路径。当前 MuJoCo compiler 会把该产物提升为
 `engine_manifests/mujoco/<csd_id>/` 下的完整 realization package，持久化
@@ -142,18 +144,20 @@ scene artifact 不得依赖易丢失的下载缓存路径。
 
 CSD compiler tests must keep scenario definitions as JSON fixtures under
 `tests/fixtures/csd/` instead of embedding large dictionaries in test code.
-Fixture coverage should include robot tabletop scenes, multiple static/dynamic
-objects, object-only scenes, unsupported robot blockers, and material/texture/
-scale variants. At least one MuJoCo compiler smoke test should load the
-compiled `scene.xml`, render an offscreen screenshot from `world_camera` into
-`diagnostics/`, and assert basic CSD semantic preservation such as object
-presence, pose sanity, and nonblank rendered pixels.
+Fixtures must use the structured CSD scenario contract: `environment`, `robot`,
+`objects`, enum-typed `relationships`, sampled overrides, sensors, and
+evaluator refs. Fixture coverage should include robot tabletop scenes, multiple
+static/dynamic objects, object-only scenes, unsupported robot blockers, and
+material/texture/scale adapter resources. At least one MuJoCo compiler smoke
+test should load the compiled `scene.xml`, render an offscreen screenshot from
+`world_camera` into `diagnostics/`, and assert basic CSD semantic preservation
+such as object presence, pose sanity, and nonblank rendered pixels.
 
 实现记录（2026-07-09）：第一版 `compile_csd_to_gazebo()` 依据 SDFormat
 1.12 的 `sdf/world/model/link/visual/collision/geometry/mesh/uri` 结构与 Gazebo
 Sim resource lookup 文档实现。Gazebo 产物写入
-`engine_manifests/gazebo/<csd_id>/world.sdf`，并复制 CSD 引用的 passed Gazebo
-asset variant 到 `engine_manifests/gazebo/<csd_id>/assets/...`。SDF 内 mesh URI
+`engine_manifests/gazebo/<csd_id>/world.sdf`，并复制 CSD 引用的 Gazebo backend
+resources 到 `engine_manifests/gazebo/<csd_id>/assets/...`。SDF 内 mesh URI
 使用相对路径 `assets/...`，使 `world.sdf` 可随 artifact root 移动；不要求生成
 ROS2 package、launch 目录或安装到 package share。后续 runtime 加载时可通过
 当前工作目录、绝对路径或 `GZ_SIM_RESOURCE_PATH` 暴露 artifact root，但编译器
