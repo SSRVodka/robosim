@@ -1128,6 +1128,78 @@ def test_compile_csd_to_mujoco_blocks_unsupported_environment_surface(
     }
 
 
+def test_compile_csd_to_mujoco_blocks_invalid_camera_xyaxes(
+    tmp_path: Path,
+) -> None:
+    asset_root = tmp_path / "assets"
+    csd = _load_json_fixture("object_only_static_and_dynamic.json")
+    scenario = csd["scenario"]
+    assert isinstance(scenario, dict)
+    environment = scenario["environment"]
+    assert isinstance(environment, dict)
+    cameras = environment["cameras"]
+    assert isinstance(cameras, list)
+    camera = cameras[0]
+    assert isinstance(camera, dict)
+    pose = camera["pose"]
+    assert isinstance(pose, dict)
+    pose["xyaxes"] = [1.0, 0.0, 0.0, 2.0, 0.0, 0.0]
+    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    _write_fixture_asset_files(asset_root, asset_registry)
+
+    result = compile_csd_to_mujoco(
+        csd=csd,
+        asset_registry=asset_registry,
+        output_root=tmp_path,
+        asset_root=asset_root,
+    )
+
+    assert result.manifest is None
+    assert result.blockers[0].to_json_dict() == {
+        "blocker_id": "csd_object_only_0001_mujoco_world_camera_compile_blocked",
+        "csd_id": "csd_object_only_0001",
+        "backend": "mujoco",
+        "asset_id": "world_camera",
+        "scope": "csd",
+        "reason": "camera world_camera xyaxes must contain non-zero non-parallel axes",
+    }
+
+
+def test_compile_csd_to_mujoco_blocks_zero_light_direction(
+    tmp_path: Path,
+) -> None:
+    asset_root = tmp_path / "assets"
+    csd = _load_json_fixture("object_only_static_and_dynamic.json")
+    scenario = csd["scenario"]
+    assert isinstance(scenario, dict)
+    environment = scenario["environment"]
+    assert isinstance(environment, dict)
+    lighting = environment["lighting"]
+    assert isinstance(lighting, list)
+    light = lighting[0]
+    assert isinstance(light, dict)
+    light["direction"] = [0.0, 0.0, 0.0]
+    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    _write_fixture_asset_files(asset_root, asset_registry)
+
+    result = compile_csd_to_mujoco(
+        csd=csd,
+        asset_registry=asset_registry,
+        output_root=tmp_path,
+        asset_root=asset_root,
+    )
+
+    assert result.manifest is None
+    assert result.blockers[0].to_json_dict() == {
+        "blocker_id": "csd_object_only_0001_mujoco_key_light_compile_blocked",
+        "csd_id": "csd_object_only_0001",
+        "backend": "mujoco",
+        "asset_id": "key_light",
+        "scope": "csd",
+        "reason": "light key_light direction must be non-zero",
+    }
+
+
 def test_compile_csd_to_mujoco_blocks_unknown_relationship_entity(
     tmp_path: Path,
 ) -> None:

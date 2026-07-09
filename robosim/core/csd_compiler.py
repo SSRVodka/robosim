@@ -659,6 +659,27 @@ def _mujoco_csd_semantic_blockers(
                     ),
                 )
             )
+    for camera in csd.environment.cameras:
+        if camera.xyaxes is not None and not _valid_camera_xyaxes(camera.xyaxes):
+            blockers.append(
+                _csd_blocker(
+                    csd.csd_id,
+                    camera.camera_id,
+                    (
+                        f"camera {camera.camera_id} xyaxes must contain non-zero "
+                        "non-parallel axes"
+                    ),
+                )
+            )
+    for light in csd.environment.lighting:
+        if _vector_norm((light.direction.x, light.direction.y, light.direction.z)) == 0.0:
+            blockers.append(
+                _csd_blocker(
+                    csd.csd_id,
+                    light.light_id,
+                    f"light {light.light_id} direction must be non-zero",
+                )
+            )
     for obj in csd.objects:
         blockers.extend(_mujoco_object_physical_blockers(csd.csd_id, obj))
     known_entities = _csd_entity_refs(csd)
@@ -1696,11 +1717,25 @@ def _camera_xyaxes_quaternion_json(
     return [_orientation_float(value) for value in _matrix_to_quaternion(matrix)]
 
 
+def _valid_camera_xyaxes(
+    xyaxes: tuple[float, float, float, float, float, float],
+) -> bool:
+    x_axis = (xyaxes[0], xyaxes[1], xyaxes[2])
+    y_axis = (xyaxes[3], xyaxes[4], xyaxes[5])
+    if _vector_norm(x_axis) == 0.0 or _vector_norm(y_axis) == 0.0:
+        return False
+    return _vector_norm(_cross(x_axis, y_axis)) > 0.0
+
+
 def _unit_vector(vector: tuple[float, float, float]) -> tuple[float, float, float]:
-    norm = math.sqrt(sum(value * value for value in vector))
+    norm = _vector_norm(vector)
     if norm == 0.0:
         raise ValueError("camera xyaxes must not contain a zero axis")
     return (vector[0] / norm, vector[1] / norm, vector[2] / norm)
+
+
+def _vector_norm(vector: tuple[float, float, float]) -> float:
+    return math.sqrt(sum(value * value for value in vector))
 
 
 def _cross(
