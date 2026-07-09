@@ -1601,6 +1601,16 @@ def _mesh_path_blockers(
                 _asset_blocker(csd_id, asset_id, backend, "backend resource path must be relative")
             )
             continue
+        if not _safe_relative_resource_path(relative_path):
+            blockers.append(
+                _asset_blocker(
+                    csd_id,
+                    asset_id,
+                    backend,
+                    f"backend resource path must stay inside asset root: {relative_path}",
+                )
+            )
+            continue
         if backend == MUJOCO_BACKEND and not _is_supported_mujoco_mesh_path(relative_path):
             blockers.append(
                 _asset_blocker(
@@ -1630,6 +1640,18 @@ def _mesh_path_blockers(
                         asset_id,
                         backend,
                         "asset collision mesh path must be relative",
+                    )
+                )
+            elif not _safe_relative_resource_path(collision_mesh_path):
+                blockers.append(
+                    _asset_blocker(
+                        csd_id,
+                        asset_id,
+                        backend,
+                        (
+                            "asset collision mesh path must stay inside asset root: "
+                            f"{collision_mesh_path}"
+                        ),
                     )
                 )
             elif backend == MUJOCO_BACKEND and not _is_supported_mujoco_mesh_path(
@@ -1669,6 +1691,16 @@ def _mesh_path_blockers(
                 )
             )
             continue
+        if not _safe_relative_resource_path(texture_path):
+            blockers.append(
+                _asset_blocker(
+                    csd_id,
+                    asset_id,
+                    backend,
+                    f"asset material texture path must stay inside asset root: {texture_path}",
+                )
+            )
+            continue
         if not (asset_root / texture_path).is_file():
             blockers.append(
                 _asset_blocker(
@@ -1683,6 +1715,11 @@ def _mesh_path_blockers(
 
 def _is_supported_mujoco_mesh_path(path: str) -> bool:
     return Path(path).suffix.lower() in MUJOCO_MESH_EXTENSIONS
+
+
+def _safe_relative_resource_path(path: str) -> bool:
+    resource_path = Path(path)
+    return bool(path) and not resource_path.is_absolute() and ".." not in resource_path.parts
 
 
 def _append_mjcf_material(parent: ET.Element, material: BackendResourceMaterial) -> None:

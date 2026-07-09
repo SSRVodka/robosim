@@ -1208,6 +1208,39 @@ def test_compile_csd_to_mujoco_blocks_unsupported_mesh_format(tmp_path: Path) ->
     }
 
 
+def test_compile_csd_to_mujoco_blocks_mesh_path_traversal(tmp_path: Path) -> None:
+    asset_root = tmp_path / "assets"
+    csd = _load_json_fixture("object_only_static_and_dynamic.json")
+    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    records = asset_registry["objects"]
+    assert isinstance(records, list)
+    for record in records:
+        if isinstance(record, dict) and record.get("asset_id") == "object_mug":
+            resources = record["backend_resources"]
+            assert isinstance(resources, list)
+            resource = resources[0]
+            assert isinstance(resource, dict)
+            resource["mesh_path"] = "../objects/mug.obj"
+    _write_tetra_mesh(asset_root / "objects" / "tray.obj")
+
+    result = compile_csd_to_mujoco(
+        csd=csd,
+        asset_registry=asset_registry,
+        output_root=tmp_path,
+        asset_root=asset_root,
+    )
+
+    assert result.manifest is None
+    assert result.blockers[0].to_json_dict() == {
+        "blocker_id": "csd_object_only_0001_mujoco_object_mug_compile_blocked",
+        "csd_id": "csd_object_only_0001",
+        "backend": "mujoco",
+        "asset_id": "object_mug",
+        "scope": "asset",
+        "reason": "backend resource path must stay inside asset root: ../objects/mug.obj",
+    }
+
+
 def test_compile_csd_to_mujoco_blocks_unsupported_collision_mesh_format(
     tmp_path: Path,
 ) -> None:
@@ -1242,6 +1275,44 @@ def test_compile_csd_to_mujoco_blocks_unsupported_collision_mesh_format(
         "reason": (
             "MuJoCo collision mesh resource format is unsupported: "
             "collision/mug_collision.ply"
+        ),
+    }
+
+
+def test_compile_csd_to_mujoco_blocks_texture_path_traversal(tmp_path: Path) -> None:
+    asset_root = tmp_path / "assets"
+    csd = _load_json_fixture("textured_scaled_object.json")
+    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    records = asset_registry["objects"]
+    assert isinstance(records, list)
+    for record in records:
+        if isinstance(record, dict) and record.get("asset_id") == "object_textured_can":
+            resources = record["backend_resources"]
+            assert isinstance(resources, list)
+            resource = resources[0]
+            assert isinstance(resource, dict)
+            material = resource["material"]
+            assert isinstance(material, dict)
+            material["texture_path"] = "../textures/can_label.png"
+    _write_tetra_mesh(asset_root / "objects" / "can.obj")
+
+    result = compile_csd_to_mujoco(
+        csd=csd,
+        asset_registry=asset_registry,
+        output_root=tmp_path,
+        asset_root=asset_root,
+    )
+
+    assert result.manifest is None
+    assert result.blockers[0].to_json_dict() == {
+        "blocker_id": "csd_textured_scaled_0001_mujoco_object_textured_can_compile_blocked",
+        "csd_id": "csd_textured_scaled_0001",
+        "backend": "mujoco",
+        "asset_id": "object_textured_can",
+        "scope": "asset",
+        "reason": (
+            "asset material texture path must stay inside asset root: "
+            "../textures/can_label.png"
         ),
     }
 

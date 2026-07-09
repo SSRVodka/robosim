@@ -97,8 +97,8 @@
 - [ ] 为 CSD realization 定义 asset backend compatibility 检查：mesh format、
   material/texture、collision、joint/articulation、sensor、lighting、scale、
   frame/up-axis、contact/inertial semantics；MuJoCo mesh format、scale、
-  material/texture、collision mesh split、direct mass/friction/contact attributes
-  与 explicit inertial override 已覆盖，solver assumptions 和 cross-backend parity 仍需后续
+  material/texture resource path safety、collision mesh split、direct
+  mass/friction/contact attributes 与 explicit inertial override 已覆盖，solver assumptions 和 cross-backend parity 仍需后续
   blocker/validation 设计；
 - [x] 增加 MuJoCo compiler fixture MJCF 覆盖当前 demo 用例：Franka tabletop、
   至少一个动态交互物体、至少一个静态支撑物、mesh/material/texture dependency
