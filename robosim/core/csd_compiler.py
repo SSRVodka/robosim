@@ -27,6 +27,7 @@ from robosim.core.csd import (
 MUJOCO_BACKEND = "mujoco"
 GAZEBO_BACKEND = "gazebo"
 DEFAULT_REALIZATION_VERSION = "csd-compiler-0.2"
+DEFAULT_MUJOCO_GRAVITY = (0.0, 0.0, -9.81)
 @dataclass(frozen=True, slots=True)
 class CsdCompilationResult:
     """Result of compiling one fixed CSD into backend-native artifacts."""
@@ -64,6 +65,7 @@ def compile_csd_to_mujoco(
         return CsdCompilationResult(manifest=None, blockers=blockers)
 
     typed_csd = ConcreteScenarioDefinition.from_mapping(csd)
+    realization_config = dict(realization_config or {})
 
     resources = backend_resource_adapters_by_asset(asset_registry, backend=MUJOCO_BACKEND)
     mesh_blockers = _mesh_path_blockers(
@@ -76,13 +78,19 @@ def compile_csd_to_mujoco(
         return CsdCompilationResult(manifest=None, blockers=mesh_blockers)
 
     csd_id = _required_str(csd, "csd_id")
-    realization_config = dict(realization_config or {})
     robot_blockers = _mujoco_robot_template_blockers(
         csd=csd,
         realization_config=realization_config,
     )
     if robot_blockers:
         return CsdCompilationResult(manifest=None, blockers=robot_blockers)
+
+    semantic_blockers = _mujoco_csd_semantic_blockers(
+        typed_csd,
+        uses_robot_template=_mujoco_robot_template_dir(csd, realization_config) is not None,
+    )
+    if semantic_blockers:
+        return CsdCompilationResult(manifest=None, blockers=semantic_blockers)
 
     resource_hashes = asset_resource_hashes_for_csd(
         csd=csd,
@@ -558,6 +566,64 @@ def _mujoco_robot_template_blockers(
     return ()
 
 
+def _mujoco_csd_semantic_blockers(
+    csd: ConcreteScenarioDefinition,
+    *,
+    uses_robot_template: bool,
+) -> tuple[CsdRealizationBlocker, ...]:
+    blockers: list[CsdRealizationBlocker] = []
+    if csd.units != "m":
+        blockers.append(
+            _csd_blocker(
+                csd.csd_id,
+                "scenario_units",
+                f"MuJoCo compiler supports only CSD units='m', got '{csd.units}'",
+            )
+        )
+    if csd.frame != "world":
+        blockers.append(
+            _csd_blocker(
+                csd.csd_id,
+                "scenario_frame",
+                f"MuJoCo compiler supports only frame='world', got '{csd.frame}'",
+            )
+        )
+    for surface in csd.environment.surfaces:
+        if surface.surface_type != "box":
+            blockers.append(
+                _csd_blocker(
+                    csd.csd_id,
+                    surface.surface_id,
+                    (
+                        "MuJoCo compiler does not support environment surface "
+                        f"type '{surface.surface_type}'"
+                    ),
+                )
+            )
+    if uses_robot_template and not _is_default_mujoco_gravity(csd):
+        robot_asset_id = csd.robot.asset_id if csd.robot is not None else "robot_template"
+        blockers.append(
+            _csd_blocker(
+                csd.csd_id,
+                robot_asset_id,
+                (
+                    "MuJoCo robot template gravity override is not implemented; "
+                    "template scenes require default gravity 0 0 -9.81"
+                ),
+            )
+        )
+    return tuple(blockers)
+
+
+def _is_default_mujoco_gravity(csd: ConcreteScenarioDefinition) -> bool:
+    gravity = csd.environment.gravity
+    return (
+        math.isclose(gravity.x, DEFAULT_MUJOCO_GRAVITY[0])
+        and math.isclose(gravity.y, DEFAULT_MUJOCO_GRAVITY[1])
+        and math.isclose(gravity.z, DEFAULT_MUJOCO_GRAVITY[2])
+    )
+
+
 def _write_manifest(path: Path, manifest: CsdRealizationManifest) -> None:
     path.write_text(
         json.dumps(manifest.to_json_dict(), indent=2, sort_keys=True) + "\n",
@@ -751,6 +817,21 @@ def _asset_blocker(
         backend=backend,
         asset_id=asset_id,
         scope="asset",
+        reason=reason,
+    )
+
+
+def _csd_blocker(
+    csd_id: str,
+    subject_id: str,
+    reason: str,
+) -> CsdRealizationBlocker:
+    return CsdRealizationBlocker(
+        blocker_id=f"{csd_id}_{MUJOCO_BACKEND}_{subject_id}_compile_blocked",
+        csd_id=csd_id,
+        backend=MUJOCO_BACKEND,
+        asset_id=subject_id,
+        scope="csd",
         reason=reason,
     )
 

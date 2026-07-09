@@ -142,6 +142,12 @@ template 为 `empty_floor` 和 `world_tabletop`；
 `drivers_sim` 的 world scene。MuJoCo loadability 由单元测试通过
 `mujoco.MjModel.from_xml_path` 验证。
 
+MuJoCo compiler 会在写出文件前执行语义 gate，避免生成可加载但语义错误的
+MJCF。当前会阻止非 `units="m"`、非 `frame="world"`、非 `box` 类型的
+environment surface，以及带 robot template 时的非默认 gravity。被阻止的情况
+返回 typed `CsdRealizationBlocker(scope="csd")`，调用方应修复 CSD 或等待
+compiler 增加明确转换策略，而不是依赖静默降级。
+
 编译产物目录必须自包含当前 backend 需要的资产文件。MuJoCo 编译器会把
 CSD 引用的 backend mesh resources 复制到
 `engine_manifests/mujoco/<csd_id>/assets/<resource-relative-path>`，`scene.xml`

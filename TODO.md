@@ -42,6 +42,9 @@
   `mass_kg`/`friction` 到 MJCF object geom；
 - [x] 在无 robot template 的 MuJoCo realization 中将 CSD
   `environment.gravity` 写入 MJCF `<option gravity="...">`；
+- [x] 为 MuJoCo compiler 增加语义 gate：不支持的 CSD units/frame、
+  environment surface type，以及 robot-template 非默认 gravity 均返回 typed
+  blocker，避免生成语义错误但可加载的 MJCF；
 - [ ] 设计带 robot include/template 的 MuJoCo gravity override 策略，避免与
   template 内已有 `<option>` 节点冲突后再支持非默认 gravity；
 - [ ] 为 CSD realization 定义 asset backend compatibility 检查：mesh format、

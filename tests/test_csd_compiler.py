@@ -464,6 +464,111 @@ def test_compile_csd_to_mujoco_reports_unsupported_robot_asset(tmp_path: Path) -
     }
 
 
+def test_compile_csd_to_mujoco_blocks_unsupported_units_and_frame(tmp_path: Path) -> None:
+    asset_root = tmp_path / "assets"
+    csd = _load_json_fixture("object_only_static_and_dynamic.json")
+    scenario = csd["scenario"]
+    assert isinstance(scenario, dict)
+    scenario["units"] = "cm"
+    scenario["frame"] = "map"
+    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    _write_fixture_asset_files(asset_root, asset_registry)
+
+    result = compile_csd_to_mujoco(
+        csd=csd,
+        asset_registry=asset_registry,
+        output_root=tmp_path,
+        asset_root=asset_root,
+    )
+
+    assert result.manifest is None
+    assert [blocker.to_json_dict() for blocker in result.blockers] == [
+        {
+            "blocker_id": "csd_object_only_0001_mujoco_scenario_units_compile_blocked",
+            "csd_id": "csd_object_only_0001",
+            "backend": "mujoco",
+            "asset_id": "scenario_units",
+            "scope": "csd",
+            "reason": "MuJoCo compiler supports only CSD units='m', got 'cm'",
+        },
+        {
+            "blocker_id": "csd_object_only_0001_mujoco_scenario_frame_compile_blocked",
+            "csd_id": "csd_object_only_0001",
+            "backend": "mujoco",
+            "asset_id": "scenario_frame",
+            "scope": "csd",
+            "reason": "MuJoCo compiler supports only frame='world', got 'map'",
+        },
+    ]
+
+
+def test_compile_csd_to_mujoco_blocks_unsupported_environment_surface(
+    tmp_path: Path,
+) -> None:
+    asset_root = tmp_path / "assets"
+    csd = _load_json_fixture("franka_tabletop_single_object.json")
+    scenario = csd["scenario"]
+    assert isinstance(scenario, dict)
+    environment = scenario["environment"]
+    assert isinstance(environment, dict)
+    surfaces = environment["surfaces"]
+    assert isinstance(surfaces, list)
+    surface = surfaces[0]
+    assert isinstance(surface, dict)
+    surface["type"] = "cylinder"
+    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    _write_fixture_asset_files(asset_root, asset_registry)
+
+    result = compile_csd_to_mujoco(
+        csd=csd,
+        asset_registry=asset_registry,
+        output_root=tmp_path,
+        asset_root=asset_root,
+    )
+
+    assert result.manifest is None
+    assert result.blockers[0].to_json_dict() == {
+        "blocker_id": "csd_tabletop_0001_mujoco_surface_tabletop_compile_blocked",
+        "csd_id": "csd_tabletop_0001",
+        "backend": "mujoco",
+        "asset_id": "surface_tabletop",
+        "scope": "csd",
+        "reason": "MuJoCo compiler does not support environment surface type 'cylinder'",
+    }
+
+
+def test_compile_csd_to_mujoco_blocks_template_nondefault_gravity(tmp_path: Path) -> None:
+    asset_root = tmp_path / "assets"
+    csd = _load_json_fixture("franka_tabletop_single_object.json")
+    scenario = csd["scenario"]
+    assert isinstance(scenario, dict)
+    environment = scenario["environment"]
+    assert isinstance(environment, dict)
+    environment["gravity"] = [0.0, 0.0, -1.62]
+    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    _write_fixture_asset_files(asset_root, asset_registry)
+
+    result = compile_csd_to_mujoco(
+        csd=csd,
+        asset_registry=asset_registry,
+        output_root=tmp_path,
+        asset_root=asset_root,
+    )
+
+    assert result.manifest is None
+    assert result.blockers[0].to_json_dict() == {
+        "blocker_id": "csd_tabletop_0001_mujoco_robot_franka_panda_compile_blocked",
+        "csd_id": "csd_tabletop_0001",
+        "backend": "mujoco",
+        "asset_id": "robot_franka_panda",
+        "scope": "csd",
+        "reason": (
+            "MuJoCo robot template gravity override is not implemented; "
+            "template scenes require default gravity 0 0 -9.81"
+        ),
+    }
+
+
 def test_compile_csd_to_gazebo_writes_self_contained_sdf_world(tmp_path: Path) -> None:
     asset_root = tmp_path / "assets"
     csd = _load_json_fixture("franka_tabletop_single_object.json")
