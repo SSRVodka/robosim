@@ -30,6 +30,7 @@ MUJOCO_BACKEND = "mujoco"
 GAZEBO_BACKEND = "gazebo"
 DEFAULT_REALIZATION_VERSION = "csd-compiler-0.3"
 MUJOCO_MESH_EXTENSIONS = frozenset({".obj", ".stl", ".msh"})
+MUJOCO_PREVIEW_SIZE_PX = 512
 
 
 @dataclass(frozen=True, slots=True)
@@ -326,6 +327,15 @@ def _write_mjcf(
     robot_include: str | None = None,
 ) -> None:
     root = ET.Element("mujoco", {"model": csd.csd_id})
+    visual = ET.SubElement(root, "visual")
+    ET.SubElement(
+        visual,
+        "global",
+        {
+            "offwidth": str(MUJOCO_PREVIEW_SIZE_PX),
+            "offheight": str(MUJOCO_PREVIEW_SIZE_PX),
+        },
+    )
     if robot_include:
         ET.SubElement(root, "include", {"file": robot_include})
     else:
@@ -1355,7 +1365,11 @@ def _write_mujoco_preview(
 
         model = mujoco.MjModel.from_xml_path(str(scene_path))
         data = mujoco.MjData(model)
-        with mujoco.Renderer(model, height=128, width=128) as renderer:
+        with mujoco.Renderer(
+            model,
+            height=MUJOCO_PREVIEW_SIZE_PX,
+            width=MUJOCO_PREVIEW_SIZE_PX,
+        ) as renderer:
             mujoco.mj_forward(model, data)
             renderer.update_scene(data, camera=_mujoco_preview_camera(csd))
             pixels = renderer.render()

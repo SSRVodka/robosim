@@ -24,6 +24,7 @@ from robosim.core import (
 
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "csd"
 MIN_CSD_FIXTURE_COUNT = 10
+EXPECTED_MUJOCO_PREVIEW_SIZE = 512
 MUJOCO_POSITIVE_CSD_FIXTURES = (
     "franka_tabletop_single_object.json",
     "franka_tabletop_multi_object.json",
@@ -111,7 +112,12 @@ def _write_fixture_asset_files(asset_root: Path, asset_registry: Mapping[str, ob
                 _write_png_1x1(texture_path)
 
 
-def _read_ppm_rgb(path: Path, *, width: int = 128, height: int = 128) -> list[tuple[int, int, int]]:
+def _read_ppm_rgb(
+    path: Path,
+    *,
+    width: int = EXPECTED_MUJOCO_PREVIEW_SIZE,
+    height: int = EXPECTED_MUJOCO_PREVIEW_SIZE,
+) -> list[tuple[int, int, int]]:
     header = f"P6\n{width} {height}\n255\n".encode()
     payload = path.read_bytes()
     assert payload.startswith(header)
@@ -221,6 +227,10 @@ def test_compile_csd_to_mujoco_writes_loadable_mjcf_and_manifest(tmp_path: Path)
     assert json.loads(manifest_path.read_text(encoding="utf-8")) == manifest.to_json_dict()
     assert root.tag == "mujoco"
     assert root.find("compiler") is None
+    assert _required_element(root, "visual/global").attrib == {
+        "offwidth": str(EXPECTED_MUJOCO_PREVIEW_SIZE),
+        "offheight": str(EXPECTED_MUJOCO_PREVIEW_SIZE),
+    }
     assert _required_element(root, "include").attrib["file"] == (
         "assets/robots/franka_panda/panda.xml"
     )
@@ -1153,9 +1163,9 @@ def test_compile_csd_to_mujoco_renders_semantic_preview_screenshot(
 
     payload = screenshot_path.read_bytes()
 
-    header = b"P6\n128 128\n255\n"
+    header = f"P6\n{EXPECTED_MUJOCO_PREVIEW_SIZE} {EXPECTED_MUJOCO_PREVIEW_SIZE}\n255\n".encode()
     assert payload.startswith(header)
-    assert screenshot_path.stat().st_size > 128 * 128
+    assert screenshot_path.stat().st_size > EXPECTED_MUJOCO_PREVIEW_SIZE**2
     pixels = payload[len(header):]
     assert max(pixels) > min(pixels)
 
