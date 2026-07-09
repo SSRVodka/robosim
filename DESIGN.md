@@ -160,7 +160,8 @@ entry XML 的 `<option gravity="...">`，不修改源 template，也不在顶层
 camera pose、light pose/direction、surface pose 和 orientation 检查结果。
 object/surface orientation check 使用单位归一化后的 CSD quaternion，与 MuJoCo 加载
 MJCF 后的 quaternion normalization 行为一致；camera orientation check 使用 CSD
-`xyaxes` 解析得到的 camera-frame quaternion；若该检查失败，compiler 返回
+`xyaxes` 解析得到的 camera-frame quaternion。surface geom check 还会验证 CSD
+box surface 的 loaded `size`、`friction` 和 `rgba`；若该检查失败，compiler 返回
 `CsdRealizationBlocker(scope="vsim_realization")`，不发布 manifest。
 load check 通过后，compiler 会写入 `diagnostics/relationship_check.json`，再运行
 短 MuJoCo forward/step stability check，写入 `diagnostics/physics_check.json`；

@@ -430,6 +430,15 @@ def test_compile_csd_to_mujoco_writes_orientation_load_diagnostics(
         0.0,
         0.382683,
     ]
+    assert checks["surface_size:surface_tabletop_geom"]["status"] == "passed"
+    assert checks["surface_size:surface_tabletop_geom"]["expected"] == [0.45, 0.35, 0.04]
+    assert checks["surface_size:surface_tabletop_geom"]["actual"] == [0.45, 0.35, 0.04]
+    assert checks["surface_friction:surface_tabletop_geom"]["status"] == "passed"
+    assert checks["surface_friction:surface_tabletop_geom"]["expected"] == [1.2, 0.2, 0.2]
+    assert checks["surface_friction:surface_tabletop_geom"]["actual"] == [1.2, 0.2, 0.2]
+    assert checks["surface_rgba:surface_tabletop_geom"]["status"] == "passed"
+    assert checks["surface_rgba:surface_tabletop_geom"]["expected"] == [0.42, 0.36, 0.28, 1.0]
+    assert checks["surface_rgba:surface_tabletop_geom"]["actual"] == [0.42, 0.36, 0.28, 1.0]
 
 
 def test_compile_csd_to_mujoco_writes_physics_check_diagnostics(tmp_path: Path) -> None:

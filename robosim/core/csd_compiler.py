@@ -936,6 +936,39 @@ def _write_mujoco_load_check(
                         actual=_quaternion_sequence_json(body.quat),
                     )
                 )
+                geom_name = f"{body_name}_geom"
+                try:
+                    geom = model.geom(geom_name)
+                    checks.append(
+                        _load_check(
+                            f"surface_size:{geom_name}",
+                            expected=_vector3_json(surface.size),
+                            actual=_float_sequence_json(geom.size),
+                        )
+                    )
+                    checks.append(
+                        _load_check(
+                            f"surface_friction:{geom_name}",
+                            expected=_float_sequence_json(surface.friction),
+                            actual=_float_sequence_json(geom.friction),
+                        )
+                    )
+                    checks.append(
+                        _load_check(
+                            f"surface_rgba:{geom_name}",
+                            expected=_rgba_sequence_json(surface.rgba),
+                            actual=_rgba_sequence_json(geom.rgba),
+                        )
+                    )
+                except KeyError:
+                    checks.append(
+                        _load_check(
+                            f"surface_size:{geom_name}",
+                            passed=False,
+                            expected=_vector3_json(surface.size),
+                            details={"reason": "surface geom not found in loaded MuJoCo model"},
+                        )
+                    )
             except KeyError:
                 checks.append(
                     _load_check(
@@ -1636,6 +1669,10 @@ def _quaternion_json(quaternion: Any) -> list[float]:
 
 
 def _quaternion_sequence_json(values: Any) -> list[float]:
+    return [_orientation_float(value) for value in values]
+
+
+def _rgba_sequence_json(values: Any) -> list[float]:
     return [_orientation_float(value) for value in values]
 
 

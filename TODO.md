@@ -81,7 +81,7 @@
   `mujoco.MjModel.from_xml_path()` 加载当前 realization 目录中的 `scene.xml`，
   并将 model load、gravity、camera pose/orientation、light pose/direction、
   CSD object body pose/orientation、body mass、collision-bearing geom friction/contact、
-  environment surface pose/orientation 检查写入
+  environment surface pose/orientation/size/friction/RGBA 检查写入
   `diagnostics/load_check.json`；检查失败时返回
   `CsdRealizationBlocker(scope="vsim_realization")`，不发布 manifest；
 - [x] 为 MuJoCo compiler 产物增加 package-local physics check：load check
