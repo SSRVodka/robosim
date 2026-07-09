@@ -71,6 +71,7 @@ def compile_csd_to_mujoco(
     typed_csd = ConcreteScenarioDefinition.from_mapping(csd)
     realization_config = dict(realization_config or {})
     csd_id = _required_str(csd, "csd_id")
+    simulator_version = simulator_version or _mujoco_simulator_version()
 
     semantic_blockers = _mujoco_csd_semantic_blockers(
         typed_csd
@@ -762,6 +763,14 @@ def _write_validation_record(
         json.dumps(record.to_json_dict(), indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+
+
+def _mujoco_simulator_version() -> str | None:
+    try:
+        import mujoco
+    except Exception:
+        return None
+    return str(getattr(mujoco, "__version__", "")) or None
 
 
 def _cached_manifest(scene_root: Path, cache_key: str) -> CsdRealizationManifest | None:

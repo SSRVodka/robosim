@@ -276,6 +276,33 @@ def test_compile_csd_to_mujoco_rebuilds_incomplete_cached_realization(
     assert second.manifest.cache_key == first.manifest.cache_key
 
 
+def test_compile_csd_to_mujoco_cache_key_includes_default_simulator_version(
+    tmp_path: Path,
+) -> None:
+    asset_root = tmp_path / "assets"
+    csd = _load_json_fixture("object_only_static_and_dynamic.json")
+    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    _write_fixture_asset_files(asset_root, asset_registry)
+
+    default_result = compile_csd_to_mujoco(
+        csd=csd,
+        asset_registry=asset_registry,
+        output_root=tmp_path / "default" / "engine_manifests",
+        asset_root=asset_root,
+    )
+    explicit_result = compile_csd_to_mujoco(
+        csd=csd,
+        asset_registry=asset_registry,
+        output_root=tmp_path / "explicit" / "engine_manifests",
+        asset_root=asset_root,
+        simulator_version=mujoco.__version__,
+    )
+
+    assert isinstance(default_result.manifest, CsdRealizationManifest)
+    assert isinstance(explicit_result.manifest, CsdRealizationManifest)
+    assert default_result.manifest.cache_key == explicit_result.manifest.cache_key
+
+
 def test_compile_csd_to_mujoco_handles_multi_object_static_dynamic_scene(
     tmp_path: Path,
 ) -> None:
