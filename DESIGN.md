@@ -20,6 +20,9 @@ joint、material、mesh、contact 参数以及 compiler defaults 等语义。
 backend adapter/resource hashes、目标 backend、realization config、`vsim` realization
 版本、可获取的 simulator 版本以及 sampled randomization values。CSD 始终是
 场景语义源，MJCF/URDF/SDF/Gazebo 资源等只是可复现的派生产物。
+MuJoCo realization 若发现 existing `manifest.json` cache key 匹配且 manifest
+列出的 generated/preview files 均存在，会直接返回 cached manifest，避免再次依赖
+原始 asset cache 或临时 robot template source。
 
 CSD realization 需要显式处理 asset backend compatibility。不同 backend 对
 mesh 格式、material/texture、collision geometry、articulation/joint、sensor、

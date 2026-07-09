@@ -69,24 +69,7 @@ def compile_csd_to_mujoco(
 
     typed_csd = ConcreteScenarioDefinition.from_mapping(csd)
     realization_config = dict(realization_config or {})
-
-    resources = backend_resource_adapters_by_asset(asset_registry, backend=MUJOCO_BACKEND)
-    mesh_blockers = _mesh_path_blockers(
-        csd,
-        resources,
-        Path(asset_root),
-        backend=MUJOCO_BACKEND,
-    )
-    if mesh_blockers:
-        return CsdCompilationResult(manifest=None, blockers=mesh_blockers)
-
     csd_id = _required_str(csd, "csd_id")
-    robot_blockers = _mujoco_robot_template_blockers(
-        csd=csd,
-        realization_config=realization_config,
-    )
-    if robot_blockers:
-        return CsdCompilationResult(manifest=None, blockers=robot_blockers)
 
     semantic_blockers = _mujoco_csd_semantic_blockers(
         typed_csd
@@ -108,6 +91,27 @@ def compile_csd_to_mujoco(
         simulator_version=simulator_version,
     )
     scene_root = Path(output_root) / MUJOCO_BACKEND / csd_id
+    cached_manifest = _cached_manifest(scene_root, cache_key.digest)
+    if cached_manifest is not None:
+        return CsdCompilationResult(manifest=cached_manifest)
+
+    resources = backend_resource_adapters_by_asset(asset_registry, backend=MUJOCO_BACKEND)
+    mesh_blockers = _mesh_path_blockers(
+        csd,
+        resources,
+        Path(asset_root),
+        backend=MUJOCO_BACKEND,
+    )
+    if mesh_blockers:
+        return CsdCompilationResult(manifest=None, blockers=mesh_blockers)
+
+    robot_blockers = _mujoco_robot_template_blockers(
+        csd=csd,
+        realization_config=realization_config,
+    )
+    if robot_blockers:
+        return CsdCompilationResult(manifest=None, blockers=robot_blockers)
+
     compiled_asset_root = scene_root / "assets"
     diagnostics_root = scene_root / "diagnostics"
     scene_root.mkdir(parents=True, exist_ok=True)
@@ -685,6 +689,27 @@ def _write_manifest(path: Path, manifest: CsdRealizationManifest) -> None:
         json.dumps(manifest.to_json_dict(), indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+
+
+def _cached_manifest(scene_root: Path, cache_key: str) -> CsdRealizationManifest | None:
+    manifest_path = scene_root / "manifest.json"
+    if not manifest_path.is_file():
+        return None
+    manifest = CsdRealizationManifest.from_json_dict(
+        json.loads(manifest_path.read_text(encoding="utf-8"))
+    )
+    if manifest.cache_key != cache_key or manifest.backend != MUJOCO_BACKEND:
+        return None
+    if not _manifest_files_exist(scene_root, manifest):
+        return None
+    return manifest
+
+
+def _manifest_files_exist(scene_root: Path, manifest: CsdRealizationManifest) -> bool:
+    for relative_path in (*manifest.generated_files, *manifest.preview_files):
+        if not (scene_root / relative_path).is_file():
+            return False
+    return True
 
 
 def _write_mujoco_load_check(

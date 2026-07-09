@@ -39,6 +39,9 @@
 - [x] 为 CSD realization 定义缓存 key：CSD content hash、backend resource hash、
   backend target、realization config、`vsim` realization version、simulator
   version、sampled randomization values；
+- [x] 为 MuJoCo realization 增加实际 cache reuse：若 existing manifest cache key
+  匹配且 generated/preview files 完整，直接返回 cached manifest；若 package
+  不完整则从 source assets 重新生成；
 - [x] 为 CSD realization 增加输入 gate：检查 CSD 引用的 assets 是否具备目标
   backend resource adapter，并为 cache key 提取 resource hashes；
 - [x] 为 MuJoCo compiler 增加 backend resource adapter typed contract，并支持

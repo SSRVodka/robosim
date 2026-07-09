@@ -172,6 +172,90 @@ def test_compile_csd_to_mujoco_writes_loadable_mjcf_and_manifest(tmp_path: Path)
     assert model.nbody >= 2
 
 
+def test_compile_csd_to_mujoco_reuses_complete_cached_realization(
+    tmp_path: Path,
+) -> None:
+    asset_root = tmp_path / "assets"
+    csd = _load_json_fixture("franka_tabletop_single_object.json")
+    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    _write_fixture_asset_files(asset_root, asset_registry)
+    source_template = Path(__file__).resolve().parents[1] / (
+        "drivers_sim/mujoco/assets/robots/franka_panda"
+    )
+    template_copy = tmp_path / "template_src" / "franka_panda"
+    copytree(source_template, template_copy)
+    output_root = tmp_path / "engine_manifests"
+    realization_config = {"robot_template_dir": str(template_copy)}
+
+    first = compile_csd_to_mujoco(
+        csd=csd,
+        asset_registry=asset_registry,
+        output_root=output_root,
+        asset_root=asset_root,
+        realization_config=realization_config,
+        realization_version="test-0.1",
+        simulator_version="test-mujoco",
+    )
+    assert isinstance(first.manifest, CsdRealizationManifest)
+
+    (asset_root / "objects" / "mug.obj").unlink()
+    for source_file in template_copy.rglob("*"):
+        if source_file.is_file():
+            source_file.unlink()
+
+    second = compile_csd_to_mujoco(
+        csd=csd,
+        asset_registry=asset_registry,
+        output_root=output_root,
+        asset_root=asset_root,
+        realization_config=realization_config,
+        realization_version="test-0.1",
+        simulator_version="test-mujoco",
+    )
+
+    assert second.blockers == ()
+    assert second.manifest == first.manifest
+    assert (output_root / "mujoco" / "csd_tabletop_0001" / "scene.xml").is_file()
+
+
+def test_compile_csd_to_mujoco_rebuilds_incomplete_cached_realization(
+    tmp_path: Path,
+) -> None:
+    asset_root = tmp_path / "assets"
+    csd = _load_json_fixture("object_only_static_and_dynamic.json")
+    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    _write_fixture_asset_files(asset_root, asset_registry)
+    output_root = tmp_path / "engine_manifests"
+
+    first = compile_csd_to_mujoco(
+        csd=csd,
+        asset_registry=asset_registry,
+        output_root=output_root,
+        asset_root=asset_root,
+    )
+    assert isinstance(first.manifest, CsdRealizationManifest)
+    preview_path = (
+        output_root
+        / "mujoco"
+        / "csd_object_only_0001"
+        / "diagnostics"
+        / "semantic_preview.ppm"
+    )
+    preview_path.unlink()
+
+    second = compile_csd_to_mujoco(
+        csd=csd,
+        asset_registry=asset_registry,
+        output_root=output_root,
+        asset_root=asset_root,
+    )
+
+    assert second.blockers == ()
+    assert isinstance(second.manifest, CsdRealizationManifest)
+    assert preview_path.is_file()
+    assert second.manifest.cache_key == first.manifest.cache_key
+
+
 def test_compile_csd_to_mujoco_handles_multi_object_static_dynamic_scene(
     tmp_path: Path,
 ) -> None:
