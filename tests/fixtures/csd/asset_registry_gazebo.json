@@ -1,13 +1,13 @@
 {
   "objects": [
     {
-      "object_id": "object_mug",
-      "variants": [
+      "asset_id": "object_mug",
+      "backend_resources": [
         {
-          "engine": "gazebo",
-          "relative_path": "objects/mug.obj",
-          "variant_hash": "hash_mug_obj",
-          "validation_state": "passed"
+          "backend": "gazebo",
+          "resource_id": "gazebo_object_mug",
+          "mesh_path": "objects/mug.obj",
+          "resource_hash": "hash_mug_obj"
         }
       ]
     }

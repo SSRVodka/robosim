@@ -1,26 +1,34 @@
 {
   "csd_id": "csd_textured_scaled_0001",
-  "task_instance_id": "task_textured_scaled_0001",
-  "task_objective": "render a scaled textured can as an interactive object",
-  "frame": "world",
-  "units": "m",
-  "world_template_id": "empty_floor",
-  "objects": [
-    {
-      "name": "labelled_can",
-      "asset_id": "object_textured_can",
-      "role": "interactive_object",
-      "pose": {
-        "position": {"x": 0.15, "y": 0.05, "z": 0.2},
-        "orientation": {"w": 1.0, "x": 0.0, "y": 0.0, "z": 0.0}
-      },
-      "static": false,
-      "initial_state": {"mass_kg": 0.35, "friction": 0.75}
-    }
-  ],
-  "relationships": [],
-  "randomization": {"seed": 11, "values": {"texture_variant": "fixture_label"}},
-  "sensor_requirements": {"cameras": ["world_camera"]},
-  "evaluator_refs": ["predicate_textured_can_visible"],
-  "schema_version": "0.1"
+  "schema_version": "0.2",
+  "scenario": {
+    "task": {
+      "task_instance_id": "task_textured_scaled_0001",
+      "objective": "render a scaled textured can as an interactive object",
+      "evaluator_refs": ["predicate_textured_can_visible"]
+    },
+    "frame": "world",
+    "units": "m",
+    "environment": {
+      "environment_id": "env_empty_floor",
+      "type": "empty_floor",
+      "gravity": [0.0, 0.0, -9.81],
+      "surfaces": [],
+      "cameras": [{"camera_id": "world_camera", "pose": {"position": {"x": 1.4, "y": 0.0, "z": 1.2}, "xyaxes": [0.0, 1.0, 0.0, -0.5, 0.0, 0.866]}, "mode": "fixed"}],
+      "lighting": [{"light_id": "key_light", "position": [0.0, -1.0, 3.0], "direction": [0.0, 0.0, -1.0]}]
+    },
+    "objects": [
+      {
+        "name": "labelled_can",
+        "asset_id": "object_textured_can",
+        "role": "interactive_object",
+        "pose": {"position": {"x": 0.15, "y": 0.05, "z": 0.2}, "orientation": {"w": 1.0, "x": 0.0, "y": 0.0, "z": 0.0}},
+        "static": false,
+        "initial_state": {"mass_kg": 0.35, "friction": 0.75}
+      }
+    ],
+    "relationships": [],
+    "randomization": {"seed": 11, "values": {"texture_resource": "fixture_label"}},
+    "sensor_requirements": {"cameras": ["world_camera"]}
+  }
 }

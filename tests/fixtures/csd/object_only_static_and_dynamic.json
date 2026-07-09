@@ -1,37 +1,44 @@
 {
   "csd_id": "csd_object_only_0001",
-  "task_instance_id": "task_object_only_0001",
-  "task_objective": "verify static and dynamic rigid body placement",
-  "frame": "world",
-  "units": "m",
-  "world_template_id": "empty_floor",
-  "objects": [
-    {
-      "name": "tray",
-      "asset_id": "object_tray",
-      "role": "support",
-      "pose": {
-        "position": {"x": 0.0, "y": 0.0, "z": 0.15},
-        "orientation": {"w": 1.0, "x": 0.0, "y": 0.0, "z": 0.0}
-      },
-      "static": true,
-      "initial_state": {"mass_kg": 1.0, "friction": 0.7}
+  "schema_version": "0.2",
+  "scenario": {
+    "task": {
+      "task_instance_id": "task_object_only_0001",
+      "objective": "verify static and dynamic rigid body placement",
+      "evaluator_refs": ["predicate_mug_on_tray"]
     },
-    {
-      "name": "mug",
-      "asset_id": "object_mug",
-      "role": "interactive_object",
-      "pose": {
-        "position": {"x": 0.05, "y": 0.0, "z": 0.32},
-        "orientation": {"w": 1.0, "x": 0.0, "y": 0.0, "z": 0.0}
+    "frame": "world",
+    "units": "m",
+    "environment": {
+      "environment_id": "env_empty_floor",
+      "type": "empty_floor",
+      "gravity": [0.0, 0.0, -9.81],
+      "surfaces": [],
+      "cameras": [{"camera_id": "world_camera", "pose": {"position": {"x": 1.4, "y": 0.0, "z": 1.2}, "xyaxes": [0.0, 1.0, 0.0, -0.5, 0.0, 0.866]}, "mode": "fixed"}],
+      "lighting": [{"light_id": "key_light", "position": [0.0, -1.0, 3.0], "direction": [0.0, 0.0, -1.0]}]
+    },
+    "objects": [
+      {
+        "name": "tray",
+        "asset_id": "object_tray",
+        "role": "support",
+        "pose": {"position": {"x": 0.0, "y": 0.0, "z": 0.15}, "orientation": {"w": 1.0, "x": 0.0, "y": 0.0, "z": 0.0}},
+        "static": true,
+        "initial_state": {"mass_kg": 1.0, "friction": 0.7}
       },
-      "static": false,
-      "initial_state": {"mass_kg": 0.2, "friction": 0.8}
-    }
-  ],
-  "relationships": [{"type": "on", "subject": "mug", "object": "tray"}],
-  "randomization": {"seed": 5, "values": {}},
-  "sensor_requirements": {},
-  "evaluator_refs": ["predicate_mug_on_tray"],
-  "schema_version": "0.1"
+      {
+        "name": "mug",
+        "asset_id": "object_mug",
+        "role": "interactive_object",
+        "pose": {"position": {"x": 0.05, "y": 0.0, "z": 0.32}, "orientation": {"w": 1.0, "x": 0.0, "y": 0.0, "z": 0.0}},
+        "static": false,
+        "initial_state": {"mass_kg": 0.2, "friction": 0.8}
+      }
+    ],
+    "relationships": [
+      {"relation_id": "rel_mug_on_tray", "type": "on_top_of", "subject": "object:mug", "object": "object:tray", "parameters": {"contact_required": true, "position_tolerance_m": 0.03}}
+    ],
+    "randomization": {"seed": 5, "values": {}},
+    "sensor_requirements": {}
+  }
 }

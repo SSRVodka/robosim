@@ -1,47 +1,47 @@
 {
   "objects": [
     {
-      "object_id": "object_mug",
-      "variants": [
+      "asset_id": "object_mug",
+      "backend_resources": [
         {
-          "engine": "mujoco",
-          "relative_path": "objects/mug.obj",
-          "variant_hash": "hash_mug_obj",
-          "validation_state": "passed"
+          "backend": "mujoco",
+          "resource_id": "mujoco_object_mug",
+          "mesh_path": "objects/mug.obj",
+          "resource_hash": "hash_mug_obj"
         }
       ]
     },
     {
-      "object_id": "object_tray",
-      "variants": [
+      "asset_id": "object_tray",
+      "backend_resources": [
         {
-          "engine": "mujoco",
-          "relative_path": "objects/tray.obj",
-          "variant_hash": "hash_tray_obj",
-          "validation_state": "passed"
+          "backend": "mujoco",
+          "resource_id": "mujoco_object_tray",
+          "mesh_path": "objects/tray.obj",
+          "resource_hash": "hash_tray_obj"
         }
       ]
     },
     {
-      "object_id": "object_marker",
-      "variants": [
+      "asset_id": "object_marker",
+      "backend_resources": [
         {
-          "engine": "mujoco",
-          "relative_path": "objects/marker.obj",
-          "variant_hash": "hash_marker_obj",
-          "validation_state": "passed",
+          "backend": "mujoco",
+          "resource_id": "mujoco_object_marker",
+          "mesh_path": "objects/marker.obj",
+          "resource_hash": "hash_marker_obj",
           "mesh_scale": [0.5, 0.5, 2.0]
         }
       ]
     },
     {
-      "object_id": "object_textured_can",
-      "variants": [
+      "asset_id": "object_textured_can",
+      "backend_resources": [
         {
-          "engine": "mujoco",
-          "relative_path": "objects/can.obj",
-          "variant_hash": "hash_can_obj",
-          "validation_state": "passed",
+          "backend": "mujoco",
+          "resource_id": "mujoco_object_textured_can",
+          "mesh_path": "objects/can.obj",
+          "resource_hash": "hash_can_obj",
           "mesh_scale": [0.75, 0.75, 0.75],
           "material": {
             "name": "can_label",

@@ -1,27 +1,35 @@
 {
   "csd_id": "csd_unknown_robot",
-  "task_instance_id": "task_unknown_robot",
-  "task_objective": "verify unsupported robot assets produce typed blockers",
-  "frame": "world",
-  "units": "m",
-  "robot_asset_id": "robot_unknown",
-  "world_template_id": "world_tabletop",
-  "objects": [
-    {
-      "name": "mug",
-      "asset_id": "object_mug",
-      "role": "interactive_object",
-      "pose": {
-        "position": {"x": 0.25, "y": -0.1, "z": 0.82},
-        "orientation": {"w": 1.0, "x": 0.0, "y": 0.0, "z": 0.0}
-      },
-      "static": false,
-      "initial_state": {"mass_kg": 0.2, "friction": 0.8}
-    }
-  ],
-  "relationships": [],
-  "randomization": {"seed": 13, "values": {}},
-  "sensor_requirements": {},
-  "evaluator_refs": [],
-  "schema_version": "0.1"
+  "schema_version": "0.2",
+  "scenario": {
+    "task": {
+      "task_instance_id": "task_unknown_robot",
+      "objective": "verify unsupported robot assets produce typed blockers",
+      "evaluator_refs": []
+    },
+    "frame": "world",
+    "units": "m",
+    "environment": {
+      "environment_id": "env_tabletop_lab",
+      "type": "tabletop",
+      "gravity": [0.0, 0.0, -9.81],
+      "surfaces": [{"surface_id": "surface_tabletop", "type": "box", "pose": {"position": {"x": 0.5, "y": 0.0, "z": 0.74}, "orientation": {"w": 1.0, "x": 0.0, "y": 0.0, "z": 0.0}}, "size": {"x": 0.45, "y": 0.35, "z": 0.04}, "rgba": [0.42, 0.36, 0.28, 1.0], "friction": [1.2, 0.2, 0.2]}],
+      "cameras": [{"camera_id": "world_camera", "pose": {"position": {"x": 1.4, "y": 0.0, "z": 1.2}, "xyaxes": [0.0, 1.0, 0.0, -0.5, 0.0, 0.866]}, "mode": "fixed"}],
+      "lighting": [{"light_id": "key_light", "position": [0.0, -1.0, 3.0], "direction": [0.0, 0.0, -1.0]}]
+    },
+    "robot": {"asset_id": "robot_unknown"},
+    "objects": [
+      {
+        "name": "mug",
+        "asset_id": "object_mug",
+        "role": "interactive_object",
+        "pose": {"position": {"x": 0.25, "y": -0.1, "z": 0.82}, "orientation": {"w": 1.0, "x": 0.0, "y": 0.0, "z": 0.0}},
+        "static": false,
+        "initial_state": {"mass_kg": 0.2, "friction": 0.8}
+      }
+    ],
+    "relationships": [],
+    "randomization": {"seed": 13, "values": {}},
+    "sensor_requirements": {}
+  }
 }

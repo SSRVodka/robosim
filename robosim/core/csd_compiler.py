@@ -12,6 +12,8 @@ from shutil import copy2
 from typing import Any, Mapping
 
 from robosim.core.csd import (
+    ConcreteScenarioDefinition,
+    CsdObject,
     CsdRealizationBlocker,
     CsdRealizationManifest,
     asset_variant_hashes_for_csd,
@@ -22,8 +24,6 @@ from robosim.core.csd import (
 MUJOCO_BACKEND = "mujoco"
 GAZEBO_BACKEND = "gazebo"
 DEFAULT_REALIZATION_VERSION = "csd-compiler-0.2"
-
-
 @dataclass(frozen=True, slots=True)
 class CsdCompilationResult:
     """Result of compiling one fixed CSD into backend-native artifacts."""
@@ -59,6 +59,8 @@ def compile_csd_to_mujoco(
     )
     if blockers:
         return CsdCompilationResult(manifest=None, blockers=blockers)
+
+    typed_csd = ConcreteScenarioDefinition.from_mapping(csd)
 
     variants = _variants_by_asset(asset_registry, backend=MUJOCO_BACKEND)
     mesh_blockers = _mesh_path_blockers(
@@ -112,7 +114,7 @@ def compile_csd_to_mujoco(
     scene_path = scene_root / "scene.xml"
     _write_mjcf(
         scene_path,
-        csd=csd,
+        csd=typed_csd,
         asset_root=compiled_asset_root,
         variants=variants,
         robot_include=robot_include,
@@ -252,12 +254,12 @@ def compile_csd_to_gazebo(
 def _write_mjcf(
     scene_path: Path,
     *,
-    csd: Mapping[str, Any],
+    csd: ConcreteScenarioDefinition,
     asset_root: Path,
     variants: Mapping[str, Mapping[str, Any]],
     robot_include: str | None = None,
 ) -> None:
-    root = ET.Element("mujoco", {"model": _required_str(csd, "csd_id")})
+    root = ET.Element("mujoco", {"model": csd.csd_id})
     if robot_include:
         ET.SubElement(root, "include", {"file": robot_include})
     else:
@@ -274,10 +276,10 @@ def _write_mjcf(
         ET.SubElement(root, "option", {"gravity": "0 0 -9.81"})
     ET.SubElement(root, "statistic", {"center": "0.3 0 0.4", "extent": "1"})
     assets = ET.SubElement(root, "asset")
-    for asset_id in _csd_asset_ids(csd):
+    for asset_id in _csd_asset_ids(csd.raw):
         mesh_attrs = {
             "name": _mjcf_name(asset_id),
-            "file": str(variants[asset_id]["relative_path"]),
+                "file": _resource_mesh_path(variants[asset_id]),
         }
         mesh_scale = _mesh_scale_text(variants[asset_id])
         if mesh_scale is not None:
@@ -288,21 +290,8 @@ def _write_mjcf(
             _append_mjcf_material(assets, material)
 
     worldbody = ET.SubElement(root, "worldbody")
-    ET.SubElement(
-        worldbody,
-        "light",
-        {"name": "key_light", "pos": "0 -1 3", "dir": "0 0 -1"},
-    )
-    ET.SubElement(
-        worldbody,
-        "camera",
-        {
-            "name": "world_camera",
-            "pos": "1.4 0 1.2",
-            "xyaxes": "0 1 0 -0.5 0 0.866",
-            "mode": "fixed",
-        },
-    )
+    _append_lights(worldbody, csd)
+    _append_cameras(worldbody, csd)
     ET.SubElement(
         worldbody,
         "geom",
@@ -313,8 +302,8 @@ def _write_mjcf(
             "rgba": "0.8 0.8 0.8 1",
         },
     )
-    _append_world_template(worldbody, csd)
-    for obj in _csd_objects(csd):
+    _append_environment_surfaces(worldbody, csd)
+    for obj in csd.objects:
         _append_object_body(worldbody, obj, variants)
 
     ET.indent(root, space="  ")
@@ -345,7 +334,7 @@ def _append_sdf_model(
 ) -> None:
     asset_id = _required_str(obj, "asset_id")
     name = _mjcf_name(_required_str(obj, "name"))
-    mesh_uri = str(Path("assets") / str(variants[asset_id]["relative_path"]))
+    mesh_uri = str(Path("assets") / _resource_mesh_path(variants[asset_id]))
     model = ET.SubElement(parent, "model", {"name": name})
     ET.SubElement(model, "pose").text = _sdf_pose_text(obj)
     ET.SubElement(model, "static").text = "true" if bool(obj.get("static", False)) else "false"
@@ -370,21 +359,72 @@ def _append_sdf_mesh_geometry(parent: ET.Element, mesh_uri: str) -> None:
     ET.SubElement(mesh, "uri").text = mesh_uri
 
 
-def _append_world_template(parent: ET.Element, csd: Mapping[str, Any]) -> None:
-    if str(csd.get("world_template_id", "")) != "world_tabletop":
+def _append_lights(parent: ET.Element, csd: ConcreteScenarioDefinition) -> None:
+    if not csd.environment.lighting:
+        ET.SubElement(
+            parent,
+            "light",
+            {"name": "key_light", "pos": "0 -1 3", "dir": "0 0 -1"},
+        )
         return
-    table = ET.SubElement(parent, "body", {"name": "tabletop_workspace", "pos": "0.5 0 0.74"})
-    ET.SubElement(
-        table,
-        "geom",
-        {
-            "name": "tabletop_surface",
-            "type": "box",
-            "size": "0.45 0.35 0.04",
-            "rgba": "0.42 0.36 0.28 1",
-            "friction": "1.2 0.2 0.2",
-        },
-    )
+    for light in csd.environment.lighting:
+        attrs = {
+            "name": _mjcf_name(light.light_id),
+            "pos": _vector3_text(light.position),
+            "dir": _vector3_text(light.direction),
+        }
+        ET.SubElement(parent, "light", attrs)
+
+
+def _append_cameras(parent: ET.Element, csd: ConcreteScenarioDefinition) -> None:
+    if not csd.environment.cameras:
+        ET.SubElement(
+            parent,
+            "camera",
+            {
+                "name": "world_camera",
+                "pos": "1.4 0 1.2",
+                "xyaxes": "0 1 0 -0.5 0 0.866",
+                "mode": "fixed",
+            },
+        )
+        return
+    for camera in csd.environment.cameras:
+        attrs = {
+            "name": _mjcf_name(camera.camera_id),
+            "pos": _vector3_text(camera.position),
+            "mode": camera.mode,
+        }
+        if camera.xyaxes is not None:
+            attrs["xyaxes"] = _numbers_text(camera.xyaxes)
+        ET.SubElement(parent, "camera", attrs)
+
+
+def _append_environment_surfaces(parent: ET.Element, csd: ConcreteScenarioDefinition) -> None:
+    for surface in csd.environment.surfaces:
+        if surface.surface_type != "box":
+            continue
+        surface_id = _mjcf_name(surface.surface_id)
+        body = ET.SubElement(
+            parent,
+            "body",
+            {
+                "name": surface_id,
+                "pos": _vector3_text(surface.pose.position),
+                "quat": _quaternion_text(surface.pose.orientation),
+            },
+        )
+        ET.SubElement(
+            body,
+            "geom",
+            {
+                "name": f"{surface_id}_geom",
+                "type": "box",
+                "size": _vector3_text(surface.size),
+                "rgba": _numbers_text(surface.rgba),
+                "friction": _numbers_text(surface.friction),
+            },
+        )
 
 
 def _copy_variant_files(
@@ -450,7 +490,7 @@ def _mujoco_robot_template_dir(
     if configured:
         return Path(str(configured))
 
-    robot_asset_id = str(csd.get("robot_asset_id", ""))
+    robot_asset_id = _robot_asset_id(csd)
     if robot_asset_id in {"robot_franka_panda", "franka_panda"}:
         return (
             Path(__file__).resolve().parents[2]
@@ -468,7 +508,7 @@ def _mujoco_robot_template_blockers(
     csd: Mapping[str, Any],
     realization_config: Mapping[str, Any],
 ) -> tuple[CsdRealizationBlocker, ...]:
-    robot_asset_id = str(csd.get("robot_asset_id", ""))
+    robot_asset_id = _robot_asset_id(csd)
     if not robot_asset_id:
         return ()
 
@@ -522,7 +562,7 @@ def _variant_relative_paths(
 ) -> Iterable[Path]:
     for asset_id in _csd_asset_ids(csd):
         variant = variants[asset_id]
-        yield Path(str(variant["relative_path"]))
+        yield Path(_resource_mesh_path(variant))
         material = _variant_material(variant)
         if material is not None and material.get("texture_path"):
             yield Path(str(material["texture_path"]))
@@ -530,23 +570,23 @@ def _variant_relative_paths(
 
 def _append_object_body(
     parent: ET.Element,
-    obj: Mapping[str, Any],
+    obj: CsdObject,
     variants: Mapping[str, Mapping[str, Any]],
 ) -> None:
-    asset_id = _required_str(obj, "asset_id")
+    asset_id = obj.asset_id
     body = ET.SubElement(
         parent,
         "body",
         {
-            "name": _mjcf_name(_required_str(obj, "name")),
-            "pos": _vector_text(obj, "position"),
-            "quat": _quaternion_text(obj),
+            "name": _mjcf_name(obj.name),
+            "pos": _vector3_text(obj.pose.position),
+            "quat": _quaternion_text(obj.pose.orientation),
         },
     )
-    if not bool(obj.get("static", False)):
+    if not obj.static:
         ET.SubElement(body, "freejoint")
     geom_attrs = {
-        "name": f"{_mjcf_name(_required_str(obj, 'name'))}_geom",
+        "name": f"{_mjcf_name(obj.name)}_geom",
         "type": "mesh",
         "mesh": _mjcf_name(asset_id),
         "mass": _object_scalar(obj, "mass_kg", 0.1),
@@ -570,10 +610,10 @@ def _mesh_path_blockers(
     csd_id = _required_str(csd, "csd_id")
     blockers: list[CsdRealizationBlocker] = []
     for asset_id in _csd_asset_ids(csd):
-        relative_path = str(variants[asset_id].get("relative_path", ""))
+        relative_path = _resource_mesh_path(variants[asset_id])
         if not relative_path:
             blockers.append(
-                _asset_blocker(csd_id, asset_id, backend, "asset variant has no relative_path")
+                _asset_blocker(csd_id, asset_id, backend, "backend resource has no mesh_path")
             )
             continue
         if Path(relative_path).is_absolute():
@@ -587,7 +627,7 @@ def _mesh_path_blockers(
                     csd_id,
                     asset_id,
                     backend,
-                    f"asset variant file is missing: {relative_path}",
+                    f"backend resource mesh file is missing: {relative_path}",
                 )
             )
             continue
@@ -654,6 +694,10 @@ def _variant_material(variant: Mapping[str, Any]) -> Mapping[str, Any] | None:
     return material if isinstance(material, Mapping) else None
 
 
+def _resource_mesh_path(resource: Mapping[str, Any]) -> str:
+    return str(resource.get("mesh_path") or resource.get("relative_path") or "")
+
+
 def _asset_blocker(
     csd_id: str,
     asset_id: str,
@@ -679,34 +723,32 @@ def _variants_by_asset(
     for record in (*asset_registry.get("objects", ()), *asset_registry.get("assets", ())):
         if not isinstance(record, Mapping):
             continue
-        asset_id = str(record.get("object_id") or record.get("asset_id") or "")
+        asset_id = str(record.get("asset_id") or record.get("object_id") or "")
         if asset_id and asset_id not in variants:
-            variant = _passed_variant(record.get("variants", ()), backend=backend)
+            variant = _backend_resource(record, backend=backend)
             if variant is not None:
                 variants[asset_id] = variant
     return variants
 
 
-def _passed_variant(
-    variant_records: object,
+def _backend_resource(
+    record: Mapping[str, Any],
     *,
     backend: str,
 ) -> Mapping[str, Any] | None:
-    if not isinstance(variant_records, (list, tuple)):
+    resources = record.get("backend_resources", record.get("variants", ()))
+    if not isinstance(resources, (list, tuple)):
         return None
-    for variant in variant_records:
-        if not isinstance(variant, Mapping):
+    for resource in resources:
+        if not isinstance(resource, Mapping):
             continue
-        if (
-            str(variant.get("engine", "")) == backend
-            and str(variant.get("validation_state", "")).lower() == "passed"
-        ):
-            return variant
+        if str(resource.get("backend") or resource.get("engine") or "") == backend:
+            return resource
     return None
 
 
 def _csd_objects(csd: Mapping[str, Any]) -> tuple[Mapping[str, Any], ...]:
-    return tuple(obj for obj in csd.get("objects", ()) if isinstance(obj, Mapping))
+    return tuple(obj for obj in _csd_scenario(csd).get("objects", ()) if isinstance(obj, Mapping))
 
 
 def _csd_asset_ids(csd: Mapping[str, Any]) -> tuple[str, ...]:
@@ -714,14 +756,24 @@ def _csd_asset_ids(csd: Mapping[str, Any]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(asset_ids))
 
 
-def _vector_text(obj: Mapping[str, Any], key: str) -> str:
-    position = _pose_part(obj, key)
-    return _numbers_text((position["x"], position["y"], position["z"]))
+def _csd_scenario(csd: Mapping[str, Any]) -> Mapping[str, Any]:
+    scenario = csd.get("scenario")
+    return scenario if isinstance(scenario, Mapping) else csd
 
 
-def _quaternion_text(obj: Mapping[str, Any]) -> str:
-    orientation = _pose_part(obj, "orientation")
-    return _numbers_text((orientation["w"], orientation["x"], orientation["y"], orientation["z"]))
+def _robot_asset_id(csd: Mapping[str, Any]) -> str:
+    robot = _csd_scenario(csd).get("robot", {})
+    if isinstance(robot, Mapping):
+        return str(robot.get("asset_id", ""))
+    return str(csd.get("robot_asset_id", ""))
+
+
+def _vector3_text(vector: Any) -> str:
+    return _numbers_text((vector.x, vector.y, vector.z))
+
+
+def _quaternion_text(quaternion: Any) -> str:
+    return _numbers_text((quaternion.w, quaternion.x, quaternion.y, quaternion.z))
 
 
 def _sdf_pose_text(obj: Mapping[str, Any]) -> str:
@@ -760,8 +812,12 @@ def _pose_part(obj: Mapping[str, Any], key: str) -> Mapping[str, Any]:
     return part
 
 
-def _object_scalar(obj: Mapping[str, Any], key: str, default: float) -> str:
-    initial_state = obj.get("initial_state", {})
+def _object_scalar(obj: Mapping[str, Any] | CsdObject, key: str, default: float) -> str:
+    initial_state = (
+        obj.initial_state
+        if isinstance(obj, CsdObject)
+        else obj.get("initial_state", {})
+    )
     if isinstance(initial_state, Mapping) and key in initial_state:
         return _number_text(initial_state[key])
     return _number_text(default)

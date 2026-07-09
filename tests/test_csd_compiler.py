@@ -85,13 +85,13 @@ def _write_fixture_asset_files(asset_root: Path, asset_registry: Mapping[str, ob
     for record in records:
         if not isinstance(record, Mapping):
             continue
-        variants = record.get("variants", ())
+        variants = record.get("backend_resources", ())
         if not isinstance(variants, list):
             continue
         for variant in variants:
             if not isinstance(variant, Mapping):
                 continue
-            relative_path = variant.get("relative_path")
+            relative_path = variant.get("mesh_path") or variant.get("relative_path")
             if relative_path:
                 _write_tetra_mesh(asset_root / str(relative_path))
             material = variant.get("material")
@@ -195,7 +195,7 @@ def test_compile_csd_to_mujoco_handles_multi_object_static_dynamic_scene(
     bodies = {body.attrib["name"]: body for body in root.findall("worldbody/body")}
 
     assert result.blockers == ()
-    assert {"mug", "tray", "marker", "tabletop_workspace"} <= set(bodies)
+    assert {"mug", "tray", "marker", "surface_tabletop"} <= set(bodies)
     assert bodies["mug"].find("freejoint") is not None
     assert bodies["marker"].find("freejoint") is not None
     assert bodies["tray"].find("freejoint") is None
@@ -227,21 +227,22 @@ def test_compile_csd_to_mujoco_realizes_world_template_geometry(tmp_path: Path) 
     empty_floor_root = ET.parse(
         tmp_path / "engine_manifests" / "mujoco" / "csd_object_only_0001" / "scene.xml"
     ).getroot()
-    table_body = _required_element(tabletop_root, "worldbody/body[@name='tabletop_workspace']")
+    table_body = _required_element(tabletop_root, "worldbody/body[@name='surface_tabletop']")
     table_geom = _required_element(table_body, "geom")
 
     assert tabletop_result.blockers == ()
     assert empty_floor_result.blockers == ()
     assert table_body.find("freejoint") is None
     assert table_body.attrib["pos"] == "0.5 0 0.74"
+    assert table_body.attrib["quat"] == "1 0 0 0"
     assert table_geom.attrib == {
-        "name": "tabletop_surface",
+        "name": "surface_tabletop_geom",
         "type": "box",
         "size": "0.45 0.35 0.04",
         "rgba": "0.42 0.36 0.28 1",
         "friction": "1.2 0.2 0.2",
     }
-    assert empty_floor_root.find("worldbody/body[@name='tabletop_workspace']") is None
+    assert empty_floor_root.find("worldbody/body[@name='surface_tabletop']") is None
 
 
 def test_compile_csd_to_mujoco_preserves_texture_material_and_mesh_scale(
@@ -327,7 +328,7 @@ def test_compile_csd_to_mujoco_renders_semantic_preview_screenshot(
     assert int(pixels.max()) > int(pixels.min())
 
 
-def test_compile_csd_to_mujoco_reports_missing_variant(tmp_path: Path) -> None:
+def test_compile_csd_to_mujoco_reports_missing_resource_adapter(tmp_path: Path) -> None:
     result = compile_csd_to_mujoco(
         csd={
             "csd_id": "csd_missing",
@@ -340,12 +341,12 @@ def test_compile_csd_to_mujoco_reports_missing_variant(tmp_path: Path) -> None:
 
     assert result.manifest is None
     assert result.blockers[0].to_json_dict() == {
-        "blocker_id": "csd_missing_mujoco_object_mug_variant_missing",
+        "blocker_id": "csd_missing_mujoco_object_mug_resource_missing",
         "csd_id": "csd_missing",
         "backend": "mujoco",
         "asset_id": "object_mug",
         "scope": "asset",
-        "reason": "asset has no passed backend variant for mujoco",
+        "reason": "asset has no backend resource adapter for mujoco",
     }
 
 
@@ -419,7 +420,7 @@ def test_compile_csd_to_gazebo_writes_self_contained_sdf_world(tmp_path: Path) -
     assert copied_mesh_path.is_file()
 
 
-def test_compile_csd_to_gazebo_reports_missing_variant(tmp_path: Path) -> None:
+def test_compile_csd_to_gazebo_reports_missing_resource_adapter(tmp_path: Path) -> None:
     result = compile_csd_to_gazebo(
         csd={
             "csd_id": "csd_missing",
@@ -432,10 +433,10 @@ def test_compile_csd_to_gazebo_reports_missing_variant(tmp_path: Path) -> None:
 
     assert result.manifest is None
     assert result.blockers[0].to_json_dict() == {
-        "blocker_id": "csd_missing_gazebo_object_mug_variant_missing",
+        "blocker_id": "csd_missing_gazebo_object_mug_resource_missing",
         "csd_id": "csd_missing",
         "backend": "gazebo",
         "asset_id": "object_mug",
         "scope": "asset",
-        "reason": "asset has no passed backend variant for gazebo",
+        "reason": "asset has no backend resource adapter for gazebo",
     }

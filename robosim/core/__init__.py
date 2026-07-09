@@ -2,9 +2,11 @@
 
 from robosim.core.capabilities import Capability
 from robosim.core.csd import (
+    ConcreteScenarioDefinition,
     CsdRealizationBlocker,
     CsdRealizationCacheKey,
     CsdRealizationManifest,
+    CsdRelationshipType,
     asset_variant_hashes_for_csd,
     find_csd_realization_blockers,
     make_csd_realization_cache_key,
@@ -18,9 +20,11 @@ from robosim.core.csd_compiler import (
 
 __all__ = [
     "CsdCompilationResult",
+    "ConcreteScenarioDefinition",
     "CsdRealizationBlocker",
     "CsdRealizationCacheKey",
     "CsdRealizationManifest",
+    "CsdRelationshipType",
     "SimulatorBackend",
     "Capability",
     "asset_variant_hashes_for_csd",

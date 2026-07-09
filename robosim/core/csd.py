@@ -5,7 +5,302 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Any, Mapping
+
+
+class CsdRelationshipType(StrEnum):
+    """Machine-readable CSD relationship types supported by the compiler."""
+
+    ON_TOP_OF = "on_top_of"
+    INSIDE = "inside"
+    NEAR = "near"
+    AVOID_CONTACT = "avoid_contact"
+    ALIGNED_WITH = "aligned_with"
+    ATTACHED_TO = "attached_to"
+
+
+@dataclass(frozen=True, slots=True)
+class CsdVector3:
+    """Three-dimensional vector in CSD units."""
+
+    x: float
+    y: float
+    z: float
+
+    @classmethod
+    def from_mapping(cls, payload: Mapping[str, Any], *, field: str) -> "CsdVector3":
+        return cls(
+            x=_required_float(payload, "x", field=field),
+            y=_required_float(payload, "y", field=field),
+            z=_required_float(payload, "z", field=field),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class CsdQuaternion:
+    """Quaternion stored in MuJoCo-compatible wxyz order."""
+
+    w: float
+    x: float
+    y: float
+    z: float
+
+    @classmethod
+    def from_mapping(cls, payload: Mapping[str, Any], *, field: str) -> "CsdQuaternion":
+        return cls(
+            w=_required_float(payload, "w", field=field),
+            x=_required_float(payload, "x", field=field),
+            y=_required_float(payload, "y", field=field),
+            z=_required_float(payload, "z", field=field),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class CsdPose:
+    """Pose in the CSD root frame."""
+
+    position: CsdVector3
+    orientation: CsdQuaternion
+
+    @classmethod
+    def from_mapping(cls, payload: Mapping[str, Any], *, field: str) -> "CsdPose":
+        return cls(
+            position=CsdVector3.from_mapping(
+                _required_mapping(payload, "position", field=field),
+                field=f"{field}.position",
+            ),
+            orientation=CsdQuaternion.from_mapping(
+                _required_mapping(payload, "orientation", field=field),
+                field=f"{field}.orientation",
+            ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class CsdSurface:
+    """Backend-neutral static environment surface."""
+
+    surface_id: str
+    surface_type: str
+    pose: CsdPose
+    size: CsdVector3
+    rgba: tuple[float, float, float, float]
+    friction: tuple[float, float, float]
+
+    @classmethod
+    def from_mapping(cls, payload: Mapping[str, Any]) -> "CsdSurface":
+        return cls(
+            surface_id=_required_str(payload, "surface_id", field="surface"),
+            surface_type=_required_str(payload, "type", field="surface"),
+            pose=CsdPose.from_mapping(
+                _required_mapping(payload, "pose", field="surface"),
+                field="surface.pose",
+            ),
+            size=CsdVector3.from_mapping(
+                _required_mapping(payload, "size", field="surface"),
+                field="surface.size",
+            ),
+            rgba=_number_tuple(
+                payload.get("rgba", (0.42, 0.36, 0.28, 1.0)),
+                length=4,
+                field="surface.rgba",
+            ),
+            friction=_number_tuple(
+                payload.get("friction", (1.2, 0.2, 0.2)),
+                length=3,
+                field="surface.friction",
+            ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class CsdCamera:
+    """CSD camera requested by a scenario."""
+
+    camera_id: str
+    position: CsdVector3
+    xyaxes: tuple[float, float, float, float, float, float] | None
+    mode: str
+
+    @classmethod
+    def from_mapping(cls, payload: Mapping[str, Any]) -> "CsdCamera":
+        pose = _required_mapping(payload, "pose", field="camera")
+        position = CsdVector3.from_mapping(
+            _required_mapping(pose, "position", field="camera.pose"),
+            field="camera.pose.position",
+        )
+        xyaxes = None
+        if pose.get("xyaxes") is not None:
+            xyaxes = _number_tuple(pose["xyaxes"], length=6, field="camera.pose.xyaxes")
+        return cls(
+            camera_id=_required_str(payload, "camera_id", field="camera"),
+            position=position,
+            xyaxes=xyaxes,
+            mode=str(payload.get("mode", "fixed")),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class CsdLight:
+    """CSD light source."""
+
+    light_id: str
+    position: CsdVector3
+    direction: CsdVector3
+
+    @classmethod
+    def from_mapping(cls, payload: Mapping[str, Any]) -> "CsdLight":
+        return cls(
+            light_id=_required_str(payload, "light_id", field="light"),
+            position=_vector_from_sequence(payload.get("position"), field="light.position"),
+            direction=_vector_from_sequence(payload.get("direction"), field="light.direction"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class CsdEnvironment:
+    """Global background/environment portion of a CSD scenario."""
+
+    environment_id: str
+    environment_type: str
+    surfaces: tuple[CsdSurface, ...]
+    cameras: tuple[CsdCamera, ...]
+    lighting: tuple[CsdLight, ...]
+
+    @classmethod
+    def from_mapping(cls, payload: Mapping[str, Any]) -> "CsdEnvironment":
+        return cls(
+            environment_id=_required_str(payload, "environment_id", field="environment"),
+            environment_type=_required_str(payload, "type", field="environment"),
+            surfaces=tuple(
+                CsdSurface.from_mapping(surface)
+                for surface in _mapping_list(
+                    payload.get("surfaces", ()),
+                    field="environment.surfaces",
+                )
+            ),
+            cameras=tuple(
+                CsdCamera.from_mapping(camera)
+                for camera in _mapping_list(payload.get("cameras", ()), field="environment.cameras")
+            ),
+            lighting=tuple(
+                CsdLight.from_mapping(light)
+                for light in _mapping_list(
+                    payload.get("lighting", ()),
+                    field="environment.lighting",
+                )
+            ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class CsdRobot:
+    """Robot instance requested by a CSD scenario."""
+
+    asset_id: str
+
+    @classmethod
+    def from_mapping(cls, payload: Mapping[str, Any]) -> "CsdRobot":
+        return cls(asset_id=_required_str(payload, "asset_id", field="robot"))
+
+
+@dataclass(frozen=True, slots=True)
+class CsdObject:
+    """Concrete object instance in a CSD scenario."""
+
+    name: str
+    asset_id: str
+    role: str
+    pose: CsdPose
+    static: bool
+    initial_state: Mapping[str, Any]
+
+    @classmethod
+    def from_mapping(cls, payload: Mapping[str, Any]) -> "CsdObject":
+        return cls(
+            name=_required_str(payload, "name", field="object"),
+            asset_id=_required_str(payload, "asset_id", field="object"),
+            role=str(payload.get("role", "")),
+            pose=CsdPose.from_mapping(
+                _required_mapping(payload, "pose", field="object"),
+                field="object.pose",
+            ),
+            static=bool(payload.get("static", False)),
+            initial_state=_optional_mapping(payload, "initial_state"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class CsdRelationship:
+    """Compiler-readable CSD relationship."""
+
+    relation_id: str
+    type: CsdRelationshipType
+    subject: str
+    object: str
+    parameters: Mapping[str, Any]
+
+    @classmethod
+    def from_mapping(cls, payload: Mapping[str, Any]) -> "CsdRelationship":
+        relation_type = _required_str(payload, "type", field="relationship")
+        try:
+            typed_relation = CsdRelationshipType(relation_type)
+        except ValueError as exc:
+            raise ValueError(f"unsupported relationship type: {relation_type}") from exc
+        return cls(
+            relation_id=_required_str(payload, "relation_id", field="relationship"),
+            type=typed_relation,
+            subject=_required_str(payload, "subject", field="relationship"),
+            object=_required_str(payload, "object", field="relationship"),
+            parameters=_optional_mapping(payload, "parameters"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ConcreteScenarioDefinition:
+    """Typed CSD scenario consumed by backend compilers."""
+
+    csd_id: str
+    schema_version: str
+    frame: str
+    units: str
+    environment: CsdEnvironment
+    robot: CsdRobot | None
+    objects: tuple[CsdObject, ...]
+    relationships: tuple[CsdRelationship, ...]
+    raw: Mapping[str, Any]
+
+    @classmethod
+    def from_mapping(cls, payload: Mapping[str, Any]) -> "ConcreteScenarioDefinition":
+        scenario = _required_mapping(payload, "scenario", field="CSD")
+        robot_payload = scenario.get("robot")
+        return cls(
+            csd_id=_required_str(payload, "csd_id", field="CSD"),
+            schema_version=str(payload.get("schema_version", "")),
+            frame=str(scenario.get("frame", "world")),
+            units=str(scenario.get("units", "m")),
+            environment=CsdEnvironment.from_mapping(
+                _required_mapping(scenario, "environment", field="scenario")
+            ),
+            robot=(
+                CsdRobot.from_mapping(robot_payload)
+                if isinstance(robot_payload, Mapping)
+                else None
+            ),
+            objects=tuple(
+                CsdObject.from_mapping(obj)
+                for obj in _mapping_list(scenario.get("objects", ()), field="scenario.objects")
+            ),
+            relationships=tuple(
+                CsdRelationship.from_mapping(rel)
+                for rel in _mapping_list(
+                    scenario.get("relationships", ()),
+                    field="scenario.relationships",
+                )
+            ),
+            raw=payload,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,18 +465,18 @@ def find_csd_realization_blockers(
     if not backend:
         raise ValueError("backend is required")
     csd_id = _csd_id(csd)
-    variants = _passed_variants_by_asset(asset_registry, backend)
+    resources = _backend_resources_by_asset(asset_registry, backend)
     blockers: list[CsdRealizationBlocker] = []
     for asset_id in _csd_asset_ids(csd):
-        if asset_id not in variants:
+        if asset_id not in resources:
             blockers.append(
                 CsdRealizationBlocker(
-                    blocker_id=f"{csd_id}_{backend}_{asset_id}_variant_missing",
+                    blocker_id=f"{csd_id}_{backend}_{asset_id}_resource_missing",
                     csd_id=csd_id,
                     backend=backend,
                     asset_id=asset_id,
                     scope="asset",
-                    reason=f"asset has no passed backend variant for {backend}",
+                    reason=f"asset has no backend resource adapter for {backend}",
                 )
             )
     return tuple(blockers)
@@ -193,7 +488,7 @@ def asset_variant_hashes_for_csd(
     asset_registry: Mapping[str, Any],
     backend: str,
 ) -> dict[str, str]:
-    """Return backend variant hashes for all CSD assets, after compatibility checks."""
+    """Return backend resource hashes for all CSD assets, after compatibility checks."""
     blockers = find_csd_realization_blockers(
         csd=csd,
         asset_registry=asset_registry,
@@ -201,13 +496,68 @@ def asset_variant_hashes_for_csd(
     )
     if blockers:
         raise ValueError("CSD has unresolved realization blockers")
-    variants = _passed_variants_by_asset(asset_registry, backend)
-    return {asset_id: str(variants[asset_id]["variant_hash"]) for asset_id in _csd_asset_ids(csd)}
+    resources = _backend_resources_by_asset(asset_registry, backend)
+    return {
+        asset_id: str(
+            resources[asset_id].get("resource_hash") or resources[asset_id]["variant_hash"]
+        )
+        for asset_id in _csd_asset_ids(csd)
+    }
 
 
 def _canonical_hash(payload: Mapping[str, Any]) -> str:
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _required_mapping(payload: Mapping[str, Any], key: str, *, field: str) -> Mapping[str, Any]:
+    value = payload.get(key)
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{field}.{key} must be a mapping")
+    return value
+
+
+def _optional_mapping(payload: Mapping[str, Any], key: str) -> Mapping[str, Any]:
+    value = payload.get(key, {})
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{key} must be a mapping")
+    return value
+
+
+def _mapping_list(value: object, *, field: str) -> tuple[Mapping[str, Any], ...]:
+    if not isinstance(value, (list, tuple)):
+        raise ValueError(f"{field} must be a list")
+    entries: list[Mapping[str, Any]] = []
+    for entry in value:
+        if not isinstance(entry, Mapping):
+            raise ValueError(f"{field} entries must be mappings")
+        entries.append(entry)
+    return tuple(entries)
+
+
+def _required_str(payload: Mapping[str, Any], key: str, *, field: str) -> str:
+    value = str(payload.get(key, ""))
+    if not value:
+        raise ValueError(f"{field}.{key} is required")
+    return value
+
+
+def _required_float(payload: Mapping[str, Any], key: str, *, field: str) -> float:
+    if key not in payload:
+        raise ValueError(f"{field}.{key} is required")
+    return float(payload[key])
+
+
+def _number_tuple(value: object, *, length: int, field: str) -> tuple[Any, ...]:
+    if not isinstance(value, (list, tuple)) or len(value) != length:
+        raise ValueError(f"{field} must be a {length}-element sequence")
+    return tuple(float(item) for item in value)
+
+
+def _vector_from_sequence(value: object, *, field: str) -> CsdVector3:
+    if not isinstance(value, (list, tuple)) or len(value) != 3:
+        raise ValueError(f"{field} must be a 3-element sequence")
+    return CsdVector3(x=float(value[0]), y=float(value[1]), z=float(value[2]))
 
 
 def _csd_id(csd: Mapping[str, Any]) -> str:
@@ -219,52 +569,53 @@ def _csd_id(csd: Mapping[str, Any]) -> str:
 
 def _csd_asset_ids(csd: Mapping[str, Any]) -> tuple[str, ...]:
     asset_ids: list[str] = []
-    for obj in csd.get("objects", []):
+    for obj in _scenario(csd).get("objects", []):
         if isinstance(obj, Mapping) and obj.get("asset_id"):
             asset_ids.append(str(obj["asset_id"]))
     return tuple(dict.fromkeys(asset_ids))
 
 
-def _passed_variants_by_asset(
+def _scenario(csd: Mapping[str, Any]) -> Mapping[str, Any]:
+    scenario = csd.get("scenario")
+    return scenario if isinstance(scenario, Mapping) else csd
+
+
+def _backend_resources_by_asset(
     asset_registry: Mapping[str, Any],
     backend: str,
 ) -> dict[str, Mapping[str, Any]]:
-    passed: dict[str, Mapping[str, Any]] = {}
+    resources: dict[str, Mapping[str, Any]] = {}
     for obj in asset_registry.get("objects", []):
         if not isinstance(obj, Mapping):
             continue
-        asset_id = str(obj.get("object_id") or obj.get("asset_id") or "")
+        asset_id = str(obj.get("asset_id") or obj.get("object_id") or "")
         if not asset_id:
             continue
-        variant = _passed_backend_variant(obj.get("variants", ()), backend)
-        if variant is not None:
-            passed[asset_id] = variant
+        resource = _backend_resource(obj, backend)
+        if resource is not None:
+            resources[asset_id] = resource
     for asset in asset_registry.get("assets", []):
         if not isinstance(asset, Mapping):
             continue
         asset_id = str(asset.get("asset_id", ""))
-        if not asset_id or asset_id in passed:
+        if not asset_id or asset_id in resources:
             continue
-        variant = _passed_backend_variant(asset.get("variants", ()), backend)
-        if variant is not None:
-            passed[asset_id] = variant
-    return passed
+        resource = _backend_resource(asset, backend)
+        if resource is not None:
+            resources[asset_id] = resource
+    return resources
 
 
-def _passed_backend_variant(
-    variants: object,
+def _backend_resource(
+    record: Mapping[str, Any],
     backend: str,
 ) -> Mapping[str, Any] | None:
-    if not isinstance(variants, (list, tuple)):
+    entries = record.get("backend_resources", record.get("variants", ()))
+    if not isinstance(entries, (list, tuple)):
         return None
-    for variant in variants:
-        if not isinstance(variant, Mapping):
+    for entry in entries:
+        if not isinstance(entry, Mapping):
             continue
-        if str(variant.get("engine", "")) != backend:
-            continue
-        if str(variant.get("validation_state", "")).lower() != "passed":
-            continue
-        if not variant.get("variant_hash"):
-            continue
-        return variant
+        if str(entry.get("backend") or entry.get("engine") or "") == backend:
+            return entry
     return None

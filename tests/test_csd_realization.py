@@ -76,7 +76,7 @@ def test_csd_realization_manifest_round_trips_backend_artifacts() -> None:
     assert restored == manifest
 
 
-def test_csd_realization_reports_missing_backend_asset_variant() -> None:
+def test_csd_realization_reports_missing_backend_resource_adapter() -> None:
     blockers = find_csd_realization_blockers(
         csd={"csd_id": "csd_0001", "objects": [{"asset_id": "object_mug"}]},
         asset_registry={
@@ -84,7 +84,7 @@ def test_csd_realization_reports_missing_backend_asset_variant() -> None:
                 {
                     "object_id": "object_mug",
                     "semantic_tags": ["mug"],
-                    "variants": [],
+                    "backend_resources": [],
                 }
             ]
         },
@@ -93,26 +93,25 @@ def test_csd_realization_reports_missing_backend_asset_variant() -> None:
 
     assert blockers == (
         CsdRealizationBlocker(
-            blocker_id="csd_0001_mujoco_object_mug_variant_missing",
+            blocker_id="csd_0001_mujoco_object_mug_resource_missing",
             csd_id="csd_0001",
             backend="mujoco",
             asset_id="object_mug",
             scope="asset",
-            reason="asset has no passed backend variant for mujoco",
+            reason="asset has no backend resource adapter for mujoco",
         ),
     )
 
 
-def test_csd_realization_extracts_passed_backend_variant_hashes() -> None:
+def test_csd_realization_extracts_backend_resource_hashes() -> None:
     registry = {
         "objects": [
             {
-                "object_id": "object_mug",
-                "variants": [
+                "asset_id": "object_mug",
+                "backend_resources": [
                     {
-                        "engine": "mujoco",
-                        "variant_hash": "hash_mug_mjcf",
-                        "validation_state": "passed",
+                        "backend": "mujoco",
+                        "resource_hash": "hash_mug_mjcf",
                     }
                 ],
             }

@@ -153,6 +153,14 @@ test should load the compiled `scene.xml`, render an offscreen screenshot from
 `world_camera` into `diagnostics/`, and assert basic CSD semantic preservation
 such as object presence, pose sanity, and nonblank rendered pixels.
 
+Implementation code must not treat CSD JSON as an unstructured `dict[str, Any]`
+after the API boundary. JSON fixtures and package artifacts are parsed into the
+typed `ConcreteScenarioDefinition` dataclass model in `robosim.core.csd`,
+including typed environment, robot, object, pose, camera, light, surface, and
+enum relationship records. Backend compiler code should consume those typed
+objects so collaborator mistakes in key names, relationship types, or shape
+conversions fail at parse time instead of silently changing scene semantics.
+
 实现记录（2026-07-09）：第一版 `compile_csd_to_gazebo()` 依据 SDFormat
 1.12 的 `sdf/world/model/link/visual/collision/geometry/mesh/uri` 结构与 Gazebo
 Sim resource lookup 文档实现。Gazebo 产物写入
