@@ -18,28 +18,30 @@
 - [ ] (WIP) 支持基于 IL/RL 训练的 Policy 的推理过程；
 
 
-### CSD -> MuJoCo MJCF Compiler
+### CSD -> Backend Scene Compiler
 
 `vsim` exposes the CSD compiler boundary through `robosim.core.compile_csd`.
-Pass `backend="mujoco"` for the currently implemented target. The compiler
-consumes a fixed Concrete Scenario Definition, an asset registry with passed
-backend variants, an output root, and an asset root. The MuJoCo target writes
-`<output_root>/mujoco/<csd_id>/scene.xml` plus copied assets under
-`<output_root>/mujoco/<csd_id>/assets/`, then returns a
-`CsdMujocoCompilationResult` containing either a `CsdRealizationManifest` or
-typed `CsdRealizationBlocker` records.
+Pass `backend="mujoco"` or `backend="gazebo"`. The compiler consumes a fixed
+Concrete Scenario Definition, an asset registry with passed backend variants,
+an output root, and an asset root. The MuJoCo target writes
+`<output_root>/mujoco/<csd_id>/scene.xml`; the Gazebo target writes
+`<output_root>/gazebo/<csd_id>/world.sdf`. Both targets copy referenced assets
+under the backend artifact's local `assets/` directory, then return a
+`CsdCompilationResult` containing either a `CsdRealizationManifest` or typed
+`CsdRealizationBlocker` records.
 
 The current compiler scope is intentionally narrow: rigid mesh objects with CSD
-poses, MuJoCo mesh variants addressed by relative paths under `asset_root`,
-optional `freejoint` for non-static objects, and scalar mass/friction hints from
-object `initial_state`. Runtime loading, render previews, and physics
-validation remain separate follow-up stages.
+poses, backend mesh variants addressed by relative paths under `asset_root`,
+optional MuJoCo `freejoint` for non-static objects, Gazebo SDF
+model/link/visual/collision elements, and scalar mass/friction hints from object
+`initial_state`. Runtime loading, render previews, and physics validation remain
+separate follow-up stages.
 
-The generated MuJoCo artifact directory is self-contained for the mesh variants
-it uses; `scene.xml` points MuJoCo's `compiler meshdir` at the copied local
-`assets/` directory. Gazebo is intentionally not compiled by the MuJoCo path:
-it needs a separate ROS2/Gazebo design for SDF/URDF resources, package/share
-layout, launch integration, and runtime loading.
+Generated backend artifact directories are self-contained for the mesh variants
+they use. MuJoCo `scene.xml` points `compiler meshdir` at the copied local
+`assets/` directory. Gazebo `world.sdf` uses SDFormat 1.12 mesh URIs such as
+`assets/objects/mug.obj`; the compiler does not require a ROS2 package, launch
+directory, or package share layout.
 
 ```python
 from pathlib import Path
@@ -47,7 +49,7 @@ from pathlib import Path
 from robosim.core import compile_csd
 
 result = compile_csd(
-    backend="mujoco",
+    backend="gazebo",
     csd=csd_json,
     asset_registry=asset_registry_json,
     output_root=Path("engine_manifests"),

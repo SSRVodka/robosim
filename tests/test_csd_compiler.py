@@ -1,4 +1,4 @@
-"""Tests for the first CSD -> MuJoCo MJCF compiler."""
+"""Tests for CSD -> backend-native scene compilers."""
 
 from __future__ import annotations
 
@@ -7,7 +7,12 @@ from pathlib import Path
 
 import mujoco
 
-from robosim.core import CsdRealizationManifest, compile_csd, compile_csd_to_mujoco
+from robosim.core import (
+    CsdRealizationManifest,
+    compile_csd,
+    compile_csd_to_gazebo,
+    compile_csd_to_mujoco,
+)
 
 
 def test_compile_csd_to_mujoco_writes_loadable_mjcf_and_manifest(tmp_path: Path) -> None:
@@ -117,22 +122,6 @@ def test_compile_csd_to_mujoco_writes_loadable_mjcf_and_manifest(tmp_path: Path)
     assert model.nbody >= 2
 
 
-def test_compile_csd_rejects_gazebo_until_ros2_artifact_path_exists(tmp_path: Path) -> None:
-    try:
-        compile_csd(
-            backend="gazebo",
-            csd={"csd_id": "csd_gazebo"},
-            asset_registry={},
-            output_root=tmp_path,
-            asset_root=tmp_path,
-        )
-    except NotImplementedError as exc:
-        assert "Gazebo" in str(exc)
-        assert "ROS2" in str(exc)
-    else:
-        raise AssertionError("expected NotImplementedError")
-
-
 def test_compile_csd_to_mujoco_reports_missing_variant(tmp_path: Path) -> None:
     result = compile_csd_to_mujoco(
         csd={
@@ -152,4 +141,111 @@ def test_compile_csd_to_mujoco_reports_missing_variant(tmp_path: Path) -> None:
         "asset_id": "object_mug",
         "scope": "asset",
         "reason": "asset has no passed backend variant for mujoco",
+    }
+
+
+def test_compile_csd_to_gazebo_writes_self_contained_sdf_world(tmp_path: Path) -> None:
+    asset_root = tmp_path / "assets"
+    mesh_path = asset_root / "objects" / "mug.obj"
+    mesh_path.parent.mkdir(parents=True)
+    mesh_path.write_text(
+        "\n".join(
+            (
+                "v 0 0 0",
+                "v 0.04 0 0",
+                "v 0 0.04 0",
+                "v 0 0 0.04",
+                "f 1 2 3",
+                "f 1 2 4",
+                "f 1 3 4",
+                "f 2 3 4",
+            )
+        ),
+        encoding="utf-8",
+    )
+    csd = {
+        "csd_id": "csd_tabletop_0001",
+        "objects": [
+            {
+                "name": "mug",
+                "asset_id": "object_mug",
+                "pose": {
+                    "position": {"x": 0.25, "y": -0.1, "z": 0.82},
+                    "orientation": {"w": 1.0, "x": 0.0, "y": 0.0, "z": 0.0},
+                },
+                "static": False,
+                "initial_state": {"mass_kg": 0.2, "friction": 0.8},
+            }
+        ],
+    }
+    asset_registry = {
+        "objects": [
+            {
+                "object_id": "object_mug",
+                "variants": [
+                    {
+                        "engine": "gazebo",
+                        "relative_path": "objects/mug.obj",
+                        "variant_hash": "hash_mug_obj",
+                        "validation_state": "passed",
+                    }
+                ],
+            }
+        ]
+    }
+
+    result = compile_csd(
+        backend="gazebo",
+        csd=csd,
+        asset_registry=asset_registry,
+        output_root=tmp_path / "compiled",
+        asset_root=asset_root,
+        realization_version="test-0.1",
+        simulator_version="test-gazebo",
+    )
+
+    manifest = result.manifest
+    world_path = tmp_path / "compiled" / "gazebo" / "csd_tabletop_0001" / "world.sdf"
+    copied_mesh_path = (
+        tmp_path / "compiled" / "gazebo" / "csd_tabletop_0001" / "assets" / "objects" / "mug.obj"
+    )
+    root = ET.parse(world_path).getroot()
+    model = root.find("world/model")
+
+    assert isinstance(manifest, CsdRealizationManifest)
+    assert result.blockers == ()
+    assert manifest.backend == "gazebo"
+    assert manifest.entry_file == "world.sdf"
+    assert manifest.generated_files == ("world.sdf", "assets/objects/mug.obj")
+    assert copied_mesh_path.is_file()
+    assert root.attrib["version"] == "1.12"
+    assert model.attrib["name"] == "mug"
+    assert model.find("pose").text == "0.25 -0.1 0.82 0 0 0"
+    assert model.find("static").text == "false"
+    assert model.find("link/visual/geometry/mesh/uri").text == "assets/objects/mug.obj"
+    assert model.find("link/collision/geometry/mesh/uri").text == "assets/objects/mug.obj"
+
+    mesh_path.unlink()
+    assert copied_mesh_path.is_file()
+
+
+def test_compile_csd_to_gazebo_reports_missing_variant(tmp_path: Path) -> None:
+    result = compile_csd_to_gazebo(
+        csd={
+            "csd_id": "csd_missing",
+            "objects": [{"name": "mug", "asset_id": "object_mug"}],
+        },
+        asset_registry={"objects": [{"object_id": "object_mug", "variants": []}]},
+        output_root=tmp_path,
+        asset_root=tmp_path,
+    )
+
+    assert result.manifest is None
+    assert result.blockers[0].to_json_dict() == {
+        "blocker_id": "csd_missing_gazebo_object_mug_variant_missing",
+        "csd_id": "csd_missing",
+        "backend": "gazebo",
+        "asset_id": "object_mug",
+        "scope": "asset",
+        "reason": "asset has no passed backend variant for gazebo",
     }

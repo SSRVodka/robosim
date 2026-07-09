@@ -14,10 +14,15 @@
   函数误认为 compiler 抽象本身；
 - [x] MuJoCo compiler 产物目录自包含 mesh variant 文件，避免编译后依赖易丢失
   的原始 asset cache；
+- [x] 定义并实现第一版 CSD -> Gazebo SDF compiler：生成
+  `<output_root>/gazebo/<csd_id>/world.sdf`，复制 passed Gazebo asset variants
+  到本地 `assets/`，并返回可审计的 backend manifest；
 - [ ] 将 CSD compiler 产物接入 MuJoCoBackend runtime load/render/physics
   validation；
-- [ ] 设计 Gazebo/ROS2 compiler artifact layout，包括 SDF/URDF resource path、
-  package/share 目录、launch/runtime 加载约定和资产复制规则；
+- [x] 设计 Gazebo compiler artifact layout，包括 SDF resource path 与资产复制
+  规则；不要求编译产物位于 ROS2 package 或 launch 目录；
+- [ ] 将 CSD compiler 产物接入 GazeboBackend runtime load/render/physics
+  validation；
 - [x] 为 CSD realization 定义缓存 key：CSD content hash、asset variant hash、
   backend target、realization config、`vsim` realization version、simulator
   version、sampled randomization values；
@@ -29,8 +34,10 @@
   validation failure/blocker；
 - [x] 在实现 MuJoCo realization 前记录官方文档依据：MuJoCo MJCF XML
   Reference、ROS URDF XML documentation、SDFormat specification；
-- [ ] 在实现 Gazebo/URDF/SDF realization 前记录官方 ROS URDF XML
-  documentation 与 SDFormat specification 版本和语义假设；
+- [x] 在实现 Gazebo/SDF realization 前记录官方 Gazebo resource lookup 与
+  SDFormat specification 版本和语义假设；
+- [ ] 在实现 URDF realization 前记录官方 ROS URDF XML documentation 版本和
+  语义假设；
 
 ## Bug Fixes
 

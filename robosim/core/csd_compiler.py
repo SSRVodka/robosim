@@ -1,7 +1,8 @@
-"""Compile CSD artifacts into a narrow MuJoCo MJCF scene."""
+"""Compile fixed CSD artifacts into backend-native scene files."""
 
 from __future__ import annotations
 
+import math
 import xml.etree.ElementTree as ET
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -17,13 +18,14 @@ from robosim.core.csd import (
     make_csd_realization_cache_key,
 )
 
-BACKEND = "mujoco"
-DEFAULT_REALIZATION_VERSION = "mujoco-csd-compiler-0.1"
+MUJOCO_BACKEND = "mujoco"
+GAZEBO_BACKEND = "gazebo"
+DEFAULT_REALIZATION_VERSION = "csd-compiler-0.2"
 
 
 @dataclass(frozen=True, slots=True)
-class CsdMujocoCompilationResult:
-    """Result of compiling one CSD into MuJoCo artifacts."""
+class CsdCompilationResult:
+    """Result of compiling one fixed CSD into backend-native artifacts."""
 
     manifest: CsdRealizationManifest | None
     blockers: tuple[CsdRealizationBlocker, ...] = ()
@@ -41,7 +43,7 @@ def compile_csd_to_mujoco(
     realization_config: Mapping[str, Any] | None = None,
     realization_version: str = DEFAULT_REALIZATION_VERSION,
     simulator_version: str | None = None,
-) -> CsdMujocoCompilationResult:
+) -> CsdCompilationResult:
     """Compile a fixed CSD into a minimal MuJoCo MJCF scene.
 
     This first compiler supports rigid mesh objects with explicit CSD poses. It
@@ -52,32 +54,37 @@ def compile_csd_to_mujoco(
     blockers = find_csd_realization_blockers(
         csd=csd,
         asset_registry=asset_registry,
-        backend=BACKEND,
+        backend=MUJOCO_BACKEND,
     )
     if blockers:
-        return CsdMujocoCompilationResult(manifest=None, blockers=blockers)
+        return CsdCompilationResult(manifest=None, blockers=blockers)
 
-    variants = _variants_by_asset(asset_registry)
-    mesh_blockers = _mesh_path_blockers(csd, variants, Path(asset_root))
+    variants = _variants_by_asset(asset_registry, backend=MUJOCO_BACKEND)
+    mesh_blockers = _mesh_path_blockers(
+        csd,
+        variants,
+        Path(asset_root),
+        backend=MUJOCO_BACKEND,
+    )
     if mesh_blockers:
-        return CsdMujocoCompilationResult(manifest=None, blockers=mesh_blockers)
+        return CsdCompilationResult(manifest=None, blockers=mesh_blockers)
 
     csd_id = _required_str(csd, "csd_id")
     realization_config = dict(realization_config or {})
     variant_hashes = asset_variant_hashes_for_csd(
         csd=csd,
         asset_registry=asset_registry,
-        backend=BACKEND,
+        backend=MUJOCO_BACKEND,
     )
     cache_key = make_csd_realization_cache_key(
         csd=csd,
         asset_variant_hashes=variant_hashes,
-        backend=BACKEND,
+        backend=MUJOCO_BACKEND,
         realization_config=realization_config,
         realization_version=realization_version,
         simulator_version=simulator_version,
     )
-    scene_root = Path(output_root) / BACKEND / csd_id
+    scene_root = Path(output_root) / MUJOCO_BACKEND / csd_id
     compiled_asset_root = scene_root / "assets"
     scene_root.mkdir(parents=True, exist_ok=True)
     generated_asset_files = _copy_variant_files(
@@ -93,11 +100,11 @@ def compile_csd_to_mujoco(
         asset_root=compiled_asset_root,
         variants=variants,
     )
-    return CsdMujocoCompilationResult(
+    return CsdCompilationResult(
         manifest=CsdRealizationManifest(
-            manifest_id=f"manifest_{BACKEND}_{csd_id}",
+            manifest_id=f"manifest_{MUJOCO_BACKEND}_{csd_id}",
             csd_id=csd_id,
-            backend=BACKEND,
+            backend=MUJOCO_BACKEND,
             cache_key=cache_key.digest,
             root_path=str(scene_root),
             entry_file="scene.xml",
@@ -117,10 +124,10 @@ def compile_csd(
     realization_config: Mapping[str, Any] | None = None,
     realization_version: str = DEFAULT_REALIZATION_VERSION,
     simulator_version: str | None = None,
-) -> CsdMujocoCompilationResult:
+) -> CsdCompilationResult:
     """Compile one CSD for a requested backend target."""
     backend_key = backend.strip().lower()
-    if backend_key == BACKEND:
+    if backend_key == MUJOCO_BACKEND:
         return compile_csd_to_mujoco(
             csd=csd,
             asset_registry=asset_registry,
@@ -130,12 +137,86 @@ def compile_csd(
             realization_version=realization_version,
             simulator_version=simulator_version,
         )
-    if backend_key == "gazebo":
-        raise NotImplementedError(
-            "Gazebo CSD compilation requires ROS2/Gazebo launch, SDF/URDF "
-            "artifact layout, and resource path handling; it is not implemented yet."
+    if backend_key == GAZEBO_BACKEND:
+        return compile_csd_to_gazebo(
+            csd=csd,
+            asset_registry=asset_registry,
+            output_root=output_root,
+            asset_root=asset_root,
+            realization_config=realization_config,
+            realization_version=realization_version,
+            simulator_version=simulator_version,
         )
     raise ValueError(f"unsupported CSD compiler backend: {backend}")
+
+
+def compile_csd_to_gazebo(
+    *,
+    csd: Mapping[str, Any],
+    asset_registry: Mapping[str, Any],
+    output_root: Path,
+    asset_root: Path,
+    realization_config: Mapping[str, Any] | None = None,
+    realization_version: str = DEFAULT_REALIZATION_VERSION,
+    simulator_version: str | None = None,
+) -> CsdCompilationResult:
+    """Compile a fixed CSD into a minimal Gazebo SDF world."""
+    blockers = find_csd_realization_blockers(
+        csd=csd,
+        asset_registry=asset_registry,
+        backend=GAZEBO_BACKEND,
+    )
+    if blockers:
+        return CsdCompilationResult(manifest=None, blockers=blockers)
+
+    variants = _variants_by_asset(asset_registry, backend=GAZEBO_BACKEND)
+    mesh_blockers = _mesh_path_blockers(
+        csd,
+        variants,
+        Path(asset_root),
+        backend=GAZEBO_BACKEND,
+    )
+    if mesh_blockers:
+        return CsdCompilationResult(manifest=None, blockers=mesh_blockers)
+
+    csd_id = _required_str(csd, "csd_id")
+    realization_config = dict(realization_config or {})
+    variant_hashes = asset_variant_hashes_for_csd(
+        csd=csd,
+        asset_registry=asset_registry,
+        backend=GAZEBO_BACKEND,
+    )
+    cache_key = make_csd_realization_cache_key(
+        csd=csd,
+        asset_variant_hashes=variant_hashes,
+        backend=GAZEBO_BACKEND,
+        realization_config=realization_config,
+        realization_version=realization_version,
+        simulator_version=simulator_version,
+    )
+    world_root = Path(output_root) / GAZEBO_BACKEND / csd_id
+    compiled_asset_root = world_root / "assets"
+    world_root.mkdir(parents=True, exist_ok=True)
+    generated_asset_files = _copy_variant_files(
+        csd=csd,
+        variants=variants,
+        source_asset_root=Path(asset_root),
+        compiled_asset_root=compiled_asset_root,
+    )
+    world_path = world_root / "world.sdf"
+    _write_sdf(world_path, csd=csd, variants=variants)
+    return CsdCompilationResult(
+        manifest=CsdRealizationManifest(
+            manifest_id=f"manifest_{GAZEBO_BACKEND}_{csd_id}",
+            csd_id=csd_id,
+            backend=GAZEBO_BACKEND,
+            cache_key=cache_key.digest,
+            root_path=str(world_root),
+            entry_file="world.sdf",
+            generated_files=("world.sdf", *generated_asset_files),
+            preview_files=(),
+        )
+    )
 
 
 def _write_mjcf(
@@ -188,6 +269,55 @@ def _write_mjcf(
 
     ET.indent(root, space="  ")
     ET.ElementTree(root).write(scene_path, encoding="utf-8", xml_declaration=True)
+
+
+def _write_sdf(
+    world_path: Path,
+    *,
+    csd: Mapping[str, Any],
+    variants: Mapping[str, Mapping[str, Any]],
+) -> None:
+    root = ET.Element("sdf", {"version": "1.12"})
+    world = ET.SubElement(root, "world", {"name": _mjcf_name(_required_str(csd, "csd_id"))})
+    ET.SubElement(world, "gravity").text = "0 0 -9.81"
+    ET.SubElement(world, "light", {"name": "sun", "type": "directional"})
+    for obj in _csd_objects(csd):
+        _append_sdf_model(world, obj, variants)
+
+    ET.indent(root, space="  ")
+    ET.ElementTree(root).write(world_path, encoding="utf-8", xml_declaration=True)
+
+
+def _append_sdf_model(
+    parent: ET.Element,
+    obj: Mapping[str, Any],
+    variants: Mapping[str, Mapping[str, Any]],
+) -> None:
+    asset_id = _required_str(obj, "asset_id")
+    name = _mjcf_name(_required_str(obj, "name"))
+    mesh_uri = str(Path("assets") / str(variants[asset_id]["relative_path"]))
+    model = ET.SubElement(parent, "model", {"name": name})
+    ET.SubElement(model, "pose").text = _sdf_pose_text(obj)
+    ET.SubElement(model, "static").text = "true" if bool(obj.get("static", False)) else "false"
+    link = ET.SubElement(model, "link", {"name": f"{name}_link"})
+    inertial = ET.SubElement(link, "inertial")
+    ET.SubElement(inertial, "mass").text = _object_scalar(obj, "mass_kg", 0.1)
+    visual = ET.SubElement(link, "visual", {"name": f"{name}_visual"})
+    _append_sdf_mesh_geometry(visual, mesh_uri)
+    collision = ET.SubElement(link, "collision", {"name": f"{name}_collision"})
+    _append_sdf_mesh_geometry(collision, mesh_uri)
+    surface = ET.SubElement(collision, "surface")
+    friction = ET.SubElement(surface, "friction")
+    ode = ET.SubElement(friction, "ode")
+    friction_value = _object_scalar(obj, "friction", 0.7)
+    ET.SubElement(ode, "mu").text = friction_value
+    ET.SubElement(ode, "mu2").text = friction_value
+
+
+def _append_sdf_mesh_geometry(parent: ET.Element, mesh_uri: str) -> None:
+    geometry = ET.SubElement(parent, "geometry")
+    mesh = ET.SubElement(geometry, "mesh")
+    ET.SubElement(mesh, "uri").text = mesh_uri
 
 
 def _copy_variant_files(
@@ -246,56 +376,80 @@ def _mesh_path_blockers(
     csd: Mapping[str, Any],
     variants: Mapping[str, Mapping[str, Any]],
     asset_root: Path,
+    *,
+    backend: str,
 ) -> tuple[CsdRealizationBlocker, ...]:
     csd_id = _required_str(csd, "csd_id")
     blockers: list[CsdRealizationBlocker] = []
     for asset_id in _csd_asset_ids(csd):
         relative_path = str(variants[asset_id].get("relative_path", ""))
         if not relative_path:
-            blockers.append(_asset_blocker(csd_id, asset_id, "asset variant has no relative_path"))
+            blockers.append(
+                _asset_blocker(csd_id, asset_id, backend, "asset variant has no relative_path")
+            )
             continue
         if Path(relative_path).is_absolute():
-            blockers.append(_asset_blocker(csd_id, asset_id, "asset variant path must be relative"))
+            blockers.append(
+                _asset_blocker(csd_id, asset_id, backend, "asset variant path must be relative")
+            )
             continue
         if not (asset_root / relative_path).is_file():
             blockers.append(
-                _asset_blocker(csd_id, asset_id, f"asset variant file is missing: {relative_path}")
+                _asset_blocker(
+                    csd_id,
+                    asset_id,
+                    backend,
+                    f"asset variant file is missing: {relative_path}",
+                )
             )
     return tuple(blockers)
 
 
-def _asset_blocker(csd_id: str, asset_id: str, reason: str) -> CsdRealizationBlocker:
+def _asset_blocker(
+    csd_id: str,
+    asset_id: str,
+    backend: str,
+    reason: str,
+) -> CsdRealizationBlocker:
     return CsdRealizationBlocker(
-        blocker_id=f"{csd_id}_{BACKEND}_{asset_id}_compile_blocked",
+        blocker_id=f"{csd_id}_{backend}_{asset_id}_compile_blocked",
         csd_id=csd_id,
-        backend=BACKEND,
+        backend=backend,
         asset_id=asset_id,
         scope="asset",
         reason=reason,
     )
 
 
-def _variants_by_asset(asset_registry: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
+def _variants_by_asset(
+    asset_registry: Mapping[str, Any],
+    *,
+    backend: str,
+) -> dict[str, Mapping[str, Any]]:
     variants: dict[str, Mapping[str, Any]] = {}
     for record in (*asset_registry.get("objects", ()), *asset_registry.get("assets", ())):
         if not isinstance(record, Mapping):
             continue
         asset_id = str(record.get("object_id") or record.get("asset_id") or "")
         if asset_id and asset_id not in variants:
-            variant = _passed_mujoco_variant(record.get("variants", ()))
+            variant = _passed_variant(record.get("variants", ()), backend=backend)
             if variant is not None:
                 variants[asset_id] = variant
     return variants
 
 
-def _passed_mujoco_variant(variant_records: object) -> Mapping[str, Any] | None:
+def _passed_variant(
+    variant_records: object,
+    *,
+    backend: str,
+) -> Mapping[str, Any] | None:
     if not isinstance(variant_records, (list, tuple)):
         return None
     for variant in variant_records:
         if not isinstance(variant, Mapping):
             continue
         if (
-            str(variant.get("engine", "")) == BACKEND
+            str(variant.get("engine", "")) == backend
             and str(variant.get("validation_state", "")).lower() == "passed"
         ):
             return variant
@@ -321,13 +475,39 @@ def _quaternion_text(obj: Mapping[str, Any]) -> str:
     return _numbers_text((orientation["w"], orientation["x"], orientation["y"], orientation["z"]))
 
 
+def _sdf_pose_text(obj: Mapping[str, Any]) -> str:
+    position = _pose_part(obj, "position")
+    orientation = _pose_part(obj, "orientation")
+    roll, pitch, yaw = _quaternion_to_rpy(
+        w=float(orientation["w"]),
+        x=float(orientation["x"]),
+        y=float(orientation["y"]),
+        z=float(orientation["z"]),
+    )
+    return _numbers_text((position["x"], position["y"], position["z"], roll, pitch, yaw))
+
+
+def _quaternion_to_rpy(*, w: float, x: float, y: float, z: float) -> tuple[float, float, float]:
+    sinr_cosp = 2.0 * (w * x + y * z)
+    cosr_cosp = 1.0 - 2.0 * (x * x + y * y)
+    roll = math.atan2(sinr_cosp, cosr_cosp)
+
+    sinp = 2.0 * (w * y - z * x)
+    pitch = math.copysign(math.pi / 2.0, sinp) if abs(sinp) >= 1.0 else math.asin(sinp)
+
+    siny_cosp = 2.0 * (w * z + x * y)
+    cosy_cosp = 1.0 - 2.0 * (y * y + z * z)
+    yaw = math.atan2(siny_cosp, cosy_cosp)
+    return roll, pitch, yaw
+
+
 def _pose_part(obj: Mapping[str, Any], key: str) -> Mapping[str, Any]:
     pose = obj.get("pose")
     if not isinstance(pose, Mapping):
-        raise ValueError("CSD object pose is required for MuJoCo compilation")
+        raise ValueError("CSD object pose is required for compilation")
     part = pose.get(key)
     if not isinstance(part, Mapping):
-        raise ValueError(f"CSD object pose.{key} is required for MuJoCo compilation")
+        raise ValueError(f"CSD object pose.{key} is required for compilation")
     return part
 
 

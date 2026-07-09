@@ -38,7 +38,7 @@
 
 
 ## 环境说明
-- 本项目开发环境统一使用 miniforge 管理的虚拟环境。该环境已经存在，使用 `mamba activate robosim` 即可激活该虚拟环境（需要先 `eval "$(mamba shell hook --shell bash)"`），激活后使用 `mamba list` 可以查看已安装的包；
+- 本项目开发环境统一使用 miniforge 管理的虚拟环境。该环境已经存在，使用 `mamba activate robosim2` 即可激活该虚拟环境（需要先 `eval "$(mamba shell hook --shell bash)"`），激活后使用 `mamba list` 可以查看已安装的包；
 - robosim 虽然是 miniforge 环境，但已经提供了 ROS2 Humble 相关的 python 包，因为它使用了 RoboStack 项目；
 - robosim 环境已经提供了固定 gRPC 的版本（`grpcio==1.78.1`,`protobuf==6.33.5`），你不得更改这个版本；
 - robosim 环境已经提供了 MuJoCo python bindings 包（`mujoco`）；
