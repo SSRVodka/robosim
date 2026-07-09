@@ -32,16 +32,32 @@ lighting、scale、frame/up-axis、contact 参数和 inertial 语义的支持可
 - ROS URDF XML documentation: `https://wiki.ros.org/urdf/XML`
 - SDFormat specification: `https://sdformat.org/spec/`
 
-当前 CSD realization 的已实现范围是后端输入 gate：`vsim` 可以检查一个 CSD
-引用的 asset 是否具备目标 backend 的 passed variant，并提取参与 cache key 的
-variant hashes。若缺失 passed variant，会返回 typed blocker。该 gate 不生成
-MJCF/URDF/SDF/Gazebo 文件，也不替代实际 load/render/physics validation。
+当前 CSD realization 的已实现范围包括：
+
+- 后端输入 gate：`vsim` 可以检查一个 CSD 引用的 asset 是否具备目标 backend
+  的 passed variant，并提取参与 cache key 的 variant hashes。若缺失 passed
+  variant，会返回 typed blocker。
+- 第一版 MuJoCo 编译器：`compile_csd_to_mujoco()` 将固定 CSD 和 asset
+  registry 编译为 `engine_manifests/mujoco/<csd_id>/scene.xml` 风格的 MJCF
+  派生产物，并返回 `CsdRealizationManifest`。该路径目前支持具备 MuJoCo
+  passed mesh variant 的刚体 mesh 对象、CSD 显式 pose、可选 `freejoint`、
+  mass/friction 标量，以及 realization cache key。它不替代后续 runtime
+  load/render/physics validation。
 
 实现记录（2026-07-08）：MuJoCo 路径设计前已查阅 MuJoCo MJCF XML Reference
 中关于 `asset/mesh`、`geom` mesh 引用、mesh scale、mesh frame centering、
 collision convex hull、material 与 contact/friction 参数的说明。由此确认第一
 阶段不能把 project asset ID 直接当作 MJCF 文件路径使用，必须先通过 asset
 backend variant/compatibility gate，再进入后续 MJCF 生成。
+
+实现记录（2026-07-09）：第一版 `compile_csd_to_mujoco()` 继续依据 MuJoCo
+MJCF XML Reference（stable）中的 `compiler`、`asset/mesh`、`worldbody/body`、
+`freejoint`、`geom`、mesh `file`、mesh `scale`、geom `mass` 与 `friction`
+语义实现。编译器使用 `<compiler meshdir="...">` 指向 asset root，使用
+`<asset><mesh file="relative/path.obj"/></asset>` 注册 mesh variant，再用
+`<geom type="mesh" mesh="...">` 实例化 CSD object。动态对象以 `freejoint`
+表示自由刚体；MuJoCo loadability 由单元测试通过 `mujoco.MjModel.from_xml_path`
+验证。
 
 ## 架构设计
 

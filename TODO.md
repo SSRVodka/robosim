@@ -7,10 +7,11 @@
 - [ ] (**<u>WIP</u>**) 基于 IL Policy（如 ACT）的推理支持（Action Chunking，或许可以借助 lerobot 的能力）；
 - [ ] 基于 RL Policy 的推理支持；
 - [ ] 支持常见模型的 VLA 推理（对接 LeRobot 接口）；
-- [ ] 定义并实现 CSD realization 接口：接收 thesis-level benchmark
-  generator 输出的 Concrete Scenario Definition，将其 finalize/load 为
-  MuJoCo、Gazebo 等后端 native scene/artifacts，并返回可审计的 backend
-  manifest；实现 MuJoCo 路径前必须先阅读官方 MJCF 语义文档；
+- [x] 定义并实现第一版 CSD -> MuJoCo MJCF compiler：接收 thesis-level
+  benchmark generator 输出的 Concrete Scenario Definition 和 asset registry，
+  生成 MuJoCo native `scene.xml` 派生产物，并返回可审计的 backend manifest；
+- [ ] 将 CSD compiler 产物接入 MuJoCoBackend runtime load/render/physics
+  validation；
 - [x] 为 CSD realization 定义缓存 key：CSD content hash、asset variant hash、
   backend target、realization config、`vsim` realization version、simulator
   version、sampled randomization values；
@@ -20,8 +21,10 @@
   material/texture、collision、joint/articulation、sensor、lighting、scale、
   frame/up-axis、contact/inertial semantics；不支持或有损转换必须返回
   validation failure/blocker；
-- [ ] 在实现 MuJoCo/Gazebo realization 前记录官方文档依据：MuJoCo MJCF XML
+- [x] 在实现 MuJoCo realization 前记录官方文档依据：MuJoCo MJCF XML
   Reference、ROS URDF XML documentation、SDFormat specification；
+- [ ] 在实现 Gazebo/URDF/SDF realization 前记录官方 ROS URDF XML
+  documentation 与 SDFormat specification 版本和语义假设；
 
 ## Bug Fixes
 

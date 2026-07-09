@@ -18,6 +18,40 @@
 - [ ] (WIP) 支持基于 IL/RL 训练的 Policy 的推理过程；
 
 
+### CSD -> MuJoCo MJCF Compiler
+
+`vsim` exposes the first CSD compiler through `robosim.core.compile_csd_to_mujoco`.
+It consumes a fixed Concrete Scenario Definition, an asset registry with passed
+MuJoCo variants, an output root, and an asset root. It writes
+`<output_root>/mujoco/<csd_id>/scene.xml` and returns a
+`CsdMujocoCompilationResult` containing either a `CsdRealizationManifest` or
+typed `CsdRealizationBlocker` records.
+
+The current compiler scope is intentionally narrow: rigid mesh objects with CSD
+poses, MuJoCo mesh variants addressed by relative paths under `asset_root`,
+optional `freejoint` for non-static objects, and scalar mass/friction hints from
+object `initial_state`. Runtime loading, render previews, and physics
+validation remain separate follow-up stages.
+
+```python
+from pathlib import Path
+
+from robosim.core import compile_csd_to_mujoco
+
+result = compile_csd_to_mujoco(
+    csd=csd_json,
+    asset_registry=asset_registry_json,
+    output_root=Path("engine_manifests"),
+    asset_root=Path("assets"),
+)
+
+if result.manifest is None:
+    print([blocker.to_json_dict() for blocker in result.blockers])
+else:
+    print(result.manifest.to_json_dict())
+```
+
+
 ### Quick Start
 
 拉下本仓库并准备环境。以 miniforge 管理虚拟环境为例：
