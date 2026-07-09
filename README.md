@@ -20,10 +20,12 @@
 
 ### CSD -> MuJoCo MJCF Compiler
 
-`vsim` exposes the first CSD compiler through `robosim.core.compile_csd_to_mujoco`.
-It consumes a fixed Concrete Scenario Definition, an asset registry with passed
-MuJoCo variants, an output root, and an asset root. It writes
-`<output_root>/mujoco/<csd_id>/scene.xml` and returns a
+`vsim` exposes the CSD compiler boundary through `robosim.core.compile_csd`.
+Pass `backend="mujoco"` for the currently implemented target. The compiler
+consumes a fixed Concrete Scenario Definition, an asset registry with passed
+backend variants, an output root, and an asset root. The MuJoCo target writes
+`<output_root>/mujoco/<csd_id>/scene.xml` plus copied assets under
+`<output_root>/mujoco/<csd_id>/assets/`, then returns a
 `CsdMujocoCompilationResult` containing either a `CsdRealizationManifest` or
 typed `CsdRealizationBlocker` records.
 
@@ -33,12 +35,19 @@ optional `freejoint` for non-static objects, and scalar mass/friction hints from
 object `initial_state`. Runtime loading, render previews, and physics
 validation remain separate follow-up stages.
 
+The generated MuJoCo artifact directory is self-contained for the mesh variants
+it uses; `scene.xml` points MuJoCo's `compiler meshdir` at the copied local
+`assets/` directory. Gazebo is intentionally not compiled by the MuJoCo path:
+it needs a separate ROS2/Gazebo design for SDF/URDF resources, package/share
+layout, launch integration, and runtime loading.
+
 ```python
 from pathlib import Path
 
-from robosim.core import compile_csd_to_mujoco
+from robosim.core import compile_csd
 
-result = compile_csd_to_mujoco(
+result = compile_csd(
+    backend="mujoco",
     csd=csd_json,
     asset_registry=asset_registry_json,
     output_root=Path("engine_manifests"),

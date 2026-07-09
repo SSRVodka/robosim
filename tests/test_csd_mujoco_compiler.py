@@ -7,7 +7,7 @@ from pathlib import Path
 
 import mujoco
 
-from robosim.core import CsdRealizationManifest, compile_csd_to_mujoco
+from robosim.core import CsdRealizationManifest, compile_csd, compile_csd_to_mujoco
 
 
 def test_compile_csd_to_mujoco_writes_loadable_mjcf_and_manifest(tmp_path: Path) -> None:
@@ -72,7 +72,8 @@ def test_compile_csd_to_mujoco_writes_loadable_mjcf_and_manifest(tmp_path: Path)
         ]
     }
 
-    result = compile_csd_to_mujoco(
+    result = compile_csd(
+        backend="mujoco",
         csd=csd,
         asset_registry=asset_registry,
         output_root=tmp_path / "compiled",
@@ -83,6 +84,9 @@ def test_compile_csd_to_mujoco_writes_loadable_mjcf_and_manifest(tmp_path: Path)
     manifest = result.manifest
 
     scene_path = tmp_path / "compiled" / "mujoco" / "csd_tabletop_0001" / "scene.xml"
+    copied_mesh_path = (
+        tmp_path / "compiled" / "mujoco" / "csd_tabletop_0001" / "assets" / "objects" / "mug.obj"
+    )
     tree = ET.parse(scene_path)
     root = tree.getroot()
 
@@ -91,9 +95,12 @@ def test_compile_csd_to_mujoco_writes_loadable_mjcf_and_manifest(tmp_path: Path)
     assert manifest.csd_id == "csd_tabletop_0001"
     assert manifest.backend == "mujoco"
     assert manifest.entry_file == "scene.xml"
-    assert manifest.generated_files == ("scene.xml",)
+    assert manifest.generated_files == ("scene.xml", "assets/objects/mug.obj")
+    assert copied_mesh_path.is_file()
     assert root.tag == "mujoco"
-    assert root.find("compiler").attrib["meshdir"] == str(asset_root)
+    assert root.find("compiler").attrib["meshdir"] == str(
+        tmp_path / "compiled" / "mujoco" / "csd_tabletop_0001" / "assets"
+    )
     assert root.find("asset/mesh").attrib == {
         "name": "object_mug",
         "file": "objects/mug.obj",
@@ -105,8 +112,25 @@ def test_compile_csd_to_mujoco_writes_loadable_mjcf_and_manifest(tmp_path: Path)
     assert body.find("freejoint") is not None
     assert body.find("geom").attrib["mesh"] == "object_mug"
 
+    mesh_path.unlink()
     model = mujoco.MjModel.from_xml_path(str(scene_path))
     assert model.nbody >= 2
+
+
+def test_compile_csd_rejects_gazebo_until_ros2_artifact_path_exists(tmp_path: Path) -> None:
+    try:
+        compile_csd(
+            backend="gazebo",
+            csd={"csd_id": "csd_gazebo"},
+            asset_registry={},
+            output_root=tmp_path,
+            asset_root=tmp_path,
+        )
+    except NotImplementedError as exc:
+        assert "Gazebo" in str(exc)
+        assert "ROS2" in str(exc)
+    else:
+        raise AssertionError("expected NotImplementedError")
 
 
 def test_compile_csd_to_mujoco_reports_missing_variant(tmp_path: Path) -> None:

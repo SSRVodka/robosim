@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
+from shutil import copy2
 from typing import Any, Mapping
 
 from robosim.core.csd import (
@@ -76,12 +78,19 @@ def compile_csd_to_mujoco(
         simulator_version=simulator_version,
     )
     scene_root = Path(output_root) / BACKEND / csd_id
+    compiled_asset_root = scene_root / "assets"
     scene_root.mkdir(parents=True, exist_ok=True)
+    generated_asset_files = _copy_variant_files(
+        csd=csd,
+        variants=variants,
+        source_asset_root=Path(asset_root),
+        compiled_asset_root=compiled_asset_root,
+    )
     scene_path = scene_root / "scene.xml"
     _write_mjcf(
         scene_path,
         csd=csd,
-        asset_root=Path(asset_root),
+        asset_root=compiled_asset_root,
         variants=variants,
     )
     return CsdMujocoCompilationResult(
@@ -92,10 +101,41 @@ def compile_csd_to_mujoco(
             cache_key=cache_key.digest,
             root_path=str(scene_root),
             entry_file="scene.xml",
-            generated_files=("scene.xml",),
+            generated_files=("scene.xml", *generated_asset_files),
             preview_files=(),
         )
     )
+
+
+def compile_csd(
+    *,
+    backend: str,
+    csd: Mapping[str, Any],
+    asset_registry: Mapping[str, Any],
+    output_root: Path,
+    asset_root: Path,
+    realization_config: Mapping[str, Any] | None = None,
+    realization_version: str = DEFAULT_REALIZATION_VERSION,
+    simulator_version: str | None = None,
+) -> CsdMujocoCompilationResult:
+    """Compile one CSD for a requested backend target."""
+    backend_key = backend.strip().lower()
+    if backend_key == BACKEND:
+        return compile_csd_to_mujoco(
+            csd=csd,
+            asset_registry=asset_registry,
+            output_root=output_root,
+            asset_root=asset_root,
+            realization_config=realization_config,
+            realization_version=realization_version,
+            simulator_version=simulator_version,
+        )
+    if backend_key == "gazebo":
+        raise NotImplementedError(
+            "Gazebo CSD compilation requires ROS2/Gazebo launch, SDF/URDF "
+            "artifact layout, and resource path handling; it is not implemented yet."
+        )
+    raise ValueError(f"unsupported CSD compiler backend: {backend}")
 
 
 def _write_mjcf(
@@ -148,6 +188,31 @@ def _write_mjcf(
 
     ET.indent(root, space="  ")
     ET.ElementTree(root).write(scene_path, encoding="utf-8", xml_declaration=True)
+
+
+def _copy_variant_files(
+    *,
+    csd: Mapping[str, Any],
+    variants: Mapping[str, Mapping[str, Any]],
+    source_asset_root: Path,
+    compiled_asset_root: Path,
+) -> tuple[str, ...]:
+    generated_files: list[str] = []
+    for relative_path in _variant_relative_paths(csd, variants):
+        source = source_asset_root / relative_path
+        destination = compiled_asset_root / relative_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        copy2(source, destination)
+        generated_files.append(str(Path("assets") / relative_path))
+    return tuple(generated_files)
+
+
+def _variant_relative_paths(
+    csd: Mapping[str, Any],
+    variants: Mapping[str, Mapping[str, Any]],
+) -> Iterable[Path]:
+    for asset_id in _csd_asset_ids(csd):
+        yield Path(str(variants[asset_id]["relative_path"]))
 
 
 def _append_object_body(parent: ET.Element, obj: Mapping[str, Any]) -> None:

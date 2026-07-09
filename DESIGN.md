@@ -43,6 +43,10 @@ lighting、scale、frame/up-axis、contact 参数和 inertial 语义的支持可
   passed mesh variant 的刚体 mesh 对象、CSD 显式 pose、可选 `freejoint`、
   mass/friction 标量，以及 realization cache key。它不替代后续 runtime
   load/render/physics validation。
+- 后端目标入口：协作者应优先调用 `compile_csd(..., backend=...)`，而不是把
+  MuJoCo 编译器当作唯一抽象。当前 `backend="mujoco"` 已实现；`backend="gazebo"`
+  会显式报出未实现，因为 Gazebo 路径需要同时确定 ROS2 launch、SDF/URDF
+  resource path、package/share 目录和运行时加载约定。
 
 实现记录（2026-07-08）：MuJoCo 路径设计前已查阅 MuJoCo MJCF XML Reference
 中关于 `asset/mesh`、`geom` mesh 引用、mesh scale、mesh frame centering、
@@ -53,11 +57,18 @@ backend variant/compatibility gate，再进入后续 MJCF 生成。
 实现记录（2026-07-09）：第一版 `compile_csd_to_mujoco()` 继续依据 MuJoCo
 MJCF XML Reference（stable）中的 `compiler`、`asset/mesh`、`worldbody/body`、
 `freejoint`、`geom`、mesh `file`、mesh `scale`、geom `mass` 与 `friction`
-语义实现。编译器使用 `<compiler meshdir="...">` 指向 asset root，使用
-`<asset><mesh file="relative/path.obj"/></asset>` 注册 mesh variant，再用
+语义实现。编译器使用 `<compiler meshdir="...">` 指向编译产物目录内的
+`assets/`，使用 `<asset><mesh file="relative/path.obj"/></asset>` 注册 mesh variant，再用
 `<geom type="mesh" mesh="...">` 实例化 CSD object。动态对象以 `freejoint`
 表示自由刚体；MuJoCo loadability 由单元测试通过 `mujoco.MjModel.from_xml_path`
 验证。
+
+编译产物目录必须自包含当前 backend 需要的资产文件。第一版 MuJoCo 编译器会把
+CSD 引用的 passed mesh variant 复制到
+`<output_root>/mujoco/<csd_id>/assets/<variant-relative-path>`，`scene.xml`
+只引用该目录内的相对路径。这样即使原始 asset cache 移动或清理，已编译的
+MJCF 仍可加载。后续处理 OBJ 材质、纹理、collision mesh、URDF/SDF resource
+时也必须遵守同样原则：native scene artifact 不得依赖易丢失的下载缓存路径。
 
 ## 架构设计
 

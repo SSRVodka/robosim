@@ -10,8 +10,14 @@
 - [x] 定义并实现第一版 CSD -> MuJoCo MJCF compiler：接收 thesis-level
   benchmark generator 输出的 Concrete Scenario Definition 和 asset registry，
   生成 MuJoCo native `scene.xml` 派生产物，并返回可审计的 backend manifest；
+- [x] 增加后端目标入口 `compile_csd(..., backend=...)`，避免把 MuJoCo-only
+  函数误认为 compiler 抽象本身；
+- [x] MuJoCo compiler 产物目录自包含 mesh variant 文件，避免编译后依赖易丢失
+  的原始 asset cache；
 - [ ] 将 CSD compiler 产物接入 MuJoCoBackend runtime load/render/physics
   validation；
+- [ ] 设计 Gazebo/ROS2 compiler artifact layout，包括 SDF/URDF resource path、
+  package/share 目录、launch/runtime 加载约定和资产复制规则；
 - [x] 为 CSD realization 定义缓存 key：CSD content hash、asset variant hash、
   backend target、realization config、`vsim` realization version、simulator
   version、sampled randomization values；
