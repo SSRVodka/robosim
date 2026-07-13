@@ -13,7 +13,7 @@ from robosim.backends.mujoco.backend import MuJoCoBackend
 
 G1_DUAL_ARM_SCENE_PATH = (
     Path(__file__).resolve().parent.parent
-    / "drivers_sim/mujoco/assets/robots/g1_description/g1_dual_arm.xml"
+    / "drivers_sim/mujoco/assets/robots/unitree_g1/scene.xml"
 )
 
 
