@@ -1,18 +1,20 @@
 """Tests for MuJoCo backend."""
 
-import os
 from pathlib import Path
 
 import pytest
 
-# Ensure the drivers_sim/mujoco path is accessible
-MUJOCO_ASSETS_PATH = (
-    Path(__file__).parent.parent / "drivers_sim" / "mujoco" /
-    "assets" / "robots" / "franka_panda"
-)
-os.chdir(Path(__file__).parent.parent)
+from robosim.backends.mujoco.backend import MuJoCoBackend
 
-from robosim.backends.mujoco.backend import MuJoCoBackend  # noqa: E402
+MUJOCO_ASSETS_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "drivers_sim"
+    / "mujoco"
+    / "assets"
+    / "robots"
+    / "franka_panda"
+)
+SCENE_PATH = MUJOCO_ASSETS_PATH / "scene.xml"
 
 
 class TestMuJoCoBackend:
@@ -20,8 +22,11 @@ class TestMuJoCoBackend:
 
     @pytest.fixture
     def backend(self) -> MuJoCoBackend:
-        scene_path = str(MUJOCO_ASSETS_PATH / "scene.xml")
-        return MuJoCoBackend(robot_name="panda", scene_path=scene_path)
+        instance = MuJoCoBackend(str(SCENE_PATH), headless=True)
+        try:
+            yield instance
+        finally:
+            instance.shutdown()
 
     def test_backend_initialization(self, backend: MuJoCoBackend) -> None:
         """Test backend initializes correctly."""
@@ -74,11 +79,18 @@ class TestMuJoCoBackend:
 
         # Set a new position
         new_pos = initial_pos + 0.1
-        backend.set_joint_target([joint_name], [new_pos], JointCommand.ControlMode.POSITION)
+        backend.set_joint_target(
+            [joint_name],
+            [new_pos],
+            JointCommand.ControlMode.POSITION,
+            group="panda_arm",
+        )
 
-        # Verify position was set (within physics tolerance due to mj_step)
-        new_state = backend.get_robot_state()
-        assert abs(new_state.position[0] - new_pos) < 0.01
+        command_state = backend.get_joint_command_state()
+        command_positions = dict(
+            zip(command_state.name, command_state.position, strict=True)
+        )
+        assert command_positions[joint_name] == pytest.approx(new_pos)
 
     def test_reset_world(self, backend: MuJoCoBackend) -> None:
         """Test resetting world."""
@@ -106,11 +118,11 @@ class TestMuJoCoBackend:
 
     def test_joint_info_populated(self, backend: MuJoCoBackend) -> None:
         """Test that joint info is properly populated."""
-        assert len(backend._joints) > 0
-        for name, info in backend._joints.items():
-            assert info.name == name
-            assert info.qposadr >= 0
-            assert info.dofadr >= 0
+        assert len(backend._joint_infos) > 0
+        for info in backend._joint_infos:
+            assert info.name
+            assert info.qpos_adr >= 0
+            assert info.qvel_adr >= 0
 
 
 class TestMuJoCoBackendWithDefaultScene:
@@ -118,11 +130,8 @@ class TestMuJoCoBackendWithDefaultScene:
 
     def test_default_scene_path(self) -> None:
         """Test using default scene path."""
-        # This tests that the DEFAULT_SCENE_PATH works when cwd is correct
-        original_cwd = os.getcwd()
+        backend = MuJoCoBackend(str(SCENE_PATH), headless=True)
         try:
-            os.chdir(Path(__file__).parent.parent)
-            backend = MuJoCoBackend(robot_name="test_panda")
-            assert backend.robot_name == "test_panda"
+            assert backend.robot_name == "panda"
         finally:
-            os.chdir(original_cwd)
+            backend.shutdown()

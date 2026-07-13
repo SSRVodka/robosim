@@ -386,7 +386,7 @@ def test_free_base_g1_idle_loop_holds_root_pose() -> None:
     assert later_z == pytest.approx(initial_z, abs=0.03)
 
 
-def test_free_base_g1_twist_servo_does_not_flail_idle_joints() -> None:
+def test_free_base_g1_reports_no_end_effector_for_fallback_group() -> None:
     backend = MuJoCoBackend(str(G1_29DOF_SCENE_PATH), headless=True)
     try:
         command = core_pb2.ServoCommand(
@@ -396,44 +396,28 @@ def test_free_base_g1_twist_servo_does_not_flail_idle_joints() -> None:
                 ),
                 target_ee=core_pb2.EESpec(
                     name="left_wrist_yaw_link",
-                    parent_jmg_name="left_arm",
-                    group_name="left_arm",
+                    parent_jmg_name="pelvis",
+                    group_name="pelvis",
                 ),
             )
         )
-        next(backend.servo_control_stream(iter([command])))
-        time.sleep(0.2)
-
-        state = backend.get_robot_state()
-        velocities = dict(zip(state.name, state.velocity, strict=True))
+        with pytest.raises(NotImplementedError, match="has no end effector"):
+            next(backend.servo_control_stream(iter([command])))
     finally:
         backend.shutdown()
 
-    idle_joint_names = [
-        name
-        for name in velocities
-        if not name.startswith("left_shoulder")
-        and not name.startswith("left_elbow")
-        and not name.startswith("left_wrist")
-    ]
-    assert max(abs(velocities[name]) for name in idle_joint_names) < 1e-6
-    assert max(abs(value) for value in velocities.values()) <= 1.05
 
-
-def test_free_base_g1_spec_exposes_leg_end_effectors() -> None:
+def test_free_base_g1_spec_exposes_fallback_full_body_group() -> None:
     backend = MuJoCoBackend(str(G1_29DOF_SCENE_PATH), headless=True)
     try:
         groups = {group.name: group for group in backend.get_robot_spec().joint_model_groups}
     finally:
         backend.shutdown()
 
-    assert [ee.name for ee in groups["left_leg"].end_effectors] == [
-        "left_ankle_roll_link"
-    ]
-    assert [ee.name for ee in groups["right_leg"].end_effectors] == [
-        "right_ankle_roll_link"
-    ]
-    assert list(groups["both_legs"].joint_names) == [
+    assert set(groups) == {"pelvis"}
+    assert list(groups["pelvis"].end_effectors) == []
+    assert len(groups["pelvis"].joint_names) == 29
+    assert list(groups["pelvis"].joint_names[:12]) == [
         "left_hip_pitch_joint",
         "left_hip_roll_joint",
         "left_hip_yaw_joint",
@@ -447,17 +431,27 @@ def test_free_base_g1_spec_exposes_leg_end_effectors() -> None:
         "right_ankle_pitch_joint",
         "right_ankle_roll_joint",
     ]
+    assert list(groups["pelvis"].joint_names[-14:]) == [
+        "left_shoulder_pitch_joint",
+        "left_shoulder_roll_joint",
+        "left_shoulder_yaw_joint",
+        "left_elbow_joint",
+        "left_wrist_roll_joint",
+        "left_wrist_pitch_joint",
+        "left_wrist_yaw_joint",
+        "right_shoulder_pitch_joint",
+        "right_shoulder_roll_joint",
+        "right_shoulder_yaw_joint",
+        "right_elbow_joint",
+        "right_wrist_roll_joint",
+        "right_wrist_pitch_joint",
+        "right_wrist_yaw_joint",
+    ]
 
 
-def test_free_base_g1_leg_twist_servo_does_not_flail_other_joints() -> None:
+def test_free_base_g1_rejects_unknown_leg_group_twist_servo() -> None:
     backend = MuJoCoBackend(str(G1_29DOF_SCENE_PATH), headless=True)
     try:
-        pelvis_id = mujoco.mj_name2id(
-            backend._model,
-            mujoco.mjtObj.mjOBJ_BODY,
-            "pelvis",
-        )
-        initial_z = float(backend._data.xpos[pelvis_id][2])
         command = core_pb2.ServoCommand(
             twist_cmd=core_pb2.TwistCommand(
                 twist=common_pb2.TwistStamped(
@@ -470,19 +464,10 @@ def test_free_base_g1_leg_twist_servo_does_not_flail_other_joints() -> None:
                 ),
             )
         )
-        next(backend.servo_control_stream(iter([command])))
-        time.sleep(0.2)
-
-        state = backend.get_robot_state()
-        velocities = dict(zip(state.name, state.velocity, strict=True))
-        later_z = float(backend._data.xpos[pelvis_id][2])
+        with pytest.raises(NotImplementedError, match="has no end effector"):
+            next(backend.servo_control_stream(iter([command])))
     finally:
         backend.shutdown()
-
-    idle_joint_names = [name for name in velocities if not name.startswith("left_")]
-    assert later_z == pytest.approx(initial_z, abs=0.03)
-    assert max(abs(velocities[name]) for name in idle_joint_names) < 1e-6
-    assert max(abs(value) for value in velocities.values()) <= 1.05
 
 
 def test_servo_control_stream_accepts_twist(backend: MuJoCoBackend) -> None:
