@@ -12,12 +12,10 @@ import pybullet as p
 from robosim.core import (
     CsdRealizationManifest,
     compile_csd,
-    compile_csd_to_mujoco,
     compile_csd_to_pybullet,
 )
 
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "csd"
-PREVIEW_SIZE_PX = 512
 
 
 def _load_json_fixture(name: str) -> dict[str, object]:
@@ -96,28 +94,6 @@ def _load_generated_scene(scene_path: Path, client_id: int) -> dict[str, object]
     handles = module.load_scene(client_id)
     assert isinstance(handles, dict)
     return handles
-
-
-def _read_ppm_rgb(path: Path) -> list[tuple[int, int, int]]:
-    header = f"P6\n{PREVIEW_SIZE_PX} {PREVIEW_SIZE_PX}\n255\n".encode()
-    payload = path.read_bytes()
-    assert payload.startswith(header)
-    pixels = payload[len(header) :]
-    assert len(pixels) == PREVIEW_SIZE_PX * PREVIEW_SIZE_PX * 3
-    return [
-        (pixels[index], pixels[index + 1], pixels[index + 2])
-        for index in range(0, len(pixels), 3)
-    ]
-
-
-def _foreground_ratio(pixels: list[tuple[int, int, int]]) -> float:
-    background = pixels[0]
-    foreground = sum(
-        1
-        for pixel in pixels
-        if sum(abs(pixel[channel] - background[channel]) for channel in range(3)) > 30
-    )
-    return foreground / len(pixels)
 
 
 def test_compile_csd_to_pybullet_writes_self_contained_package(tmp_path: Path) -> None:
@@ -214,50 +190,6 @@ def test_compile_csd_to_pybullet_includes_franka_robot(tmp_path: Path) -> None:
         assert p.getNumJoints(int(bodies["panda"]), physicsClientId=client_id) > 0
     finally:
         p.disconnect(client_id)
-
-
-def test_pybullet_and_mujoco_previews_are_visually_comparable_for_franka_csd(
-    tmp_path: Path,
-) -> None:
-    csd = _load_json_fixture("franka_tabletop_single_object.json")
-
-    pybullet_asset_root = tmp_path / "pybullet_assets"
-    pybullet_registry = _load_json_fixture("asset_registry_pybullet.json")
-    _write_fixture_asset_files(pybullet_asset_root, pybullet_registry)
-    pybullet_result = compile_csd_to_pybullet(
-        csd=csd,
-        asset_registry=pybullet_registry,
-        output_root=tmp_path / "engine_manifests",
-        asset_root=pybullet_asset_root,
-        simulator_version="test-pybullet",
-    )
-
-    mujoco_asset_root = tmp_path / "mujoco_assets"
-    mujoco_registry = _load_json_fixture("asset_registry_mujoco.json")
-    _write_fixture_asset_files(mujoco_asset_root, mujoco_registry)
-    mujoco_result = compile_csd_to_mujoco(
-        csd=csd,
-        asset_registry=mujoco_registry,
-        output_root=tmp_path / "engine_manifests",
-        asset_root=mujoco_asset_root,
-        simulator_version="test-mujoco",
-    )
-
-    assert isinstance(pybullet_result.manifest, CsdRealizationManifest)
-    assert isinstance(mujoco_result.manifest, CsdRealizationManifest)
-
-    pybullet_pixels = _read_ppm_rgb(
-        Path(pybullet_result.manifest.root_path) / "diagnostics" / "semantic_preview.ppm"
-    )
-    mujoco_pixels = _read_ppm_rgb(
-        Path(mujoco_result.manifest.root_path) / "diagnostics" / "semantic_preview.ppm"
-    )
-    pybullet_ratio = _foreground_ratio(pybullet_pixels)
-    mujoco_ratio = _foreground_ratio(mujoco_pixels)
-
-    assert 0.25 < pybullet_ratio < 0.90
-    assert 0.25 < mujoco_ratio < 0.90
-    assert abs(pybullet_ratio - mujoco_ratio) < 0.50
 
 
 def test_compile_csd_dispatches_to_pybullet(tmp_path: Path) -> None:

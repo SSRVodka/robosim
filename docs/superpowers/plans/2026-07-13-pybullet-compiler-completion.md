@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Bring PyBullet CSD compiler/runtime completeness up to the current MuJoCo compiler level for robot-bearing tabletop CSDs.
+**Goal:** Bring PyBullet CSD compiler/runtime support up to the current MuJoCo realization discipline for the selected Franka tabletop robot-bearing CSDs, without overstating full MuJoCo semantic coverage.
 
 **Architecture:** Keep the generated PyBullet scene as a package made of `manifest.json`, `scene.py`, `scene_meta.json`, local `assets/`, and `diagnostics/`. Add explicit PyBullet robot realization for Franka Panda by copying the URDF dependency closure into the package, loading it from `scene.py`, and naming it in metadata so `PyBulletBackend` exposes robot state/spec/control when loading a compiled manifest.
 
@@ -61,8 +61,9 @@
 
 - [ ] Generate MuJoCo and PyBullet realization packages for the same CSD fixture.
 - [ ] Produce previews from each package without changing backend behavior.
-- [ ] Add a lightweight automated sanity check that both previews are nonblank and have comparable frame occupancy.
-- [ ] Record the visual verification command/result in `TODO.md` after the iteration concludes.
+- [ ] Generate stable comparison output directories for MuJoCo and PyBullet under `/tmp`.
+- [ ] Keep automated tests focused on each backend's own realization invariants; use generated artifacts and manual visual inspection for cross-backend visual comparison.
+- [ ] Record the visual verification command/result and remaining semantic gaps in `TODO.md` after the iteration concludes.
 
 ### Task 4: Final Verification
 

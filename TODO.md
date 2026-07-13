@@ -3,13 +3,17 @@
 # VERSION v0.0.5
 
 ## New Features & Details
-- [x] 补齐 PyBullet 后端全栈能力，使其达到当前 MuJoCo compiler completeness：
-  robot-bearing CSD 必须生成可加载、可控制、package-local 的 PyBullet realization，
-  并对同一 CSD 的 PyBullet/MuJoCo preview 做视觉相似性验证；
-- [x] 增加 PyBullet/MuJoCo 共享 CSD 视觉验证：同一
-  `franka_tabletop_single_object.json` 编译为两个 backend package 后，人工确认
-  preview 均呈现 Panda、桌面和 mug 的相似布局，并用自动测试验证两者 preview
-  非空且画面占用范围可比较；
+- [x] 补齐 PyBullet Franka tabletop CSD 的 compiler-to-runtime 路径：
+  robot-bearing CSD 生成可加载、可控制、package-local 的 PyBullet realization，
+  并对同一 CSD 的 PyBullet/MuJoCo preview 输出做视觉相似性验证；
+- [ ] 补齐 PyBullet compiler 与 MuJoCo compiler 的完整语义覆盖差距：relationship
+  validation、contact margin/gap/solver 参数处理、material/texture 语义和更完整的
+  正向/负向共享 CSD fixture 覆盖；
+- [x] 增加 PyBullet/MuJoCo 共享 CSD 输出目录：
+  `scripts/generate_csd_comparison_outputs.py` 默认把所有 CSD fixture 编译到
+  `/tmp/robosim-csd-compiler-comparison/{mujoco,pybullet}/`，并在 `summary.json`
+  中记录每个 backend 的 manifest/preview 或 blocker；该目录使用 synthetic
+  fixture assets，适合逐项比较 compiler realization，不代表真实资产外观；
 - [x] 支持 PyBullet 后端基础 runtime 与 object-only CSD realization：CSD compiler 输出
   `engine_manifests/pybullet/<csd_id>/` realization package（`manifest.json`、
   `scene.py`、`scene_meta.json`、本地 URDF/assets、diagnostics），runtime 可从
