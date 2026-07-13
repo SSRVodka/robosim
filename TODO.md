@@ -3,11 +3,21 @@
 # VERSION v0.0.5
 
 ## New Features & Details
-- [x] 支持 PyBullet 后端全栈能力：CSD compiler 输出
+- [x] 补齐 PyBullet 后端全栈能力，使其达到当前 MuJoCo compiler completeness：
+  robot-bearing CSD 必须生成可加载、可控制、package-local 的 PyBullet realization，
+  并对同一 CSD 的 PyBullet/MuJoCo preview 做视觉相似性验证；
+- [x] 增加 PyBullet/MuJoCo 共享 CSD 视觉验证：同一
+  `franka_tabletop_single_object.json` 编译为两个 backend package 后，人工确认
+  preview 均呈现 Panda、桌面和 mug 的相似布局，并用自动测试验证两者 preview
+  非空且画面占用范围可比较；
+- [x] 支持 PyBullet 后端基础 runtime 与 object-only CSD realization：CSD compiler 输出
   `engine_manifests/pybullet/<csd_id>/` realization package（`manifest.json`、
   `scene.py`、`scene_meta.json`、本地 URDF/assets、diagnostics），runtime 可从
   manifest 加载并提供 README 中的 server、servo、LeRobot recorder/replay 示例能力；
-- [x] 为 PyBullet realization 记录并验证 backend-specific compatibility gate：
+- [x] 为 PyBullet realization 补齐 backend-specific compatibility gate：
+  `scenario.robot.asset_id` 必须参与 resource/template compatibility 检查；无法映射为
+  package-local PyBullet robot 时返回 blocker，不能静默生成缺失 robot 的 scene；
+- [x] 为 PyBullet object-only realization 记录并验证 backend-specific compatibility gate：
   显式 `backend="pybullet"` resource adapter、URDF/package-local asset closure、
   camera/sensor metadata、object mass/friction、unsupported contact solver 参数 blocker；
 - [x] 为 PyBulletBackend 增加单元/集成测试：headless startup、robot spec、joint

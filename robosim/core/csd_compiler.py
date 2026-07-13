@@ -37,6 +37,7 @@ MUJOCO_MESH_EXTENSIONS = frozenset({".obj", ".stl", ".msh"})
 PYBULLET_MESH_EXTENSIONS = frozenset({".obj"})
 MUJOCO_PREVIEW_SIZE_PX = 512
 PYBULLET_PREVIEW_SIZE_PX = 512
+PYBULLET_FRANKA_ASSET_IDS = frozenset({"robot_franka_panda", "franka_panda"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -237,6 +238,9 @@ def compile_csd_to_pybullet(
     semantic_blockers = _pybullet_csd_semantic_blockers(typed_csd)
     if semantic_blockers:
         return CsdCompilationResult(manifest=None, blockers=semantic_blockers)
+    robot_blockers = _pybullet_robot_template_blockers(typed_csd)
+    if robot_blockers:
+        return CsdCompilationResult(manifest=None, blockers=robot_blockers)
 
     realization_config = dict(realization_config or {})
     csd_id = _required_str(csd, "csd_id")
@@ -285,6 +289,10 @@ def compile_csd_to_pybullet(
         csd=typed_csd,
         resources=resources,
     )
+    generated_robot_files = _copy_pybullet_robot_template(
+        scene_root=scene_root,
+        csd=typed_csd,
+    )
     scene_file = "scene.py"
     meta_file = "scene_meta.json"
     _write_pybullet_scene_loader(scene_root / scene_file)
@@ -323,6 +331,7 @@ def compile_csd_to_pybullet(
         validation_record_file,
         *generated_asset_files,
         *generated_object_urdfs,
+        *generated_robot_files,
     )
     manifest = CsdRealizationManifest(
         manifest_id=f"manifest_{PYBULLET_BACKEND}_{csd_id}",
@@ -1026,6 +1035,71 @@ def _csd_entity_refs(csd: ConcreteScenarioDefinition) -> set[str]:
     return refs
 
 
+def _pybullet_robot_template_blockers(
+    csd: ConcreteScenarioDefinition,
+) -> tuple[CsdRealizationBlocker, ...]:
+    if csd.robot is None:
+        return ()
+    if csd.robot.asset_id not in PYBULLET_FRANKA_ASSET_IDS:
+        return (
+            _backend_csd_blocker(
+                csd.csd_id,
+                csd.robot.asset_id,
+                PYBULLET_BACKEND,
+                f"no PyBullet robot template is configured for robot asset {csd.robot.asset_id}",
+            ),
+        )
+    source_dir = _pybullet_franka_source_dir()
+    if source_dir is None or not (source_dir / "panda.urdf").is_file():
+        return (
+            _backend_csd_blocker(
+                csd.csd_id,
+                csd.robot.asset_id,
+                PYBULLET_BACKEND,
+                "PyBullet Franka Panda template is unavailable in pybullet_data",
+            ),
+        )
+    return ()
+
+
+def _copy_pybullet_robot_template(
+    *,
+    scene_root: Path,
+    csd: ConcreteScenarioDefinition,
+) -> tuple[str, ...]:
+    if csd.robot is None:
+        return ()
+    if csd.robot.asset_id not in PYBULLET_FRANKA_ASSET_IDS:
+        raise ValueError(f"unsupported PyBullet robot asset: {csd.robot.asset_id}")
+    source_dir = _pybullet_franka_source_dir()
+    if source_dir is None:
+        raise FileNotFoundError("pybullet_data Franka Panda template is unavailable")
+    destination_dir = scene_root / "assets" / "robots" / "franka_panda"
+    generated_files: list[str] = []
+    for source_file in sorted(path for path in source_dir.rglob("*") if path.is_file()):
+        relative_path = source_file.relative_to(source_dir)
+        destination_file = destination_dir / relative_path
+        destination_file.parent.mkdir(parents=True, exist_ok=True)
+        copy2(source_file, destination_file)
+        if relative_path.as_posix() == "panda.urdf":
+            _patch_pybullet_urdf_mesh_paths(destination_file)
+        generated_files.append(str(destination_file.relative_to(scene_root)))
+    return tuple(generated_files)
+
+
+def _pybullet_franka_source_dir() -> Path | None:
+    try:
+        import pybullet_data
+    except Exception:
+        return None
+    return Path(pybullet_data.getDataPath()) / "franka_panda"
+
+
+def _patch_pybullet_urdf_mesh_paths(path: Path) -> None:
+    text = path.read_text(encoding="utf-8")
+    path.write_text(text.replace("package://meshes/", "meshes/"), encoding="utf-8")
+
+
 def _write_pybullet_object_urdfs(
     *,
     scene_root: Path,
@@ -1125,6 +1199,16 @@ def load_scene(physics_client_id: int) -> dict[str, object]:
     )
     p.setPhysicsEngineParameter(enableFileCaching=0, physicsClientId=physics_client_id)
     bodies: dict[str, int] = {}
+    robot = meta.get("robot")
+    if isinstance(robot, dict):
+        robot_name = str(meta["robot_name"])
+        bodies[robot_name] = p.loadURDF(
+            str(root / str(robot["urdf_path"])),
+            basePosition=[float(value) for value in robot["position"]],
+            baseOrientation=[float(value) for value in robot["orientation_xyzw"]],
+            useFixedBase=bool(robot["fixed_base"]),
+            physicsClientId=physics_client_id,
+        )
     for name, spec in meta["surfaces"].items():
         half_extents = [float(value) for value in spec["half_extents"]]
         collision = p.createCollisionShape(
@@ -1178,7 +1262,8 @@ def _write_pybullet_scene_meta(
     csd: ConcreteScenarioDefinition,
     resources: Mapping[str, BackendResourceAdapter],
 ) -> None:
-    payload = {
+    robot_meta = _pybullet_robot_meta(csd)
+    payload: dict[str, object] = {
         "backend": PYBULLET_BACKEND,
         "csd_id": csd.csd_id,
         "gravity": _vector3_json(csd.environment.gravity),
@@ -1192,7 +1277,57 @@ def _write_pybullet_scene_meta(
         },
         "cameras": _pybullet_camera_meta(csd),
     }
+    if robot_meta is not None:
+        payload["robot_name"] = robot_meta["name"]
+        payload["robot"] = robot_meta
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _pybullet_robot_meta(csd: ConcreteScenarioDefinition) -> dict[str, object] | None:
+    if csd.robot is None:
+        return None
+    position, orientation = _pybullet_robot_pose(csd.raw)
+    return {
+        "name": "panda",
+        "asset_id": csd.robot.asset_id,
+        "urdf_path": str(Path("assets") / "robots" / "franka_panda" / "panda.urdf"),
+        "position": position,
+        "orientation_xyzw": orientation,
+        "fixed_base": True,
+    }
+
+
+def _pybullet_robot_pose(csd: Mapping[str, Any]) -> tuple[list[float], list[float]]:
+    robot = _csd_scenario(csd).get("robot", {})
+    if not isinstance(robot, Mapping):
+        return [0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]
+    pose = robot.get("pose", {})
+    if not isinstance(pose, Mapping):
+        return [0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]
+    position = pose.get("position", {})
+    orientation = pose.get("orientation", {})
+    return _mapping_vector3_json(position), _mapping_quaternion_xyzw_json(orientation)
+
+
+def _mapping_vector3_json(value: object) -> list[float]:
+    if not isinstance(value, Mapping):
+        return [0.0, 0.0, 0.0]
+    return [
+        _json_float(value.get("x", 0.0)),
+        _json_float(value.get("y", 0.0)),
+        _json_float(value.get("z", 0.0)),
+    ]
+
+
+def _mapping_quaternion_xyzw_json(value: object) -> list[float]:
+    if not isinstance(value, Mapping):
+        return [0.0, 0.0, 0.0, 1.0]
+    return [
+        _json_float(value.get("x", 0.0)),
+        _json_float(value.get("y", 0.0)),
+        _json_float(value.get("z", 0.0)),
+        _json_float(value.get("w", 1.0)),
+    ]
 
 
 def _pybullet_object_meta(

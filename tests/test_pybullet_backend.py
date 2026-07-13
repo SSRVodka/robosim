@@ -199,6 +199,33 @@ def test_pybullet_backend_loads_compiled_csd_manifest(tmp_path: Path) -> None:
         instance.shutdown()
 
 
+def test_pybullet_backend_loads_compiled_franka_csd_as_controllable_robot(
+    tmp_path: Path,
+) -> None:
+    asset_root = tmp_path / "assets"
+    csd = _load_json_fixture("franka_tabletop_single_object.json")
+    asset_registry = _load_json_fixture("asset_registry_pybullet.json")
+    _write_fixture_asset_files(asset_root, asset_registry)
+    result = compile_csd_to_pybullet(
+        csd=csd,
+        asset_registry=asset_registry,
+        output_root=tmp_path / "engine_manifests",
+        asset_root=asset_root,
+        simulator_version="test-pybullet",
+    )
+    assert isinstance(result.manifest, CsdRealizationManifest)
+
+    instance = PyBulletBackend.from_csd_realization_manifest(result.manifest, headless=True)
+    try:
+        spec = instance.get_robot_spec()
+        assert spec.robot_name == "panda"
+        assert "panda_arm" in {group.name for group in spec.joint_model_groups}
+        assert "mug" in instance.body_names
+        assert "panda" in instance.body_names
+    finally:
+        instance.shutdown()
+
+
 def test_pybullet_backend_records_and_replays_lerobot_episode(
     tmp_path: Path,
     backend: PyBulletBackend,
