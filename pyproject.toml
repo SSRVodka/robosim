@@ -35,6 +35,7 @@ exclude = [
     "./control_stubs/*.py",
     "./agent/**",
     "./refs/**",
+    "*.ipynb",
 ]
 
 [tool.ruff.lint]
@@ -58,12 +59,17 @@ mypy_path = ["./install/**/lib/python3.12/site-packages"]
 exclude = [
     "drivers_sim/gazebo-11/",
     "build", "install", "log",
-    "control_stubs/",
+    ".*control_stubs/.*",
     "agent/",
     "refs/",
-    "agent_orchestrator.py"
+    "agent_orchestrator.py",
+    "^tests/test_mujoco.py$",
 ]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["control_stubs.tools.*"]
+ignore_errors = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

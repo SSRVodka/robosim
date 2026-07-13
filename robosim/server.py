@@ -29,7 +29,7 @@ from control_stubs import (
 from control_stubs import (
     simulation_pb2_grpc as sim_grpc,
 )
-from robosim.backends import GazeboBackend, MuJoCoBackend
+from robosim.backends import GazeboBackend, MuJoCoBackend, PyBulletBackend
 from robosim.core.activity import ActivityCoordinator
 from robosim.core.backend import SimulatorBackend
 from robosim.core.impl.policy_lerobot import LerobotPolicyRunner
@@ -67,6 +67,13 @@ def create_backend(
             scene_path=scene or "drivers_sim/mujoco/assets/robots/franka_panda/scene.xml",
             headless=headless,
         )
+    if backend_type == "pybullet":
+        if csd_manifest is not None:
+            return PyBulletBackend.from_csd_realization_manifest_file(
+                Path(csd_manifest),
+                headless=headless,
+            )
+        return PyBulletBackend(scene_path=scene, headless=headless)
     raise ValueError(f"Unknown backend type: {backend_type}")
 
 
@@ -200,7 +207,7 @@ def main() -> None:
         "--backend",
         type=str,
         default="gazebo",
-        choices=["gazebo", "mujoco"],
+        choices=["gazebo", "mujoco", "pybullet"],
         help="Simulator backend type",
     )
     parser.add_argument(
@@ -219,19 +226,19 @@ def main() -> None:
         "--scene",
         type=str,
         default=None,
-        help="Path to MuJoCo scene XML file (for mujoco backend)",
+        help="Path to backend scene file (for mujoco or pybullet backend)",
     )
     parser.add_argument(
         "--csd-manifest",
         type=str,
         default=None,
-        help="Path to a compiled CSD realization manifest.json (for mujoco backend)",
+        help="Path to a compiled CSD realization manifest.json",
     )
     parser.add_argument(
         "--headless",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Run MuJoCo without viewer",
+        help="Run supported backends without viewer",
     )
     args = parser.parse_args()
 

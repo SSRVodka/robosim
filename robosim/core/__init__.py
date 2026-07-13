@@ -24,6 +24,7 @@ from robosim.core.csd_compiler import (
     compile_csd,
     compile_csd_to_gazebo,
     compile_csd_to_mujoco,
+    compile_csd_to_pybullet,
 )
 
 __all__ = [
@@ -47,6 +48,7 @@ __all__ = [
     "compile_csd",
     "compile_csd_to_gazebo",
     "compile_csd_to_mujoco",
+    "compile_csd_to_pybullet",
     "find_csd_realization_blockers",
     "make_csd_realization_cache_key",
 ]

@@ -54,33 +54,81 @@ class SimulationServicer(sim_pb2_grpc.SimulationServiceServicer):
     def StepPhysics(
         self, request: common_pb2.Empty, context: grpc.ServicerContext
     ) -> sim_pb2.StepResponse:
-        _logger.warning("StepPhysics not implemented")
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        return sim_pb2.StepResponse(
-            header=common_pb2.Header(seq=0, timestamp=0.0, frame_id=""),
-            reward=0.0,
-            done=False,
-        )
+        del request
+        try:
+            self._backend.step_physics()  # type: ignore[attr-defined]
+            return sim_pb2.StepResponse(
+                header=common_pb2.Header(seq=0, timestamp=0.0, frame_id="world"),
+                reward=0.0,
+                done=False,
+            )
+        except AttributeError:
+            _logger.warning("StepPhysics not implemented")
+            context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+            return sim_pb2.StepResponse(
+                header=common_pb2.Header(seq=0, timestamp=0.0, frame_id=""),
+                reward=0.0,
+                done=False,
+            )
+        except NotImplementedError:
+            _logger.warning("StepPhysics not implemented")
+            context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+            return sim_pb2.StepResponse(
+                header=common_pb2.Header(seq=0, timestamp=0.0, frame_id=""),
+                reward=0.0,
+                done=False,
+            )
     
     def Pause(
         self, request: common_pb2.Empty, context: grpc.ServicerContext
     ) -> common_pb2.Empty:
-        _logger.warning("Pause not implemented")
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        del request
+        try:
+            self._backend.pause()  # type: ignore[attr-defined]
+        except AttributeError:
+            _logger.warning("Pause not implemented")
+            context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        except NotImplementedError:
+            _logger.warning("Pause not implemented")
+            context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         return common_pb2.Empty()
     
     def Resume(
         self, request: common_pb2.Empty, context: grpc.ServicerContext
     ) -> common_pb2.Empty:
-        _logger.warning("Resume not implemented")
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        del request
+        try:
+            self._backend.resume()  # type: ignore[attr-defined]
+        except AttributeError:
+            _logger.warning("Resume not implemented")
+            context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        except NotImplementedError:
+            _logger.warning("Resume not implemented")
+            context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         return common_pb2.Empty()
 
     def SetObjectPose(
         self, request: sim_pb2.ObjectState, context: grpc.ServicerContext
     ) -> common_pb2.Status:
-        _logger.warning("SetObjectPose not implemented")
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        return common_pb2.Status(
-            code=common_pb2.STATUS_FAILURE, message="Not implemented"
-        )
+        try:
+            self._backend.set_object_pose(  # type: ignore[attr-defined]
+                request.object_name,
+                request.pose,
+            )
+            return common_pb2.Status(code=common_pb2.STATUS_SUCCESS)
+        except AttributeError:
+            _logger.warning("SetObjectPose not implemented")
+            context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+            return common_pb2.Status(
+                code=common_pb2.STATUS_FAILURE, message="Not implemented"
+            )
+        except NotImplementedError:
+            _logger.warning("SetObjectPose not implemented")
+            context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+            return common_pb2.Status(
+                code=common_pb2.STATUS_FAILURE, message="Not implemented"
+            )
+        except Exception as e:
+            _logger.error("SetObjectPose failed: %s", e, exc_info=True)
+            context.set_code(grpc.StatusCode.INTERNAL)
+            return common_pb2.Status(code=common_pb2.STATUS_FAILURE, message=str(e))

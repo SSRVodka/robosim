@@ -3,7 +3,7 @@
 
 ### Supported Features
 
-- [x] 支持 Gazebo / MuJoCo 模拟器后端；
+- [x] 支持 Gazebo / MuJoCo / PyBullet 模拟器后端；
 
 - [x] 支持动态的传感器发现、机器人关节和定义发现；
 
@@ -21,12 +21,14 @@
 ### CSD -> Backend Scene Compiler
 
 `vsim` exposes the CSD compiler boundary through `robosim.core.compile_csd`.
-Pass `backend="mujoco"` or `backend="gazebo"`. The compiler consumes a fixed
+Pass `backend="mujoco"`, `backend="gazebo"`, or `backend="pybullet"`. The compiler consumes a fixed
 Concrete Scenario Definition, an asset registry with passed backend variants,
 an output root, and an asset root. In benchmark packages, pass
 `output_root=Path("<package>/engine_manifests")`. The MuJoCo target writes
 `engine_manifests/mujoco/<csd_id>/scene.xml`; the Gazebo target writes
-`engine_manifests/gazebo/<csd_id>/world.sdf`. Backend targets copy referenced
+`engine_manifests/gazebo/<csd_id>/world.sdf`; the PyBullet target writes
+`engine_manifests/pybullet/<csd_id>/scene.py` plus `scene_meta.json` and
+package-local URDF/assets. Backend targets copy referenced
 assets under the backend artifact's local `assets/` directory, then return a
 `CsdCompilationResult` containing either a `CsdRealizationManifest` or typed
 `CsdRealizationBlocker` records.
@@ -42,7 +44,10 @@ Generated backend artifact directories are self-contained for the mesh variants
 they use. MuJoCo `scene.xml` points `compiler meshdir` at the copied local
 `assets/` directory. Gazebo `world.sdf` uses SDFormat 1.12 mesh URIs such as
 `assets/objects/mug.obj`; the compiler does not require a ROS2 package, launch
-directory, or package share layout.
+directory, or package share layout. PyBullet realization treats the full
+package as the backend scene: URDF files represent bodies, `scene.py`
+deterministically assembles the physics world through PyBullet APIs, and
+`scene_meta.json` records sensors, cameras, and CSD entity mappings.
 
 The next MuJoCo compiler target is a complete realization package:
 
@@ -113,7 +118,7 @@ popd
 最后启动 robosim（`[]` 表示可选项，`<>` 表示必填项）。更多参数用法请使用 `--help`：
 
 ```bash
-python3 -m robosim.server [--help] [--host <gRPC-listen-host>] [--port <gRPC-listen-port>] [--backend <gazebo|mujoco>] [--headless | --no-headless]
+python3 -m robosim.server [--help] [--host <gRPC-listen-host>] [--port <gRPC-listen-port>] [--backend <gazebo|mujoco|pybullet>] [--headless | --no-headless]
 ```
 
 > [!WARNING]
@@ -136,6 +141,9 @@ python3 -m robosim.server [--help] [--host <gRPC-listen-host>] [--port <gRPC-lis
 > 然后再启动 robosim。
 
 现在，你的环境已经准备好了！
+
+PyBullet 后端不需要额外启动 ROS2 节点。headless 模式使用 PyBullet DIRECT
+client；`--no-headless` 使用 GUI client。
 
 > (WIP) OpenHarmony 部署环境的文档正在准备中。
 

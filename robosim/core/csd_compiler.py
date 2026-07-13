@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import xml.etree.ElementTree as ET
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -30,9 +31,12 @@ from robosim.core.csd import (
 
 MUJOCO_BACKEND = "mujoco"
 GAZEBO_BACKEND = "gazebo"
+PYBULLET_BACKEND = "pybullet"
 DEFAULT_REALIZATION_VERSION = "csd-compiler-0.3"
 MUJOCO_MESH_EXTENSIONS = frozenset({".obj", ".stl", ".msh"})
+PYBULLET_MESH_EXTENSIONS = frozenset({".obj"})
 MUJOCO_PREVIEW_SIZE_PX = 512
+PYBULLET_PREVIEW_SIZE_PX = 512
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,6 +214,143 @@ def compile_csd_to_mujoco(
     )
 
 
+def compile_csd_to_pybullet(
+    *,
+    csd: Mapping[str, Any],
+    asset_registry: Mapping[str, Any],
+    output_root: Path,
+    asset_root: Path,
+    realization_config: Mapping[str, Any] | None = None,
+    realization_version: str = DEFAULT_REALIZATION_VERSION,
+    simulator_version: str | None = None,
+) -> CsdCompilationResult:
+    """Compile a fixed CSD into a PyBullet realization package."""
+    blockers = find_csd_realization_blockers(
+        csd=csd,
+        asset_registry=asset_registry,
+        backend=PYBULLET_BACKEND,
+    )
+    if blockers:
+        return CsdCompilationResult(manifest=None, blockers=blockers)
+
+    typed_csd = ConcreteScenarioDefinition.from_mapping(csd)
+    semantic_blockers = _pybullet_csd_semantic_blockers(typed_csd)
+    if semantic_blockers:
+        return CsdCompilationResult(manifest=None, blockers=semantic_blockers)
+
+    realization_config = dict(realization_config or {})
+    csd_id = _required_str(csd, "csd_id")
+    simulator_version = simulator_version or _pybullet_simulator_version()
+    resource_hashes = asset_resource_hashes_for_csd(
+        csd=csd,
+        asset_registry=asset_registry,
+        backend=PYBULLET_BACKEND,
+    )
+    cache_key = make_csd_realization_cache_key(
+        csd=csd,
+        asset_variant_hashes=resource_hashes,
+        backend=PYBULLET_BACKEND,
+        realization_config=realization_config,
+        realization_version=realization_version,
+        simulator_version=simulator_version,
+    )
+    scene_root = Path(output_root) / PYBULLET_BACKEND / csd_id
+    cached_manifest = _cached_manifest(scene_root, cache_key.digest, backend=PYBULLET_BACKEND)
+    if cached_manifest is not None:
+        return CsdCompilationResult(manifest=cached_manifest)
+
+    resources = backend_resource_adapters_by_asset(asset_registry, backend=PYBULLET_BACKEND)
+    mesh_blockers = _mesh_path_blockers(
+        csd,
+        resources,
+        Path(asset_root),
+        backend=PYBULLET_BACKEND,
+    )
+    if mesh_blockers:
+        return CsdCompilationResult(manifest=None, blockers=mesh_blockers)
+
+    compiled_asset_root = scene_root / "assets"
+    diagnostics_root = scene_root / "diagnostics"
+    scene_root.mkdir(parents=True, exist_ok=True)
+    diagnostics_root.mkdir(exist_ok=True)
+    generated_asset_files = _copy_resource_files(
+        csd=csd,
+        resources=resources,
+        source_asset_root=Path(asset_root),
+        compiled_asset_root=compiled_asset_root,
+    )
+    generated_object_urdfs = _write_pybullet_object_urdfs(
+        scene_root=scene_root,
+        compiled_asset_root=compiled_asset_root,
+        csd=typed_csd,
+        resources=resources,
+    )
+    scene_file = "scene.py"
+    meta_file = "scene_meta.json"
+    _write_pybullet_scene_loader(scene_root / scene_file)
+    _write_pybullet_scene_meta(
+        scene_root / meta_file,
+        csd=typed_csd,
+        resources=resources,
+    )
+    load_check_file, load_check_blockers = _write_pybullet_load_check(
+        scene_root=scene_root,
+        diagnostics_root=diagnostics_root,
+        csd=typed_csd,
+    )
+    if load_check_blockers:
+        return CsdCompilationResult(manifest=None, blockers=load_check_blockers)
+    physics_check_file, physics_check_blockers = _write_pybullet_physics_check(
+        scene_root=scene_root,
+        diagnostics_root=diagnostics_root,
+    )
+    if physics_check_blockers:
+        return CsdCompilationResult(manifest=None, blockers=physics_check_blockers)
+    preview_file, preview_blockers = _write_pybullet_preview(
+        scene_root=scene_root,
+        diagnostics_root=diagnostics_root,
+    )
+    if preview_blockers:
+        return CsdCompilationResult(manifest=None, blockers=preview_blockers)
+
+    validation_record_file = "diagnostics/validation_record.json"
+    generated_files = (
+        "manifest.json",
+        scene_file,
+        meta_file,
+        load_check_file,
+        physics_check_file,
+        validation_record_file,
+        *generated_asset_files,
+        *generated_object_urdfs,
+    )
+    manifest = CsdRealizationManifest(
+        manifest_id=f"manifest_{PYBULLET_BACKEND}_{csd_id}",
+        csd_id=csd_id,
+        backend=PYBULLET_BACKEND,
+        cache_key=cache_key.digest,
+        root_path=str(scene_root),
+        entry_file=scene_file,
+        generated_files=_unique_files(generated_files),
+        preview_files=(preview_file,),
+    )
+    _write_validation_record(
+        scene_root / validation_record_file,
+        CsdRealizationValidationRecord(
+            validation_id=f"validation_{PYBULLET_BACKEND}_{csd_id}",
+            csd_id=csd_id,
+            backend=PYBULLET_BACKEND,
+            manifest_id=manifest.manifest_id,
+            cache_key=manifest.cache_key,
+            status="passed",
+            evidence_files=(load_check_file, physics_check_file),
+            preview_files=manifest.preview_files,
+        ),
+    )
+    _write_manifest(scene_root / "manifest.json", manifest)
+    return CsdCompilationResult(manifest=manifest)
+
+
 def compile_csd(
     *,
     backend: str,
@@ -235,6 +376,16 @@ def compile_csd(
         )
     if backend_key == GAZEBO_BACKEND:
         return compile_csd_to_gazebo(
+            csd=csd,
+            asset_registry=asset_registry,
+            output_root=output_root,
+            asset_root=asset_root,
+            realization_config=realization_config,
+            realization_version=realization_version,
+            simulator_version=simulator_version,
+        )
+    if backend_key == PYBULLET_BACKEND:
+        return compile_csd_to_pybullet(
             csd=csd,
             asset_registry=asset_registry,
             output_root=output_root,
@@ -739,12 +890,593 @@ def _mujoco_csd_semantic_blockers(
     return tuple(blockers)
 
 
+def _pybullet_csd_semantic_blockers(
+    csd: ConcreteScenarioDefinition,
+) -> tuple[CsdRealizationBlocker, ...]:
+    blockers: list[CsdRealizationBlocker] = []
+    if csd.units != "m":
+        blockers.append(
+            _backend_csd_blocker(
+                csd.csd_id,
+                "scenario_units",
+                PYBULLET_BACKEND,
+                f"PyBullet compiler supports only CSD units='m', got '{csd.units}'",
+            )
+        )
+    if csd.frame != "world":
+        blockers.append(
+            _backend_csd_blocker(
+                csd.csd_id,
+                "scenario_frame",
+                PYBULLET_BACKEND,
+                f"PyBullet compiler supports only frame='world', got '{csd.frame}'",
+            )
+        )
+    for surface in csd.environment.surfaces:
+        if surface.surface_type != "box":
+            blockers.append(
+                _backend_csd_blocker(
+                    csd.csd_id,
+                    surface.surface_id,
+                    PYBULLET_BACKEND,
+                    (
+                        "PyBullet compiler does not support environment surface "
+                        f"type '{surface.surface_type}'"
+                    ),
+                )
+            )
+        if not _positive_finite_vector(surface.size):
+            blockers.append(
+                _backend_csd_blocker(
+                    csd.csd_id,
+                    surface.surface_id,
+                    PYBULLET_BACKEND,
+                    f"surface {surface.surface_id} box size values must be positive and finite",
+                )
+            )
+        if _quaternion_norm(surface.pose.orientation) == 0.0:
+            blockers.append(
+                _backend_csd_blocker(
+                    csd.csd_id,
+                    surface.surface_id,
+                    PYBULLET_BACKEND,
+                    f"surface {surface.surface_id} orientation quaternion must be non-zero",
+                )
+            )
+    for camera in csd.environment.cameras:
+        if camera.xyaxes is not None and not _valid_camera_xyaxes(camera.xyaxes):
+            blockers.append(
+                _backend_csd_blocker(
+                    csd.csd_id,
+                    camera.camera_id,
+                    PYBULLET_BACKEND,
+                    (
+                        f"camera {camera.camera_id} xyaxes must contain non-zero "
+                        "non-parallel axes"
+                    ),
+                )
+            )
+    for obj in csd.objects:
+        if _quaternion_norm(obj.pose.orientation) == 0.0:
+            blockers.append(
+                _backend_csd_blocker(
+                    csd.csd_id,
+                    obj.name,
+                    PYBULLET_BACKEND,
+                    f"object {obj.name} orientation quaternion must be non-zero",
+                )
+            )
+        if obj.initial_state.mass_kg <= 0.0:
+            blockers.append(
+                _backend_csd_blocker(
+                    csd.csd_id,
+                    obj.name,
+                    PYBULLET_BACKEND,
+                    f"object {obj.name} mass_kg must be positive",
+                )
+            )
+        if any(value < 0.0 for value in obj.initial_state.friction):
+            blockers.append(
+                _backend_csd_blocker(
+                    csd.csd_id,
+                    obj.name,
+                    PYBULLET_BACKEND,
+                    f"object {obj.name} friction values must be non-negative",
+                )
+            )
+        contact = obj.initial_state.contact
+        if contact is not None and (contact.solref is not None or contact.solimp is not None):
+            blockers.append(
+                _backend_csd_blocker(
+                    csd.csd_id,
+                    obj.name,
+                    PYBULLET_BACKEND,
+                    (
+                        f"object {obj.name} contact solref/solimp has no PyBullet "
+                        "realization mapping yet"
+                    ),
+                )
+            )
+    known_entities = _csd_entity_refs(csd)
+    for relationship in csd.relationships:
+        for field_name, entity_ref in (
+            ("subject", relationship.subject),
+            ("object", relationship.object),
+        ):
+            if entity_ref not in known_entities:
+                blockers.append(
+                    _backend_csd_blocker(
+                        csd.csd_id,
+                        relationship.relation_id,
+                        PYBULLET_BACKEND,
+                        (
+                            f"relationship {relationship.relation_id} {field_name} "
+                            f"references unknown entity: {entity_ref}"
+                        ),
+                    )
+                )
+    return tuple(blockers)
+
+
 def _csd_entity_refs(csd: ConcreteScenarioDefinition) -> set[str]:
     refs = {f"object:{obj.name}" for obj in csd.objects}
     refs.update(f"surface:{surface.surface_id}" for surface in csd.environment.surfaces)
     if csd.robot is not None:
         refs.add(f"robot:{csd.robot.asset_id}")
     return refs
+
+
+def _write_pybullet_object_urdfs(
+    *,
+    scene_root: Path,
+    compiled_asset_root: Path,
+    csd: ConcreteScenarioDefinition,
+    resources: Mapping[str, BackendResourceAdapter],
+) -> tuple[str, ...]:
+    generated_files: list[str] = []
+    for obj in csd.objects:
+        resource = resources[obj.asset_id]
+        urdf_path = compiled_asset_root / "objects" / f"{_mjcf_name(obj.name)}.urdf"
+        mesh_path = compiled_asset_root / resource.mesh_path
+        mesh_ref = Path(_relative_posix(mesh_path, urdf_path.parent))
+        collision_path = (
+            compiled_asset_root / resource.collision_mesh_path
+            if resource.collision_mesh_path
+            else mesh_path
+        )
+        collision_ref = Path(_relative_posix(collision_path, urdf_path.parent))
+        root = ET.Element("robot", {"name": _mjcf_name(obj.name)})
+        link = ET.SubElement(root, "link", {"name": f"{_mjcf_name(obj.name)}_link"})
+        inertial = ET.SubElement(link, "inertial")
+        ET.SubElement(inertial, "origin", {"xyz": "0 0 0", "rpy": "0 0 0"})
+        ET.SubElement(inertial, "mass", {"value": _number_text(obj.initial_state.mass_kg)})
+        inertia = obj.initial_state.inertial
+        if inertia is not None:
+            ixx, iyy, izz = inertia.diagonal_inertia_kg_m2
+        else:
+            ixx = iyy = izz = max(obj.initial_state.mass_kg, 1e-6) * 1e-4
+        ET.SubElement(
+            inertial,
+            "inertia",
+            {
+                "ixx": _number_text(ixx),
+                "ixy": "0",
+                "ixz": "0",
+                "iyy": _number_text(iyy),
+                "iyz": "0",
+                "izz": _number_text(izz),
+            },
+        )
+        visual = ET.SubElement(link, "visual", {"name": f"{_mjcf_name(obj.name)}_visual"})
+        _append_urdf_mesh(visual, mesh_ref.as_posix(), resource)
+        collision = ET.SubElement(
+            link,
+            "collision",
+            {"name": f"{_mjcf_name(obj.name)}_collision"},
+        )
+        _append_urdf_mesh(collision, collision_ref.as_posix(), resource)
+        urdf_path.parent.mkdir(parents=True, exist_ok=True)
+        ET.indent(root, space="  ")
+        ET.ElementTree(root).write(urdf_path, encoding="utf-8", xml_declaration=True)
+        generated_files.append(str(urdf_path.relative_to(scene_root)))
+    return tuple(generated_files)
+
+
+def _append_urdf_mesh(
+    parent: ET.Element,
+    mesh_filename: str,
+    resource: BackendResourceAdapter,
+) -> None:
+    geometry = ET.SubElement(parent, "geometry")
+    attrs = {"filename": mesh_filename}
+    scale = _mesh_scale_text(resource)
+    if scale is not None:
+        attrs["scale"] = scale
+    ET.SubElement(geometry, "mesh", attrs)
+    material = resource.material
+    if material is not None and material.rgba is not None and parent.tag == "visual":
+        material_el = ET.SubElement(parent, "material", {"name": material.name or "material"})
+        color = ET.SubElement(material_el, "color")
+        color.set("rgba", _numbers_text(material.rgba))
+
+
+def _write_pybullet_scene_loader(path: Path) -> None:
+    path.write_text(
+        '''"""Generated PyBullet scene loader. Do not edit by hand."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pybullet as p
+
+
+def load_scene(physics_client_id: int) -> dict[str, object]:
+    root = Path(__file__).resolve().parent
+    meta = json.loads((root / "scene_meta.json").read_text(encoding="utf-8"))
+    gravity = meta["gravity"]
+    p.setAdditionalSearchPath(str(root / "assets"), physicsClientId=physics_client_id)
+    p.setGravity(
+        float(gravity[0]),
+        float(gravity[1]),
+        float(gravity[2]),
+        physicsClientId=physics_client_id,
+    )
+    p.setPhysicsEngineParameter(enableFileCaching=0, physicsClientId=physics_client_id)
+    bodies: dict[str, int] = {}
+    for name, spec in meta["surfaces"].items():
+        half_extents = [float(value) for value in spec["half_extents"]]
+        collision = p.createCollisionShape(
+            p.GEOM_BOX,
+            halfExtents=half_extents,
+            physicsClientId=physics_client_id,
+        )
+        visual = p.createVisualShape(
+            p.GEOM_BOX,
+            halfExtents=half_extents,
+            rgbaColor=[float(value) for value in spec["rgba"]],
+            physicsClientId=physics_client_id,
+        )
+        bodies[name] = p.createMultiBody(
+            baseMass=0.0,
+            baseCollisionShapeIndex=collision,
+            baseVisualShapeIndex=visual,
+            basePosition=[float(value) for value in spec["position"]],
+            baseOrientation=[float(value) for value in spec["orientation_xyzw"]],
+            physicsClientId=physics_client_id,
+        )
+        p.changeDynamics(
+            bodies[name],
+            -1,
+            lateralFriction=float(spec["friction"][0]),
+            physicsClientId=physics_client_id,
+        )
+    for name, spec in meta["objects"].items():
+        bodies[name] = p.loadURDF(
+            str(root / spec["urdf_path"]),
+            basePosition=[float(value) for value in spec["position"]],
+            baseOrientation=[float(value) for value in spec["orientation_xyzw"]],
+            useFixedBase=bool(spec["static"]),
+            physicsClientId=physics_client_id,
+        )
+        p.changeDynamics(
+            bodies[name],
+            -1,
+            lateralFriction=float(spec["friction"][0]),
+            physicsClientId=physics_client_id,
+        )
+    return {"bodies": bodies, "metadata": meta}
+''',
+        encoding="utf-8",
+    )
+
+
+def _write_pybullet_scene_meta(
+    path: Path,
+    *,
+    csd: ConcreteScenarioDefinition,
+    resources: Mapping[str, BackendResourceAdapter],
+) -> None:
+    payload = {
+        "backend": PYBULLET_BACKEND,
+        "csd_id": csd.csd_id,
+        "gravity": _vector3_json(csd.environment.gravity),
+        "objects": {
+            obj.name: _pybullet_object_meta(obj, resources[obj.asset_id])
+            for obj in csd.objects
+        },
+        "surfaces": {
+            surface.surface_id: _pybullet_surface_meta(surface)
+            for surface in csd.environment.surfaces
+        },
+        "cameras": _pybullet_camera_meta(csd),
+    }
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _pybullet_object_meta(
+    obj: CsdObject,
+    resource: BackendResourceAdapter,
+) -> dict[str, object]:
+    return {
+        "asset_id": obj.asset_id,
+        "role": obj.role,
+        "urdf_path": str(Path("assets") / "objects" / f"{_mjcf_name(obj.name)}.urdf"),
+        "mesh_path": str(Path("assets") / resource.mesh_path),
+        "position": _vector3_json(obj.pose.position),
+        "orientation_xyzw": _pybullet_quaternion_json(obj.pose.orientation),
+        "static": obj.static,
+        "mass_kg": _json_float(obj.initial_state.mass_kg),
+        "friction": _float_sequence_json(obj.initial_state.friction),
+    }
+
+
+def _pybullet_surface_meta(surface: CsdSurface) -> dict[str, object]:
+    return {
+        "position": _vector3_json(surface.pose.position),
+        "orientation_xyzw": _pybullet_quaternion_json(surface.pose.orientation),
+        "half_extents": _vector3_json(surface.size),
+        "rgba": _rgba_sequence_json(surface.rgba),
+        "friction": _float_sequence_json(surface.friction),
+    }
+
+
+def _pybullet_camera_meta(csd: ConcreteScenarioDefinition) -> list[dict[str, object]]:
+    cameras = csd.environment.cameras
+    if not cameras:
+        return [
+            {
+                "name": "world_camera",
+                "position": [1.4, 0.0, 1.2],
+                "target": [0.0, 0.0, 0.2],
+                "up": [0.0, 0.0, 1.0],
+                "width": PYBULLET_PREVIEW_SIZE_PX,
+                "height": PYBULLET_PREVIEW_SIZE_PX,
+            }
+        ]
+    result: list[dict[str, object]] = []
+    for camera in cameras:
+        position = _vector3_json(camera.position)
+        target, up = _pybullet_camera_target_up(camera)
+        result.append(
+            {
+                "name": _mjcf_name(camera.camera_id),
+                "position": position,
+                "target": target,
+                "up": up,
+                "width": PYBULLET_PREVIEW_SIZE_PX,
+                "height": PYBULLET_PREVIEW_SIZE_PX,
+            }
+        )
+    return result
+
+
+def _pybullet_camera_target_up(camera: Any) -> tuple[list[float], list[float]]:
+    position = (camera.position.x, camera.position.y, camera.position.z)
+    if camera.xyaxes is None:
+        return [0.0, 0.0, 0.0], [0.0, 0.0, 1.0]
+    x_axis = _unit_vector((camera.xyaxes[0], camera.xyaxes[1], camera.xyaxes[2]))
+    y_axis = _unit_vector((camera.xyaxes[3], camera.xyaxes[4], camera.xyaxes[5]))
+    z_axis = _unit_vector(_cross(x_axis, y_axis))
+    target = (
+        position[0] - z_axis[0],
+        position[1] - z_axis[1],
+        position[2] - z_axis[2],
+    )
+    return _float_sequence_json(target), _float_sequence_json(y_axis)
+
+
+def _write_pybullet_load_check(
+    *,
+    scene_root: Path,
+    diagnostics_root: Path,
+    csd: ConcreteScenarioDefinition,
+) -> tuple[str, tuple[CsdRealizationBlocker, ...]]:
+    relative_path = "diagnostics/load_check.json"
+    checks: list[dict[str, object]] = []
+    try:
+        import pybullet as p
+
+        client_id = p.connect(p.DIRECT)
+        try:
+            handles = _load_pybullet_generated_scene(scene_root / "scene.py", client_id)
+            bodies = handles["bodies"]
+            checks.append(
+                _load_check(
+                    "model_load",
+                    passed=True,
+                    details={"body_count": len(bodies)},
+                )
+            )
+            for obj in csd.objects:
+                body_id = int(bodies[obj.name])
+                pos, orn = p.getBasePositionAndOrientation(
+                    body_id,
+                    physicsClientId=client_id,
+                )
+                checks.append(
+                    _load_check(
+                        f"body_pose:{obj.name}",
+                        expected=_vector3_json(obj.pose.position),
+                        actual=_float_sequence_json(pos),
+                    )
+                )
+                checks.append(
+                    _load_check(
+                        f"body_orientation:{obj.name}",
+                        expected=_pybullet_quaternion_json(obj.pose.orientation),
+                        actual=_quaternion_sequence_json(orn),
+                    )
+                )
+        finally:
+            p.disconnect(client_id)
+    except Exception as exc:
+        checks.append(_load_check("model_load", passed=False, details={"error": str(exc)}))
+    _write_json_checks(diagnostics_root / "load_check.json", checks)
+    if not all(check["status"] == "passed" for check in checks):
+        return (
+            relative_path,
+            (
+                CsdRealizationBlocker(
+                    blocker_id=f"{csd.csd_id}_{PYBULLET_BACKEND}_load_check_failed",
+                    csd_id=csd.csd_id,
+                    backend=PYBULLET_BACKEND,
+                    asset_id=csd.csd_id,
+                    scope="vsim_realization",
+                    reason="PyBullet realization load check failed",
+                ),
+            ),
+        )
+    return relative_path, ()
+
+
+def _write_pybullet_physics_check(
+    *,
+    scene_root: Path,
+    diagnostics_root: Path,
+) -> tuple[str, tuple[CsdRealizationBlocker, ...]]:
+    relative_path = "diagnostics/physics_check.json"
+    checks: list[dict[str, object]] = []
+    try:
+        import pybullet as p
+
+        client_id = p.connect(p.DIRECT)
+        try:
+            handles = _load_pybullet_generated_scene(scene_root / "scene.py", client_id)
+            bodies = handles["bodies"]
+            for _ in range(20):
+                p.stepSimulation(physicsClientId=client_id)
+            finite = True
+            for body_id in bodies.values():
+                pos, orn = p.getBasePositionAndOrientation(int(body_id), physicsClientId=client_id)
+                finite = finite and all(math.isfinite(float(value)) for value in (*pos, *orn))
+            checks.append(_load_check("finite_state_after_steps", passed=finite))
+        finally:
+            p.disconnect(client_id)
+    except Exception as exc:
+        checks.append(
+            _load_check(
+                "finite_state_after_steps",
+                passed=False,
+                details={"error": str(exc)},
+            )
+        )
+    _write_json_checks(diagnostics_root / "physics_check.json", checks)
+    if not all(check["status"] == "passed" for check in checks):
+        csd_id = json.loads((scene_root / "scene_meta.json").read_text(encoding="utf-8"))["csd_id"]
+        return (
+            relative_path,
+            (
+                CsdRealizationBlocker(
+                    blocker_id=f"{csd_id}_{PYBULLET_BACKEND}_physics_check_failed",
+                    csd_id=str(csd_id),
+                    backend=PYBULLET_BACKEND,
+                    asset_id=str(csd_id),
+                    scope="vsim_realization",
+                    reason="PyBullet realization physics check failed",
+                ),
+            ),
+        )
+    return relative_path, ()
+
+
+def _write_pybullet_preview(
+    *,
+    scene_root: Path,
+    diagnostics_root: Path,
+) -> tuple[str, tuple[CsdRealizationBlocker, ...]]:
+    relative_path = "diagnostics/semantic_preview.ppm"
+    try:
+        import pybullet as p
+
+        client_id = p.connect(p.DIRECT)
+        try:
+            handles = _load_pybullet_generated_scene(scene_root / "scene.py", client_id)
+            metadata = handles["metadata"]
+            camera = metadata["cameras"][0]
+            width = int(camera["width"])
+            height = int(camera["height"])
+            view = p.computeViewMatrix(
+                cameraEyePosition=camera["position"],
+                cameraTargetPosition=camera["target"],
+                cameraUpVector=camera["up"],
+            )
+            projection = p.computeProjectionMatrixFOV(
+                fov=60.0,
+                aspect=float(width) / float(height),
+                nearVal=0.01,
+                farVal=10.0,
+            )
+            _w, _h, rgba, _depth, _seg = p.getCameraImage(
+                width,
+                height,
+                viewMatrix=view,
+                projectionMatrix=projection,
+                renderer=p.ER_TINY_RENDERER,
+                physicsClientId=client_id,
+            )
+            rgb = bytes(
+                channel
+                for index, channel in enumerate(bytes(rgba))
+                if index % 4 != 3
+            )
+            if len(set(rgb)) <= 1:
+                raise ValueError("PyBullet preview image is blank")
+            _write_pybullet_ppm(diagnostics_root / "semantic_preview.ppm", width, height, rgb)
+        finally:
+            p.disconnect(client_id)
+    except Exception as exc:
+        csd_id = json.loads((scene_root / "scene_meta.json").read_text(encoding="utf-8"))["csd_id"]
+        return (
+            relative_path,
+            (
+                CsdRealizationBlocker(
+                    blocker_id=f"{csd_id}_{PYBULLET_BACKEND}_preview_failed",
+                    csd_id=str(csd_id),
+                    backend=PYBULLET_BACKEND,
+                    asset_id=str(csd_id),
+                    scope="vsim_realization",
+                    reason=f"PyBullet preview render failed: {exc}",
+                ),
+            ),
+        )
+    return relative_path, ()
+
+
+def _load_pybullet_generated_scene(scene_path: Path, client_id: int) -> dict[str, Any]:
+    import importlib.util
+
+    module_name = f"_robosim_pybullet_scene_{abs(hash(scene_path))}"
+    spec = importlib.util.spec_from_file_location(module_name, scene_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot import generated PyBullet scene: {scene_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    handles = module.load_scene(client_id)
+    if not isinstance(handles, dict):
+        raise RuntimeError("generated PyBullet scene did not return a handle dict")
+    return handles
+
+
+def _write_json_checks(path: Path, checks: list[dict[str, object]]) -> None:
+    path.write_text(
+        json.dumps({"checks": checks}, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _write_pybullet_ppm(path: Path, width: int, height: int, rgb: bytes) -> None:
+    path.write_bytes(f"P6\n{width} {height}\n255\n".encode() + rgb)
+
+
+def _pybullet_quaternion_json(quaternion: Any) -> list[float]:
+    values = _quaternion_json(quaternion)
+    return [values[1], values[2], values[3], values[0]]
+
+
+def _relative_posix(path: Path, start: Path) -> str:
+    return Path(os.path.relpath(path.resolve(), start.resolve())).as_posix()
 
 
 def _patch_mujoco_template_gravity(path: Path, *, gravity: str) -> None:
@@ -785,14 +1517,27 @@ def _mujoco_simulator_version() -> str | None:
     return str(getattr(mujoco, "__version__", "")) or None
 
 
-def _cached_manifest(scene_root: Path, cache_key: str) -> CsdRealizationManifest | None:
+def _pybullet_simulator_version() -> str | None:
+    try:
+        import pybullet as p
+    except Exception:
+        return None
+    return str(p.getAPIVersion())
+
+
+def _cached_manifest(
+    scene_root: Path,
+    cache_key: str,
+    *,
+    backend: str = MUJOCO_BACKEND,
+) -> CsdRealizationManifest | None:
     manifest_path = scene_root / "manifest.json"
     if not manifest_path.is_file():
         return None
     manifest = CsdRealizationManifest.from_json_dict(
         json.loads(manifest_path.read_text(encoding="utf-8"))
     )
-    if manifest.cache_key != cache_key or manifest.backend != MUJOCO_BACKEND:
+    if manifest.cache_key != cache_key or manifest.backend != backend:
         return None
     if not _manifest_files_exist(scene_root, manifest):
         return None
@@ -1751,6 +2496,16 @@ def _mesh_path_blockers(
                 )
             )
             continue
+        if backend == PYBULLET_BACKEND and not _is_supported_pybullet_mesh_path(relative_path):
+            blockers.append(
+                _asset_blocker(
+                    csd_id,
+                    asset_id,
+                    backend,
+                    f"PyBullet mesh resource format is unsupported: {relative_path}",
+                )
+            )
+            continue
         if not (asset_root / relative_path).is_file():
             blockers.append(
                 _asset_blocker(
@@ -1794,6 +2549,20 @@ def _mesh_path_blockers(
                         backend,
                         (
                             "MuJoCo collision mesh resource format is unsupported: "
+                            f"{collision_mesh_path}"
+                        ),
+                        )
+                    )
+            elif backend == PYBULLET_BACKEND and not _is_supported_pybullet_mesh_path(
+                collision_mesh_path
+            ):
+                blockers.append(
+                    _asset_blocker(
+                        csd_id,
+                        asset_id,
+                        backend,
+                        (
+                            "PyBullet collision mesh resource format is unsupported: "
                             f"{collision_mesh_path}"
                         ),
                     )
@@ -1845,6 +2614,10 @@ def _mesh_path_blockers(
 
 def _is_supported_mujoco_mesh_path(path: str) -> bool:
     return Path(path).suffix.lower() in MUJOCO_MESH_EXTENSIONS
+
+
+def _is_supported_pybullet_mesh_path(path: str) -> bool:
+    return Path(path).suffix.lower() in PYBULLET_MESH_EXTENSIONS
 
 
 def _safe_relative_resource_path(path: str) -> bool:
@@ -1906,6 +2679,22 @@ def _csd_blocker(
         blocker_id=f"{csd_id}_{MUJOCO_BACKEND}_{subject_id}_compile_blocked",
         csd_id=csd_id,
         backend=MUJOCO_BACKEND,
+        asset_id=subject_id,
+        scope="csd",
+        reason=reason,
+    )
+
+
+def _backend_csd_blocker(
+    csd_id: str,
+    subject_id: str,
+    backend: str,
+    reason: str,
+) -> CsdRealizationBlocker:
+    return CsdRealizationBlocker(
+        blocker_id=f"{csd_id}_{backend}_{_mjcf_name(subject_id)}_compile_blocked",
+        csd_id=csd_id,
+        backend=backend,
         asset_id=subject_id,
         scope="csd",
         reason=reason,

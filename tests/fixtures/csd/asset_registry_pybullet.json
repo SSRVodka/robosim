@@ -1,0 +1,55 @@
+{
+  "objects": [
+    {
+      "asset_id": "object_mug",
+      "backend_resources": [
+        {
+          "backend": "pybullet",
+          "resource_id": "pybullet_object_mug",
+          "mesh_path": "objects/mug.obj",
+          "resource_hash": "hash_mug_obj_pybullet"
+        }
+      ]
+    },
+    {
+      "asset_id": "object_tray",
+      "backend_resources": [
+        {
+          "backend": "pybullet",
+          "resource_id": "pybullet_object_tray",
+          "mesh_path": "objects/tray.obj",
+          "resource_hash": "hash_tray_obj_pybullet"
+        }
+      ]
+    },
+    {
+      "asset_id": "object_marker",
+      "backend_resources": [
+        {
+          "backend": "pybullet",
+          "resource_id": "pybullet_object_marker",
+          "mesh_path": "objects/marker.obj",
+          "resource_hash": "hash_marker_obj_pybullet",
+          "mesh_scale": [0.5, 0.5, 2.0]
+        }
+      ]
+    },
+    {
+      "asset_id": "object_textured_can",
+      "backend_resources": [
+        {
+          "backend": "pybullet",
+          "resource_id": "pybullet_object_textured_can",
+          "mesh_path": "objects/can.obj",
+          "resource_hash": "hash_can_obj_pybullet",
+          "mesh_scale": [0.75, 0.75, 0.75],
+          "material": {
+            "name": "can_label",
+            "rgba": [1.0, 1.0, 1.0, 1.0],
+            "texture_path": "textures/can_label.png"
+          }
+        }
+      ]
+    }
+  ]
+}

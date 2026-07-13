@@ -56,3 +56,54 @@ def test_create_mujoco_backend_from_scene_path(monkeypatch) -> None:
 
     assert isinstance(backend, FakeMuJoCoBackend)
     assert calls == [("/tmp/scene.xml", True)]
+
+
+def test_create_pybullet_backend_from_csd_manifest(monkeypatch) -> None:
+    calls: list[tuple[Path, bool]] = []
+
+    class FakePyBulletBackend:
+        @classmethod
+        def from_csd_realization_manifest_file(
+            cls,
+            manifest_path: Path,
+            *,
+            headless: bool = True,
+        ) -> "FakePyBulletBackend":
+            calls.append((manifest_path, headless))
+            return cls()
+
+    monkeypatch.setattr(server, "PyBulletBackend", FakePyBulletBackend)
+
+    backend = server.create_backend(
+        backend_type="pybullet",
+        robot_name="ignored",
+        scene=None,
+        csd_manifest="/tmp/engine_manifests/pybullet/csd_0001/manifest.json",
+        headless=False,
+    )
+
+    assert isinstance(backend, FakePyBulletBackend)
+    assert calls == [
+        (Path("/tmp/engine_manifests/pybullet/csd_0001/manifest.json"), False)
+    ]
+
+
+def test_create_pybullet_backend_from_default_scene(monkeypatch) -> None:
+    calls: list[tuple[str | None, bool]] = []
+
+    class FakePyBulletBackend:
+        def __init__(self, *, scene_path: str | None = None, headless: bool = True) -> None:
+            calls.append((scene_path, headless))
+
+    monkeypatch.setattr(server, "PyBulletBackend", FakePyBulletBackend)
+
+    backend = server.create_backend(
+        backend_type="pybullet",
+        robot_name="ignored",
+        scene=None,
+        csd_manifest=None,
+        headless=True,
+    )
+
+    assert isinstance(backend, FakePyBulletBackend)
+    assert calls == [(None, True)]

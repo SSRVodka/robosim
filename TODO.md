@@ -3,6 +3,16 @@
 # VERSION v0.0.5
 
 ## New Features & Details
+- [x] 支持 PyBullet 后端全栈能力：CSD compiler 输出
+  `engine_manifests/pybullet/<csd_id>/` realization package（`manifest.json`、
+  `scene.py`、`scene_meta.json`、本地 URDF/assets、diagnostics），runtime 可从
+  manifest 加载并提供 README 中的 server、servo、LeRobot recorder/replay 示例能力；
+- [x] 为 PyBullet realization 记录并验证 backend-specific compatibility gate：
+  显式 `backend="pybullet"` resource adapter、URDF/package-local asset closure、
+  camera/sensor metadata、object mass/friction、unsupported contact solver 参数 blocker；
+- [x] 为 PyBulletBackend 增加单元/集成测试：headless startup、robot spec、joint
+  control、end-effector FK/twist servo、camera snapshot、compiled CSD manifest load、
+  recorder/replay smoke、server startup smoke；
 - [x] 支持数据集（基于给定的 repo、episode）重放；
 - [ ] (**<u>WIP</u>**) 基于 IL Policy（如 ACT）的推理支持（Action Chunking，或许可以借助 lerobot 的能力）；
 - [ ] 基于 RL Policy 的推理支持；
