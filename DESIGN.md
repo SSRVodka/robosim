@@ -554,7 +554,10 @@ position target；velocity/twist/torque 控制下的 `get_joint_command_state()`
 ## 关于 LeRobot IL 推理支持
 
 ### 1. 当前范围
-- 当前阶段只支持 MuJoCo 后端上的 LeRobot IL policy 推理；
+- 当前阶段支持 Franka Panda 上的 LeRobot IL policy 推理，至少覆盖 MuJoCo 与
+  PyBullet 两个后端的 headless smoke：同一个最小 ACT checkpoint 和 dataset
+  schema 必须能完成 observation -> preprocess -> `select_action()` -> postprocess
+  -> `set_joint_target()` 控制循环；
 - 不实现训练支持；
 - 首个目标是兼容 ACT 这类标准 joint-space chunking policy，但运行时适配层应尽量保持对其他 LeRobot IL policy 通用。
 

@@ -169,7 +169,11 @@
 ## Tests
 - [x] 为 observation / action 适配层补单元测试，覆盖 joint names、camera names、group 选择；
 - [x] 为 runner 补单元测试，覆盖 queue reset、chunked action 消费、stop/start 状态切换；
-- [x] 增加一条 MuJoCo Backend 的集成测试：加载本地 LeRobot policy stub 后至少能完成一次推理循环；
+- [x] 增加 Franka Panda 双后端 ACT smoke：同一个本地最小 ACT checkpoint 和
+  LeRobot dataset schema 能在 MuJoCo 与 PyBullet 后端完成至少一次推理循环并向
+  `panda_arm` 下发 POSITION joint target；
+- [x] 增加 policy inference CLI，覆盖 load/start/stop/status，复用现有 gRPC
+  `PolicyInferenceService`；
 - [ ] 测试是否支持 ACT 这类标准 IL chunking policy；测试是否保持对其他 LeRobot IL policy 兼容；
 
 

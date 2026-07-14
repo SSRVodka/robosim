@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Iterator
 from unittest.mock import Mock
 
 import numpy as np
+import pytest
 import torch
 from lerobot.configs.policies import PreTrainedConfig
 from lerobot.configs.types import FeatureType, PolicyFeature
@@ -27,35 +29,59 @@ from control_stubs.robot_core_pb2 import (
     ServoCommand,
 )
 from control_stubs.sensing_pb2 import CameraImage, SensorData, SensorMetaList, SensorType
+from robosim.backends.mujoco.backend import MuJoCoBackend
+from robosim.backends.pybullet.backend import PyBulletBackend
 from robosim.core.activity import ActivityCoordinator
 from robosim.core.backend import SimulatorBackend
 from robosim.core.capabilities import Capability
 from robosim.core.impl.lerobot_io import LerobotObservationAdapter
 from robosim.core.impl.policy_lerobot import LerobotPolicyRunner
 
+PANDA_ARM_JOINTS = [f"panda_joint{index}" for index in range(1, 8)]
+PANDA_CAMERA_NAME = "world_camera"
+MUJOCO_PANDA_SCENE = (
+    Path(__file__).resolve().parent.parent
+    / "drivers_sim"
+    / "mujoco"
+    / "assets"
+    / "robots"
+    / "franka_panda"
+    / "scene.xml"
+)
 
-def _create_dataset(repo_root: Path, repo_name: str) -> Path:
+
+def _create_dataset(
+    repo_root: Path,
+    repo_name: str,
+    *,
+    joint_names: list[str] | None = None,
+    camera_name: str = "camera",
+    robot_type: str = "test_robot",
+) -> Path:
+    joint_names = joint_names or ["joint_a", "joint_b"]
+    joint_count = len(joint_names)
+    image_key = f"observation.images.{camera_name}"
     dataset_root = repo_root / "data" / "lerobot" / repo_name
     dataset = LeRobotDataset.create(
         repo_id=repo_name,
         root=dataset_root,
         fps=10,
-        robot_type="test_robot",
+        robot_type=robot_type,
         features={
             "observation.state": {
                 "dtype": "float32",
-                "shape": (2,),
-                "names": ["joint_a", "joint_b"],
+                "shape": (joint_count,),
+                "names": joint_names,
             },
-            "observation.images.camera": {
+            image_key: {
                 "dtype": "image",
                 "shape": (240, 320, 3),
                 "names": ["height", "width", "channels"],
             },
             "action": {
                 "dtype": "float32",
-                "shape": (2,),
-                "names": ["joint_a", "joint_b"],
+                "shape": (joint_count,),
+                "names": joint_names,
             },
         },
         use_videos=False,
@@ -63,9 +89,9 @@ def _create_dataset(repo_root: Path, repo_name: str) -> Path:
     dataset.add_frame(
         {
             "task": "test task",
-            "observation.state": np.asarray([0.0, 0.0], dtype=np.float32),
-            "observation.images.camera": np.zeros((240, 320, 3), dtype=np.uint8),
-            "action": np.asarray([0.0, 0.0], dtype=np.float32),
+            "observation.state": np.zeros(joint_count, dtype=np.float32),
+            image_key: np.zeros((240, 320, 3), dtype=np.uint8),
+            "action": np.zeros(joint_count, dtype=np.float32),
         }
     )
     dataset.save_episode()
@@ -73,18 +99,24 @@ def _create_dataset(repo_root: Path, repo_name: str) -> Path:
     return dataset_root
 
 
-def _create_policy_checkpoint(checkpoint_root: Path) -> Path:
+def _create_policy_checkpoint(
+    checkpoint_root: Path,
+    *,
+    joint_count: int = 2,
+    camera_name: str = "camera",
+) -> Path:
+    image_key = f"observation.images.{camera_name}"
     config = ACTConfig(
         device="cpu",
         input_features={
-            "observation.state": PolicyFeature(type=FeatureType.STATE, shape=(2,)),
-            "observation.images.camera": PolicyFeature(
+            "observation.state": PolicyFeature(type=FeatureType.STATE, shape=(joint_count,)),
+            image_key: PolicyFeature(
                 type=FeatureType.VISUAL,
                 shape=(3, 240, 320),
             ),
         },
         output_features={
-            "action": PolicyFeature(type=FeatureType.ACTION, shape=(2,)),
+            "action": PolicyFeature(type=FeatureType.ACTION, shape=(joint_count,)),
         },
         n_action_steps=2,
         chunk_size=2,
@@ -97,18 +129,33 @@ def _create_policy_checkpoint(checkpoint_root: Path) -> Path:
     )
     policy = ACTPolicy(config)
     stats = {
-        "observation.state": {"mean": torch.zeros(2), "std": torch.ones(2)},
-        "observation.images.camera": {
+        "observation.state": {
+            "mean": torch.zeros(joint_count),
+            "std": torch.ones(joint_count),
+        },
+        image_key: {
             "mean": torch.zeros((3, 1, 1)),
             "std": torch.ones((3, 1, 1)),
         },
-        "action": {"mean": torch.zeros(2), "std": torch.ones(2)},
+        "action": {
+            "mean": torch.zeros(joint_count),
+            "std": torch.ones(joint_count),
+        },
     }
     preprocessor, postprocessor = make_act_pre_post_processors(config, dataset_stats=stats)
     policy.save_pretrained(checkpoint_root)
     preprocessor.save_pretrained(checkpoint_root)
     postprocessor.save_pretrained(checkpoint_root)
     return checkpoint_root
+
+
+def _wait_until(predicate: Callable[[], bool], timeout: float = 5.0) -> bool:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.05)
+    return False
 
 
 class PolicySpyBackend(SimulatorBackend):
@@ -261,6 +308,88 @@ def test_lerobot_policy_runner_executes_control_loop(tmp_path: Path) -> None:
     assert backend.calls[0][2] == int(JointCommand.ControlMode.POSITION)
     assert backend.calls[0][3] == "arm"
     assert runner.get_status().running is False
+
+
+@pytest.mark.parametrize(
+    ("backend_name", "backend_factory"),
+    [
+        (
+            "mujoco",
+            lambda: MuJoCoBackend(str(MUJOCO_PANDA_SCENE), headless=True),
+        ),
+        ("pybullet", lambda: PyBulletBackend(headless=True)),
+    ],
+)
+def test_lerobot_act_policy_runs_on_franka_backend(
+    tmp_path: Path,
+    backend_name: str,
+    backend_factory: Callable[[], SimulatorBackend],
+) -> None:
+    repo_name = f"{backend_name}_panda_policy_dataset"
+    _create_dataset(
+        tmp_path,
+        repo_name,
+        joint_names=PANDA_ARM_JOINTS,
+        camera_name=PANDA_CAMERA_NAME,
+        robot_type="panda",
+    )
+    checkpoint_root = _create_policy_checkpoint(
+        tmp_path / f"{backend_name}_checkpoint",
+        joint_count=len(PANDA_ARM_JOINTS),
+        camera_name=PANDA_CAMERA_NAME,
+    )
+    backend = backend_factory()
+    calls: list[tuple[list[str], list[float], int, str | None]] = []
+    original_set_joint_target = backend.set_joint_target
+
+    def set_joint_target_spy(
+        names: list[str],
+        data: list[float],
+        mode: JointCommand.ControlMode,
+        group: str | None = None,
+    ) -> None:
+        calls.append((list(names), list(data), int(mode), group))
+        original_set_joint_target(names, data, mode, group)
+
+    backend.set_joint_target = set_joint_target_spy  # type: ignore[method-assign]
+    runner = LerobotPolicyRunner(
+        tmp_path,
+        backend,
+        activity_coordinator=ActivityCoordinator(),
+    )
+
+    try:
+        load_status = runner.load_policy(
+            PolicyLoadRequest(
+                policy_path=str(checkpoint_root),
+                dataset_repo_name=repo_name,
+                task_text="hold pose",
+                jmg_name="panda_arm",
+                control_fps=5,
+            )
+        )
+        assert load_status.code == 1
+
+        start_status = runner.start_policy(PolicyStartRequest(control_fps=5))
+        assert start_status.code == 1
+        assert _wait_until(
+            lambda: bool(calls) or bool(runner.get_status().status.message),
+            timeout=8.0,
+        )
+        stop_status = runner.stop_policy()
+
+        assert stop_status.code == 1
+        assert runner.get_status().status.message == ""
+        assert calls
+        names, data, mode, group = calls[0]
+        assert names == PANDA_ARM_JOINTS
+        assert len(data) == len(PANDA_ARM_JOINTS)
+        assert all(np.isfinite(data))
+        assert mode == int(JointCommand.ControlMode.POSITION)
+        assert group == "panda_arm"
+    finally:
+        runner.shutdown()
+        backend.shutdown()
 
 
 def test_lerobot_policy_runner_resets_policy_on_world_reset(tmp_path: Path) -> None:
