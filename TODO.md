@@ -172,6 +172,8 @@
 - [x] 增加 Franka Panda 双后端 ACT smoke：同一个本地最小 ACT checkpoint 和
   LeRobot dataset schema 能在 MuJoCo 与 PyBullet 后端完成至少一次推理循环并向
   `panda_arm` 下发 POSITION joint target；
+- [x] 增加 Franka Panda 双后端 headless 多步 ACT smoke：验证固定控制频率下连续
+  多次读取 backend observation 并下发 POSITION joint target；
 - [x] 增加 policy inference CLI，覆盖 load/start/stop/status，复用现有 gRPC
   `PolicyInferenceService`；
 - [ ] 测试是否支持 ACT 这类标准 IL chunking policy；测试是否保持对其他 LeRobot IL policy 兼容；

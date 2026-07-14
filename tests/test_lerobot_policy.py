@@ -392,6 +392,99 @@ def test_lerobot_act_policy_runs_on_franka_backend(
         backend.shutdown()
 
 
+@pytest.mark.parametrize(
+    ("backend_name", "backend_factory"),
+    [
+        (
+            "mujoco",
+            lambda: MuJoCoBackend(str(MUJOCO_PANDA_SCENE), headless=True),
+        ),
+        ("pybullet", lambda: PyBulletBackend(headless=True)),
+    ],
+)
+def test_lerobot_act_policy_runs_multistep_headless_on_franka_backend(
+    tmp_path: Path,
+    backend_name: str,
+    backend_factory: Callable[[], SimulatorBackend],
+) -> None:
+    min_steps = 4
+    repo_name = f"{backend_name}_panda_multistep_policy_dataset"
+    _create_dataset(
+        tmp_path,
+        repo_name,
+        joint_names=PANDA_ARM_JOINTS,
+        camera_name=PANDA_CAMERA_NAME,
+        robot_type="panda",
+    )
+    checkpoint_root = _create_policy_checkpoint(
+        tmp_path / f"{backend_name}_multistep_checkpoint",
+        joint_count=len(PANDA_ARM_JOINTS),
+        camera_name=PANDA_CAMERA_NAME,
+    )
+    backend = backend_factory()
+    observations: list[list[float]] = []
+    commands: list[tuple[list[str], list[float], int, str | None]] = []
+    original_get_robot_state = backend.get_robot_state
+    original_set_joint_target = backend.set_joint_target
+
+    def get_robot_state_spy() -> JointState:
+        state = original_get_robot_state()
+        observations.append(list(state.position))
+        return state
+
+    def set_joint_target_spy(
+        names: list[str],
+        data: list[float],
+        mode: JointCommand.ControlMode,
+        group: str | None = None,
+    ) -> None:
+        commands.append((list(names), list(data), int(mode), group))
+        original_set_joint_target(names, data, mode, group)
+
+    backend.get_robot_state = get_robot_state_spy  # type: ignore[method-assign]
+    backend.set_joint_target = set_joint_target_spy  # type: ignore[method-assign]
+    runner = LerobotPolicyRunner(
+        tmp_path,
+        backend,
+        activity_coordinator=ActivityCoordinator(),
+    )
+
+    try:
+        load_status = runner.load_policy(
+            PolicyLoadRequest(
+                policy_path=str(checkpoint_root),
+                dataset_repo_name=repo_name,
+                task_text="hold pose",
+                jmg_name="panda_arm",
+                control_fps=10,
+            )
+        )
+        assert load_status.code == 1
+
+        start_status = runner.start_policy(PolicyStartRequest(control_fps=10))
+        assert start_status.code == 1
+        assert _wait_until(
+            lambda: len(commands) >= min_steps
+            or bool(runner.get_status().status.message),
+            timeout=10.0,
+        )
+        stop_status = runner.stop_policy()
+
+        assert stop_status.code == 1
+        assert runner.get_status().status.message == ""
+        assert len(observations) >= min_steps
+        assert len(commands) >= min_steps
+        for names, data, mode, group in commands[:min_steps]:
+            assert names == PANDA_ARM_JOINTS
+            assert len(data) == len(PANDA_ARM_JOINTS)
+            assert all(np.isfinite(data))
+            assert mode == int(JointCommand.ControlMode.POSITION)
+            assert group == "panda_arm"
+    finally:
+        runner.shutdown()
+        backend.shutdown()
+
+
 def test_lerobot_policy_runner_resets_policy_on_world_reset(tmp_path: Path) -> None:
     _create_dataset(tmp_path, "policy_dataset")
     checkpoint_root = _create_policy_checkpoint(tmp_path / "checkpoint")

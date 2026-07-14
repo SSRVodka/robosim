@@ -558,6 +558,9 @@ position target；velocity/twist/torque 控制下的 `get_joint_command_state()`
   PyBullet 两个后端的 headless smoke：同一个最小 ACT checkpoint 和 dataset
   schema 必须能完成 observation -> preprocess -> `select_action()` -> postprocess
   -> `set_joint_target()` 控制循环；
+- smoke test 分为单步与多步两类：单步只证明 runtime wiring 可执行；多步必须在
+  headless backend 上连续完成若干 observation-feedback-action 迭代，用于防止推理
+  线程、policy action queue 或 backend 状态读取路径只在首步有效；
 - 不实现训练支持；
 - 首个目标是兼容 ACT 这类标准 joint-space chunking policy，但运行时适配层应尽量保持对其他 LeRobot IL policy 通用。
 
