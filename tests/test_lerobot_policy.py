@@ -57,6 +57,7 @@ def _create_dataset(
     joint_names: list[str] | None = None,
     camera_name: str = "camera",
     robot_type: str = "test_robot",
+    fps: int = 10,
 ) -> Path:
     joint_names = joint_names or ["joint_a", "joint_b"]
     joint_count = len(joint_names)
@@ -65,7 +66,7 @@ def _create_dataset(
     dataset = LeRobotDataset.create(
         repo_id=repo_name,
         root=dataset_root,
-        fps=10,
+        fps=fps,
         robot_type=robot_type,
         features={
             "observation.state": {
@@ -310,6 +311,24 @@ def test_lerobot_policy_runner_executes_control_loop(tmp_path: Path) -> None:
     assert runner.get_status().running is False
 
 
+def test_lerobot_policy_runner_defaults_control_fps_to_dataset_fps(
+    tmp_path: Path,
+) -> None:
+    _create_dataset(tmp_path, "policy_dataset", fps=12)
+    checkpoint_root = _create_policy_checkpoint(tmp_path / "checkpoint")
+    runner = LerobotPolicyRunner(tmp_path, PolicySpyBackend())
+
+    load_status = runner.load_policy(
+        PolicyLoadRequest(
+            policy_path=str(checkpoint_root),
+            dataset_repo_name="policy_dataset",
+        )
+    )
+
+    assert load_status.code == 1
+    assert runner.get_status().control_fps == 12
+
+
 @pytest.mark.parametrize(
     ("backend_name", "backend_factory"),
     [
@@ -407,7 +426,7 @@ def test_lerobot_act_policy_runs_multistep_headless_on_franka_backend(
     backend_name: str,
     backend_factory: Callable[[], SimulatorBackend],
 ) -> None:
-    min_steps = 4
+    min_steps = 50
     repo_name = f"{backend_name}_panda_multistep_policy_dataset"
     _create_dataset(
         tmp_path,
@@ -456,17 +475,17 @@ def test_lerobot_act_policy_runs_multistep_headless_on_franka_backend(
                 dataset_repo_name=repo_name,
                 task_text="hold pose",
                 jmg_name="panda_arm",
-                control_fps=10,
             )
         )
         assert load_status.code == 1
+        assert runner.get_status().control_fps == 10
 
-        start_status = runner.start_policy(PolicyStartRequest(control_fps=10))
+        start_status = runner.start_policy(PolicyStartRequest())
         assert start_status.code == 1
         assert _wait_until(
             lambda: len(commands) >= min_steps
             or bool(runner.get_status().status.message),
-            timeout=10.0,
+            timeout=20.0,
         )
         stop_status = runner.stop_policy()
 

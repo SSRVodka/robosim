@@ -22,8 +22,6 @@ from robosim.core.activity import ActivityCoordinator
 from robosim.core.backend import SimulatorBackend
 from robosim.core.impl.lerobot_io import LerobotObservationAdapter, PolicyRuntimeSpec
 
-DEFAULT_CONTROL_FPS = 30
-
 
 @dataclass(slots=True)
 class LoadedPolicy:
@@ -98,6 +96,9 @@ class LerobotPolicyRunner:
                 repo_id=dataset_repo_name,
                 root=dataset_root,
             )
+            control_fps = int(request.control_fps) or int(dataset_meta.fps)
+            if control_fps <= 0:
+                raise ValueError("control_fps must be positive")
             adapter = LerobotObservationAdapter(
                 backend=self._backend,
                 dataset_meta=dataset_meta,
@@ -116,7 +117,7 @@ class LerobotPolicyRunner:
                 adapter=adapter,
                 runtime_spec=adapter.runtime_spec,
                 task_text=request.task_text,
-                control_fps=int(request.control_fps) or DEFAULT_CONTROL_FPS,
+                control_fps=control_fps,
             )
             self._last_error = ""
 

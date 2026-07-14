@@ -559,8 +559,14 @@ position target；velocity/twist/torque 控制下的 `get_joint_command_state()`
   schema 必须能完成 observation -> preprocess -> `select_action()` -> postprocess
   -> `set_joint_target()` 控制循环；
 - smoke test 分为单步与多步两类：单步只证明 runtime wiring 可执行；多步必须在
-  headless backend 上连续完成若干 observation-feedback-action 迭代，用于防止推理
-  线程、policy action queue 或 backend 状态读取路径只在首步有效；
+  headless backend 上连续完成 50-100 次 observation-feedback-action 迭代，用于防止
+  推理线程、policy action queue 或 backend 状态读取路径只在首步有效，并保证切换为
+  non-headless 后有足够长的可视检查窗口；
+- policy-specific deployment behavior belongs to LeRobot：`vsim` 必须调用
+  `policy.select_action()`，由 LeRobot policy 自己管理 action chunking / queue /
+  temporal ensemble 等逻辑；`vsim` 不手写 chunk 展开逻辑；
+- policy runtime 的默认控制频率必须来自 LeRobot dataset metadata 的 `fps`；
+  `PolicyLoadRequest.control_fps` / `PolicyStartRequest.control_fps` 只作为显式覆盖。
 - 不实现训练支持；
 - 首个目标是兼容 ACT 这类标准 joint-space chunking policy，但运行时适配层应尽量保持对其他 LeRobot IL policy 通用。
 
