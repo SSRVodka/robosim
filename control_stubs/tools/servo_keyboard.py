@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import queue
 import select
 import sys
 import termios
@@ -19,6 +18,13 @@ import grpc
 from control_stubs import common_pb2
 from control_stubs import robot_core_pb2 as core_pb2
 from control_stubs.tools.client import RobosimClient
+from control_stubs.tools.teleop import (
+    CommandStream,
+    EpisodeController,
+    RecordingConfig,
+    TeleopEvent,
+    resolve_target_requests,
+)
 from control_stubs.tools.teleop import (
     TargetCatalog as TargetCatalog,
 )
@@ -84,26 +90,6 @@ class MotionState:
         if now < self.joint_expires_at:
             return self.joint_velocity
         return 0.0
-
-
-class CommandStream:
-    def __init__(self) -> None:
-        self._queue: queue.Queue[core_pb2.ServoCommand | None] = queue.Queue()
-
-    def send(self, command: core_pb2.ServoCommand) -> None:
-        self._queue.put(command)
-
-    def close(self) -> None:
-        self._queue.put(None)
-
-    def __iter__(self) -> CommandStream:
-        return self
-
-    def __next__(self) -> core_pb2.ServoCommand:
-        command = self._queue.get()
-        if command is None:
-            raise StopIteration
-        return command
 
 
 def _scale_vector(vector: Vector3, scale: float) -> Vector3:
@@ -265,6 +251,14 @@ def switch_target_from_key(
     return None
 
 
+def episode_event_from_key(key: str) -> TeleopEvent | None:
+    return {
+        "e": TeleopEvent.SAVE_EPISODE,
+        "c": TeleopEvent.RETRY_EPISODE,
+        "q": TeleopEvent.STOP,
+    }.get(key)
+
+
 def _bindings_from_catalog(targets: TargetCatalog) -> ServoBindings:
     twist = targets.active_twist
     joint = targets.active_joint
@@ -278,31 +272,6 @@ def _bindings_from_catalog(targets: TargetCatalog) -> ServoBindings:
         joint_names=joint.joint_names if joint is not None else (),
         summary_names=summary_names,
     )
-
-
-def _requested_targets(
-    spec: core_pb2.RobotSpecification, args: argparse.Namespace
-) -> tuple[list[str], list[str]]:
-    if args.twist_target and (args.jmg or args.ee):
-        raise ValueError("--twist-target cannot be combined with --jmg/--ee")
-    if args.joint_target and args.joint_group:
-        raise ValueError("--joint-target cannot be combined with --joint-group")
-
-    twist_targets = list(args.twist_target)
-    if not twist_targets and (args.jmg or args.ee):
-        group_name = args.jmg
-        if group_name is None and args.ee:
-            group = _find_group_for_ee(spec, args.ee)
-            if group is None:
-                raise ValueError(f"Unable to find end effector: {args.ee}")
-            group_name = group.name
-        assert group_name is not None
-        twist_targets.append(f"{group_name}:{args.ee}" if args.ee else group_name)
-
-    joint_targets = list(args.joint_target)
-    if not joint_targets and args.joint_group:
-        joint_targets.append(args.joint_group)
-    return twist_targets, joint_targets
 
 
 def format_robot_spec(spec: core_pb2.RobotSpecification) -> str:
@@ -343,7 +312,7 @@ def _print_controls(bindings: ServoBindings, args: argparse.Namespace) -> None:
     else:
         print("joint target: disabled")
     print("keys: w/s x, a/d y, r/f z, u/o roll, i/k pitch, j/l yaw, arrows for planar twist")
-    print("keys: [/ ] joint -, +, n next twist target, m next joint target, space stop, q quit")
+    print("keys: [/ ] joint -, +, n/m switch targets, e save, c retry, space stop, q quit")
 
 
 def _read_key(fd: int, timeout: float) -> str | None:
@@ -417,7 +386,14 @@ def run(args: argparse.Namespace) -> int:
         if args.list:
             print(format_robot_spec(spec))
             return 0
-        twist_targets, joint_targets = _requested_targets(spec, args)
+        twist_targets, joint_targets = resolve_target_requests(
+            spec,
+            twist_targets=list(args.twist_target),
+            joint_targets=list(args.joint_target),
+            legacy_jmg=args.jmg,
+            legacy_ee=args.ee,
+            legacy_joint_group=args.joint_group,
+        )
         targets = build_target_catalog(
             spec,
             twist_targets=twist_targets,
@@ -441,16 +417,44 @@ def run(args: argparse.Namespace) -> int:
         last_twist = ZERO_TWIST
         last_joint_velocity = 0.0
         period = 1.0 / args.rate
+        episode: EpisodeController | None = None
 
         try:
+            if getattr(args, "repo_name", None):
+                episode = EpisodeController(
+                    client,
+                    RecordingConfig(
+                        repo_name=args.repo_name,
+                        task_text=args.task_text,
+                        fps=args.fps,
+                        jmg_names=targets.record_group_names,
+                        sensor_names=tuple(args.sensor),
+                        reset_between_episodes=args.reset_between_episodes,
+                    ),
+                )
+                episode.start()
             tty.setraw(fd)
             while not stop_event.is_set():
                 key = _read_key(fd, period)
                 if key == "\x03":
                     raise KeyboardInterrupt
-                if key == "q":
-                    break
                 if key is not None:
+                    episode_event = episode_event_from_key(key)
+                    if episode_event is TeleopEvent.STOP:
+                        break
+                    if episode_event is not None:
+                        motion.stop()
+                        last_twist, last_joint_velocity = _emit_commands(
+                            stream,
+                            bindings,
+                            motion,
+                            time.monotonic(),
+                            last_twist,
+                            last_joint_velocity,
+                        )
+                        if episode is not None:
+                            episode.handle(episode_event)
+                        continue
                     stop_command = switch_target_from_key(key, targets)
                     if stop_command is not None:
                         stream.send(stop_command)
@@ -487,6 +491,8 @@ def run(args: argparse.Namespace) -> int:
                 last_twist,
                 last_joint_velocity,
             )
+            if episode is not None:
+                episode.stop()
             stream.close()
             response_thread.join(timeout=1.0)
             sys.stdout.write("\n")

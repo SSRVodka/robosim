@@ -255,7 +255,7 @@ def test_lerobot_recorder_writes_and_resumes(tmp_path: Path, backend: MuJoCoBack
         repo_name="demo_dataset",
         task_text="reach target",
         fps=5,
-        jmg_included=["panda_arm"],
+        jmg_included=["panda_arm", "panda_hand"],
         sensor_name_included=["world_camera"],
     )
 
@@ -287,9 +287,11 @@ def test_lerobot_recorder_writes_and_resumes(tmp_path: Path, backend: MuJoCoBack
         "panda_joint5",
         "panda_joint6",
         "panda_joint7",
+        "panda_finger_joint1",
+        "panda_finger_joint2",
     ]
-    assert tuple(sample["observation.state"].shape) == (7,)
-    assert tuple(sample["action"].shape) == (7,)
+    assert tuple(sample["observation.state"].shape) == (9,)
+    assert tuple(sample["action"].shape) == (9,)
     assert tuple(sample["observation.end_effectors.panda_arm.position"].shape) == (3,)
     assert tuple(sample["observation.images.world_camera"].shape) == (3, 240, 320)
 

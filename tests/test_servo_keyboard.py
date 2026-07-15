@@ -11,6 +11,7 @@ from control_stubs.tools.servo_keyboard import (
     select_servo_bindings,
     update_motion_from_key,
 )
+from control_stubs.tools.teleop import TeleopEvent
 
 
 def _make_spec() -> core_pb2.RobotSpecification:
@@ -151,6 +152,13 @@ def test_keyboard_parser_accepts_repeatable_targets() -> None:
 
     assert args.twist_target == ["left_arm:left_tool", "right_arm:right_tool"]
     assert args.joint_target == ["left_gripper", "right_gripper"]
+
+
+def test_keyboard_episode_keys_map_to_device_neutral_events() -> None:
+    assert servo_keyboard.episode_event_from_key("e") is TeleopEvent.SAVE_EPISODE
+    assert servo_keyboard.episode_event_from_key("c") is TeleopEvent.RETRY_EPISODE
+    assert servo_keyboard.episode_event_from_key("q") is TeleopEvent.STOP
+    assert servo_keyboard.episode_event_from_key("w") is None
 
 
 def test_motion_mapping_and_command_building() -> None:

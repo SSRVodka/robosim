@@ -654,10 +654,11 @@ class GazeboBackend(SimulatorBackend, Node):
         )
 
     def reset_world(self, seed: int, randomization_params: dict[str, float]) -> None:
+        del seed, randomization_params
         if not (self._capabilities & Capability.SIMULATION_CONTROL):
             self.get_logger().error("Simulation control not supported")
             raise NotImplementedError("Simulation control not supported")
-        self.get_logger().warn("Reset world not implemented")
+        raise NotImplementedError("Reset world not implemented")
 
     def emergency_stop(self) -> None:
         self.get_logger().info("Emergency stop triggered, publishing zero velocity")
