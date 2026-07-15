@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from control_stubs import robot_core_pb2 as core_pb2
+from control_stubs.tools import servo_keyboard
 from control_stubs.tools.servo_keyboard import (
     MotionState,
     build_joint_command,
@@ -78,6 +79,78 @@ def test_select_servo_bindings_prefers_second_ee_group_over_shorter_body_group()
 def test_select_servo_bindings_rejects_invalid_explicit_group() -> None:
     with pytest.raises(ValueError, match="has no end effector"):
         select_servo_bindings(_make_spec(), twist_group_name="gripper")
+
+
+def test_target_catalog_cycles_groups_and_stops_previous_target() -> None:
+    spec = core_pb2.RobotSpecification(
+        robot_name="dual_arm",
+        joint_model_groups=[
+            core_pb2.JointModelGroupSpec(
+                name="left_arm",
+                joint_names=["left_1", "left_2"],
+                end_effectors=[
+                    core_pb2.EESpec(name="left_tool", parent_jmg_name="left_arm")
+                ],
+            ),
+            core_pb2.JointModelGroupSpec(
+                name="right_arm",
+                joint_names=["right_1", "right_2"],
+                end_effectors=[
+                    core_pb2.EESpec(name="right_tool", parent_jmg_name="right_arm")
+                ],
+            ),
+            core_pb2.JointModelGroupSpec(name="left_gripper", joint_names=["left_finger"]),
+            core_pb2.JointModelGroupSpec(name="right_gripper", joint_names=["right_finger"]),
+        ],
+    )
+    targets = servo_keyboard.build_target_catalog(
+        spec,
+        twist_targets=["left_arm:left_tool", "right_arm:right_tool"],
+        joint_targets=["left_gripper", "right_gripper"],
+    )
+
+    twist_stop = targets.cycle_twist()
+    joint_stop = targets.cycle_joint()
+
+    assert targets.active_twist.group_name == "right_arm"
+    assert targets.active_joint.group_name == "right_gripper"
+    assert twist_stop.twist_cmd.target_ee.parent_jmg_name == "left_arm"
+    assert twist_stop.twist_cmd.twist.twist.linear.x == 0.0
+    assert joint_stop.joint_cmd.group.jmg_name == "left_gripper"
+    assert list(joint_stop.joint_cmd.data) == [0.0]
+
+
+def test_keyboard_target_switch_keys_are_independent() -> None:
+    targets = servo_keyboard.build_target_catalog(
+        _make_spec(),
+        twist_targets=["arm:tool0", "arm:tool0"],
+        joint_targets=["gripper", "gripper"],
+    )
+
+    twist_stop = servo_keyboard.switch_target_from_key("n", targets)
+    joint_stop = servo_keyboard.switch_target_from_key("m", targets)
+
+    assert twist_stop is not None and twist_stop.HasField("twist_cmd")
+    assert joint_stop is not None and joint_stop.HasField("joint_cmd")
+    assert servo_keyboard.switch_target_from_key("x", targets) is None
+
+
+def test_keyboard_parser_accepts_repeatable_targets() -> None:
+    args = servo_keyboard.build_parser().parse_args(
+        [
+            "--twist-target",
+            "left_arm:left_tool",
+            "--twist-target",
+            "right_arm:right_tool",
+            "--joint-target",
+            "left_gripper",
+            "--joint-target",
+            "right_gripper",
+        ]
+    )
+
+    assert args.twist_target == ["left_arm:left_tool", "right_arm:right_tool"]
+    assert args.joint_target == ["left_gripper", "right_gripper"]
 
 
 def test_motion_mapping_and_command_building() -> None:

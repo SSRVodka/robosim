@@ -19,6 +19,12 @@ import grpc
 from control_stubs import common_pb2
 from control_stubs import robot_core_pb2 as core_pb2
 from control_stubs.tools.client import RobosimClient
+from control_stubs.tools.teleop import (
+    TargetCatalog as TargetCatalog,
+)
+from control_stubs.tools.teleop import (
+    build_target_catalog as build_target_catalog,
+)
 
 Vector3 = tuple[float, float, float]
 ZERO_VECTOR: Vector3 = (0.0, 0.0, 0.0)
@@ -249,6 +255,56 @@ def update_motion_from_key(
     return False
 
 
+def switch_target_from_key(
+    key: str, targets: TargetCatalog
+) -> core_pb2.ServoCommand | None:
+    if key == "n":
+        return targets.cycle_twist()
+    if key == "m":
+        return targets.cycle_joint()
+    return None
+
+
+def _bindings_from_catalog(targets: TargetCatalog) -> ServoBindings:
+    twist = targets.active_twist
+    joint = targets.active_joint
+    summary_names = joint.joint_names if joint is not None else ()
+    if not summary_names and twist is not None:
+        summary_names = twist.joint_names
+    return ServoBindings(
+        twist_group_name=twist.group_name if twist is not None else None,
+        target_ee=twist.end_effector if twist is not None else None,
+        joint_group_name=joint.group_name if joint is not None else None,
+        joint_names=joint.joint_names if joint is not None else (),
+        summary_names=summary_names,
+    )
+
+
+def _requested_targets(
+    spec: core_pb2.RobotSpecification, args: argparse.Namespace
+) -> tuple[list[str], list[str]]:
+    if args.twist_target and (args.jmg or args.ee):
+        raise ValueError("--twist-target cannot be combined with --jmg/--ee")
+    if args.joint_target and args.joint_group:
+        raise ValueError("--joint-target cannot be combined with --joint-group")
+
+    twist_targets = list(args.twist_target)
+    if not twist_targets and (args.jmg or args.ee):
+        group_name = args.jmg
+        if group_name is None and args.ee:
+            group = _find_group_for_ee(spec, args.ee)
+            if group is None:
+                raise ValueError(f"Unable to find end effector: {args.ee}")
+            group_name = group.name
+        assert group_name is not None
+        twist_targets.append(f"{group_name}:{args.ee}" if args.ee else group_name)
+
+    joint_targets = list(args.joint_target)
+    if not joint_targets and args.joint_group:
+        joint_targets.append(args.joint_group)
+    return twist_targets, joint_targets
+
+
 def format_robot_spec(spec: core_pb2.RobotSpecification) -> str:
     lines = [f"robot: {spec.robot_name}"]
     for group in spec.joint_model_groups:
@@ -287,7 +343,7 @@ def _print_controls(bindings: ServoBindings, args: argparse.Namespace) -> None:
     else:
         print("joint target: disabled")
     print("keys: w/s x, a/d y, r/f z, u/o roll, i/k pitch, j/l yaw, arrows for planar twist")
-    print("keys: [/ ] joint -, +, space stop, q quit")
+    print("keys: [/ ] joint -, +, n next twist target, m next joint target, space stop, q quit")
 
 
 def _read_key(fd: int, timeout: float) -> str | None:
@@ -361,7 +417,13 @@ def run(args: argparse.Namespace) -> int:
         if args.list:
             print(format_robot_spec(spec))
             return 0
-        bindings = select_servo_bindings(spec, args.jmg, args.ee, args.joint_group)
+        twist_targets, joint_targets = _requested_targets(spec, args)
+        targets = build_target_catalog(
+            spec,
+            twist_targets=twist_targets,
+            joint_targets=joint_targets,
+        )
+        bindings = _bindings_from_catalog(targets)
         stream = CommandStream()
         responses = client.robot_core.servo_control_stream(stream)
         stop_event = threading.Event()
@@ -389,15 +451,23 @@ def run(args: argparse.Namespace) -> int:
                 if key == "q":
                     break
                 if key is not None:
-                    update_motion_from_key(
-                        motion,
-                        key,
-                        bindings,
-                        linear_step=args.linear_step,
-                        angular_step=args.angular_step,
-                        joint_step=args.joint_step,
-                        hold_until=time.monotonic() + args.hold_time,
-                    )
+                    stop_command = switch_target_from_key(key, targets)
+                    if stop_command is not None:
+                        stream.send(stop_command)
+                        motion.stop()
+                        bindings = _bindings_from_catalog(targets)
+                        last_twist = ZERO_TWIST
+                        last_joint_velocity = 0.0
+                    else:
+                        update_motion_from_key(
+                            motion,
+                            key,
+                            bindings,
+                            linear_step=args.linear_step,
+                            angular_step=args.angular_step,
+                            joint_step=args.joint_step,
+                            hold_until=time.monotonic() + args.hold_time,
+                        )
                 last_twist, last_joint_velocity = _emit_commands(
                     stream,
                     bindings,
@@ -438,6 +508,20 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--joint-group",
         help="Joint model group used for direct joint velocity servo",
+    )
+    parser.add_argument(
+        "--twist-target",
+        action="append",
+        default=[],
+        metavar="GROUP[:EE]",
+        help="Allowed Cartesian target; repeat to enable runtime switching",
+    )
+    parser.add_argument(
+        "--joint-target",
+        action="append",
+        default=[],
+        metavar="GROUP",
+        help="Allowed direct-joint target; repeat to enable runtime switching",
     )
     parser.add_argument("--linear-step", type=float, default=0.02)
     parser.add_argument("--angular-step", type=float, default=0.3)
