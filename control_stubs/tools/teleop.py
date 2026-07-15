@@ -3,9 +3,34 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 
 from control_stubs import common_pb2
 from control_stubs import robot_core_pb2 as core_pb2
+
+Vector3 = tuple[float, float, float]
+ZERO_VECTOR: Vector3 = (0.0, 0.0, 0.0)
+
+
+class TeleopEvent(Enum):
+    NEXT_TWIST_TARGET = "next_twist_target"
+    NEXT_JOINT_TARGET = "next_joint_target"
+    SAVE_EPISODE = "save_episode"
+    RETRY_EPISODE = "retry_episode"
+    STOP = "stop"
+
+
+@dataclass(frozen=True, slots=True)
+class TeleopMotion:
+    linear: Vector3 = ZERO_VECTOR
+    angular: Vector3 = ZERO_VECTOR
+    joint_velocity: float = 0.0
+
+
+@dataclass(frozen=True, slots=True)
+class InputSnapshot:
+    motion: TeleopMotion
+    events: tuple[TeleopEvent, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
