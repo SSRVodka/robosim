@@ -513,8 +513,8 @@ position target；velocity/twist/torque 控制下的 `get_joint_command_state()`
 ## 关于 LeRobot 数据录制
 
 ### 1. 录制入口
-- 当前 `RobotDataService` 暴露 `EpisodeStart` / `EpisodeEnd` / `EpisodeReplay`。
-  v0.0.6 目标 contract 增加 `EpisodeCancel`；
+- 当前 `RobotDataService` 暴露 `EpisodeStart` / `EpisodeEnd` / `EpisodeCancel` /
+  `EpisodeReplay`；
 - `EpisodeEnd` 保存当前 episode，`EpisodeCancel` 丢弃当前尚未落盘的 episode；
   两者都必须停止采样线程、finalize dataset 并释放 recorder activity，
   使快速采集客户端可以立即开始下一个 episode；

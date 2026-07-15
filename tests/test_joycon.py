@@ -98,7 +98,7 @@ class FakeDevice:
 
 def test_joycon_input_reads_device_without_hardware() -> None:
     adapter = joycon.JoyConInput(
-        FakeDevice(),  # type: ignore[arg-type]
+        FakeDevice(),
         deadzone=0.1,
         linear_speed=0.02,
         angular_speed=0.3,

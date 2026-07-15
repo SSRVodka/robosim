@@ -205,51 +205,20 @@ python3 -m control_stubs.tools.servo_keyboard --jmg panda_arm --ee hand
 python3 -m control_stubs.tools.servo_keyboard --help
 ```
 
-##### v0.0.6 快速采集入口（当前迭代目标）
-
-本迭代将把键盘输入、外设输入、JMG 切换与 LeRobotDataset episode 管理
-收敛到同一个设备无关入口。目标 Joy-Con 命令为：
+统一 teleop 入口允许 Cartesian 和 direct-joint 两类 JMG 同时保持活动，并可分别
+配置多个候选目标。例如下面的键盘会同时控制 Panda 手臂和夹爪：
 
 ```bash
 python3 -m control_stubs.tools.teleop \
-  --input joycon \
-  --input-device /dev/input/event15 \
-  --input-profile joycon-right \
+  --input keyboard \
   --twist-target panda_arm:hand \
-  --joint-target panda_hand \
-  --repo-name demo1 \
-  --task-text "pick and place" \
-  --fps 30 \
-  --reset-between-episodes
+  --joint-target panda_hand
 ```
 
-`--repo-name` 用于显式启用录制；不指定时只进行 teleop。
-`--twist-target GROUP[:EE]` 和 `--joint-target GROUP` 可重复使用，也可省略后从
-`GetRobotSpec` 自动发现。参数中的 Panda 名称只是 README 示例，实现不绑定该机器人。
-
-键盘将保留现有 motion keys，并增加：
-
-- `n`：切换下一个 Cartesian JMG/end-effector target；
-- `m`：切换下一个 direct-joint JMG target；
-- `e`：保存当前 episode 并开始下一个；
-- `c`：丢弃当前 episode 并立即重试；
-- `space`：当前 motion 清零；
-- `q`：丢弃未完成 episode 并退出。
-
-right Joy-Con 的目标 profile 为：
-
-- stick 控制 Cartesian X/Y，R/ZR 控制 Z 正/负；
-- 按住 rail modifier 时，stick 切换为 roll/pitch，R/ZR 切换为 yaw 正/负；
-- X/Y 控制当前 direct-joint target 正/负，可用于 gripper；
-- Home / stick press 分别切换 Cartesian / direct-joint target；
-- A 保存并进入下一个 episode，B 丢弃并重试，Plus 丢弃并退出。
-
-`--reset-between-episodes` 为 opt-in；开启后 save 和 retry 都会在新 episode 开始前
-调用 `ResetWorld`。MuJoCo 与 PyBullet 已有初始 scene reset 实现，但当前忽略
-`seed` 与 `randomization_params`；Gazebo reset 尚未实现，该模式必须明确失败而不得虚报成功。
-
-自动化测试只使用 synthetic evdev events 和 fake clients，不依赖 Joy-Con 或
-`/dev/input/event15`。真实外设只属于显式手工验收。
+`--twist-target GROUP[:EE]` 和 `--joint-target GROUP` 均可重复使用。运行期间按 `n`
+切换 Cartesian target，按 `m` 切换 direct-joint target；切换时客户端会先清零旧
+target。省略这些参数时，候选项由 `GetRobotSpec` 自动发现，因此实现不绑定 Panda
+或特定的 arm/gripper 配置。
 
 > [!TIP]
 >
@@ -265,30 +234,66 @@ right Joy-Con 的目标 profile 为：
 python3 -m robosim.server --port 50051 --backend mujoco --no-headless
 ```
 
-执行下面的指令开始录制数据：
+推荐使用统一 teleop 入口进行快速采集。指定 `--repo-name` 后客户端会立即开始首个
+episode；以下键盘示例同时记录手臂与夹爪：
+
+```bash
+python3 -m control_stubs.tools.teleop \
+  --input keyboard \
+  --twist-target panda_arm:hand \
+  --joint-target panda_hand \
+  --repo-name demo1 \
+  --task-text "pick and place" \
+  --fps 30
+```
+
+键盘保留上一节的 motion keys，并使用 `[` / `]` 控制 direct-joint target；`e` 保存
+当前 episode 并开始下一个，`c` 丢弃当前 episode 并立即重试，`space` 清零 motion，
+`q` 丢弃未完成 episode 并退出。
+
+right Joy-Con 通过参数显式启用。`environment.yml` 已包含 `evdev`；若只安装 Python
+package，可使用 `pip install -e '.[joycon]'`。当前本机设备的采集命令为：
+
+```bash
+python3 -m control_stubs.tools.teleop \
+  --input joycon \
+  --input-device /dev/input/event15 \
+  --input-profile joycon-right \
+  --twist-target panda_arm:hand \
+  --joint-target panda_hand \
+  --repo-name demo1 \
+  --task-text "pick and place" \
+  --fps 30 \
+  --reset-between-episodes
+```
+
+right Joy-Con profile 的 stick 控制 Cartesian X/Y，R/ZR 控制 Z；按住 SL
+后 stick 控制 roll/pitch，R/ZR 控制 yaw；X/Y 控制 direct-joint target，可用于夹爪。
+Home 和 stick press 分别切换两类 target，A 保存，B 丢弃并重试，Plus 丢弃并退出。
+
+`--reset-between-episodes` 是可选参数。开启时顺序固定为 save/cancel → `ResetWorld` →
+next start；不开启时直接开始下一个 episode。MuJoCo 与 PyBullet 的 reset 可恢复初始
+scene（目前忽略 `seed` 和 `randomization_params`）；Gazebo 尚未实现 reset，因此会
+返回 `UNIMPLEMENTED` 并停止采集，不会虚报成功。
+
+数据存放在 `data/lerobot/demo1`。自动化测试使用 synthetic evdev events 和 fake
+clients，不访问 `/dev/input/event*`；上述映射已在 `/dev/input/event15` 手工确认。
+设备重新连接后 event 编号可能变化，此时只需更新 `--input-device`。
+
+如需把录制与控制拆开，仍可直接操作 episode RPC：
 
 ```bash
 python3 -m control_stubs.tools.data_recorder start --repo-name demo1 --task-text "demo-move"
-# 更多配置选项请使用
-# python3 -m control_stubs.tools.data_recorder start --help
+python3 -m control_stubs.tools.data_recorder end     # 保存
+python3 -m control_stubs.tools.data_recorder cancel  # 丢弃
 ```
-
-数据采集期间您可以使用各种方法操作仿真环境的机器人（例如使用上一节提到的 “测试伺服操作 demo”）。
-
-执行下面的指令结束录制并将数据落盘：
-
-```bash
-python3 -m control_stubs.tools.data_recorder end
-```
-
-现在您的数据存放在 `data/lerobot/demo1` 下。如需重放该数据，请继续往下看。
 
 > [!TIP]
 >
 > 默认存放在项目根目录下的 `data/lerobot` 中，您可以通过更改 `robosim/server.py` 中的 `DATA_REPO_ROOT` 变量来决定以何目录为数据根目录；
 
 
-如需重放数据，需确保您采集的数据放在 `data/lerobot` 下，这样我们给定数据集的 `repoName` 以及 eposide ID 即可重放该数据集：
+如需重放数据，需确保数据位于 `data/lerobot`，然后指定 repo name 和 episode ID：
 
 ```bash
 python3 -m control_stubs.tools.data_recorder replay --repo-name demo1 --episode-id 0

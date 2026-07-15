@@ -9,25 +9,25 @@
 - [x] 查阅 Linux input event codes、python-evdev 1.9.3 与 LeRobot gamepad/episode 工作流。
 
 ## Implementation
-- [ ] 提取 `control_stubs/tools/teleop.py` 设备无关 session，支持独立活动的
+- [x] 提取 `control_stubs/tools/teleop.py` 设备无关 session，支持独立活动的
   Cartesian/direct-joint target 与运行时 JMG 切换；
-- [ ] 保持 `servo_keyboard.py` 键盘兼容，增加 target 切换和 episode 操作；
-- [ ] 在独立 `control_stubs/tools/joycon.py` 中实现 parameter-activated evdev right
+- [x] 保持 `servo_keyboard.py` 键盘兼容，增加 target 切换和 episode 操作；
+- [x] 在独立 `control_stubs/tools/joycon.py` 中实现 parameter-activated evdev right
   Joy-Con profile，设备路径由 `--input-device` 指定；
-- [ ] 增加 `RobotDataService.EpisodeCancel` 并保证 cancel 后可立即开始下一个 episode；
-- [ ] 增加集成录制模式与 `--reset-between-episodes`，顺序固定为
+- [x] 增加 `RobotDataService.EpisodeCancel` 并保证 cancel 后可立即开始下一个 episode；
+- [x] 增加集成录制模式与 `--reset-between-episodes`，顺序固定为
   save/cancel -> reset -> next start；
-- [ ] 修正 Gazebo `reset_world()` 未实现却返回 success 的语义。
+- [x] 修正 Gazebo `reset_world()` 未实现却返回 success 的语义。
 
 ## Acceptance
-- [ ] synthetic evdev unit tests 覆盖 axis normalization/deadzone、button edge 与 Joy-Con
+- [x] synthetic evdev unit tests 覆盖 axis normalization/deadzone、button edge 与 Joy-Con
   semantic mapping，不访问真实 `/dev/input/event*`；
-- [ ] fake client/input tests 覆盖任意 robot spec、multi-JMG 切换、旧 target 清零、
+- [x] fake client/input tests 覆盖任意 robot spec、multi-JMG 切换、旧 target 清零、
   save/cancel/reset 顺序与失败 cleanup；
-- [ ] recorder tests 覆盖 `EpisodeCancel` 不落盘、立即 retry，以及 arm+gripper
+- [x] recorder tests 覆盖 `EpisodeCancel` 不落盘、立即 retry，以及 arm+gripper
   共同写入稳定 LeRobotDataset action schema；
-- [ ] 通过 focused/full `pytest`、`ruff`、`mypy` 与 MuJoCo server startup smoke；
-- [ ] 作为独立手工验收，使用 `/dev/input/event15` 确认当前 Joy-Con 按键映射；
+- [x] 通过 focused/full `pytest`、`ruff`、`mypy` 与 MuJoCo server startup smoke；
+- [x] 作为独立手工验收，使用 `/dev/input/event15` 确认当前 Joy-Con 按键映射；
   该步骤不得进入自动化测试。
 
 # VERSION v0.0.5

@@ -113,6 +113,10 @@ def test_target_catalog_cycles_groups_and_stops_previous_target() -> None:
     twist_stop = targets.cycle_twist()
     joint_stop = targets.cycle_joint()
 
+    assert targets.active_twist is not None
+    assert targets.active_joint is not None
+    assert twist_stop is not None
+    assert joint_stop is not None
     assert targets.active_twist.group_name == "right_arm"
     assert targets.active_joint.group_name == "right_gripper"
     assert twist_stop.twist_cmd.target_ee.parent_jmg_name == "left_arm"
