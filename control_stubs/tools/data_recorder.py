@@ -22,6 +22,7 @@ def main() -> None:
     start.add_argument("--fps", type=int, default=30, help="Recording fps")
 
     subparsers.add_parser("end", help="End the current recording")
+    subparsers.add_parser("cancel", help="Discard the current recording")
     replay = subparsers.add_parser("replay", help="Replay a recorded episode")
     replay.add_argument("--repo-name", required=True, help="Dataset repo name")
     replay.add_argument("--episode-id", required=True, type=int, help="Episode ID to replay")
@@ -51,6 +52,14 @@ def main() -> None:
                 print("Recording ended successfully.")
                 sys.exit(0)
             print(f"Ending recording failed: {resp.message}", file=sys.stderr)
+            sys.exit(1)
+
+        if args.action == "cancel":
+            resp = stub.EpisodeCancel(common_pb2.Empty())
+            if resp.code == common_pb2.STATUS_SUCCESS:
+                print("Recording cancelled successfully.")
+                sys.exit(0)
+            print(f"Cancelling recording failed: {resp.message}", file=sys.stderr)
             sys.exit(1)
 
         if args.action == "replay":

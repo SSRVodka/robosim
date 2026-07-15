@@ -36,5 +36,7 @@ service RobotDataService {
 
     rpc EpisodeEnd(robot_sim.common.Empty) returns (robot_sim.common.Status);
 
+    rpc EpisodeCancel(robot_sim.common.Empty) returns (robot_sim.common.Status);
+
     rpc EpisodeReplay(RecordInfo) returns (robot_sim.common.Status);
 }

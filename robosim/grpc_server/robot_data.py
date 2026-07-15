@@ -55,6 +55,23 @@ class RobotDataServicer(data_pb2_grpc.RobotDataServiceServicer):
             _logger.error("EpisodeEnd failed: %s", e, exc_info=True)
             context.set_code(grpc.StatusCode.INTERNAL)
             return common_pb2.Status(code=common_pb2.STATUS_FAILURE, message=str(e))
+
+    def EpisodeCancel(
+        self, request: common_pb2.Empty, context: grpc.ServicerContext
+    ) -> common_pb2.Status:
+        _logger.info("EpisodeCancel called")
+        try:
+            status = self._recorder.episode_cancel()
+            _logger.info("EpisodeCancel succeeded")
+            return status
+        except NotImplementedError:
+            _logger.warning("EpisodeCancel not implemented")
+            context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+            return common_pb2.Status(code=common_pb2.STATUS_FAILURE, message="Not supported")
+        except Exception as e:
+            _logger.error("EpisodeCancel failed: %s", e, exc_info=True)
+            context.set_code(grpc.StatusCode.INTERNAL)
+            return common_pb2.Status(code=common_pb2.STATUS_FAILURE, message=str(e))
     
     def EpisodeReplay(
         self, request: data_pb2.RecordInfo, context: grpc.ServicerContext

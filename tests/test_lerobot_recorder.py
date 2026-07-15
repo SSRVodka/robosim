@@ -316,6 +316,26 @@ def test_robot_data_servicer_records_episode(tmp_path: Path, backend: MuJoCoBack
     assert status.code == 1
 
 
+def test_robot_data_servicer_cancels_episode(tmp_path: Path, backend: MuJoCoBackend) -> None:
+    servicer = RobotDataServicer(LerobotDataRecorder(tmp_path, backend))
+    context = DummyContext()
+    servicer.EpisodeStart(
+        RecordOptions(
+            repo_name="cancelled_dataset",
+            task_text="discard this",
+            fps=2,
+            jmg_included=["panda_arm"],
+        ),
+        context,
+    )
+
+    status = servicer.EpisodeCancel(Empty(), context)
+
+    assert context.code is None
+    assert status.code == 1
+    assert not (tmp_path / "data" / "lerobot" / "cancelled_dataset").exists()
+
+
 def test_lerobot_recorder_records_joint_command_as_action(tmp_path: Path) -> None:
     recorder = LerobotDataRecorder(tmp_path, RecorderActionSpyBackend())
     options = RecordOptions(
@@ -338,6 +358,31 @@ def test_lerobot_recorder_records_joint_command_as_action(tmp_path: Path) -> Non
 
     assert sample["observation.state"].tolist() == pytest.approx([1.0, 2.0])
     assert sample["action"].tolist() == pytest.approx([0.25, 0.75])
+
+
+def test_lerobot_recorder_cancel_discards_episode_and_allows_retry(tmp_path: Path) -> None:
+    recorder = LerobotDataRecorder(tmp_path, RecorderActionSpyBackend())
+    options = RecordOptions(
+        repo_name="retry_dataset",
+        task_text="retry task",
+        fps=5,
+        jmg_included=["arm"],
+    )
+
+    cancelled_job = recorder.episode_start(options)
+    cancel_status = recorder.episode_cancel()
+    retry_job = recorder.episode_start(options)
+    end_status = recorder.episode_end()
+
+    dataset = LeRobotDataset(
+        repo_id="retry_dataset",
+        root=tmp_path / "data" / "lerobot" / "retry_dataset",
+    )
+    assert cancelled_job.episode_id == 0
+    assert cancel_status.code == 1
+    assert retry_job.episode_id == 0
+    assert end_status.code == 1
+    assert dataset.num_episodes == 1
 
 
 def _create_replay_dataset(tmp_path: Path, repo_name: str) -> None:

@@ -14,5 +14,9 @@ class DataRecorder(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def episode_cancel(self) -> Status:
+        raise NotImplementedError
+
+    @abstractmethod
     def episode_replay(self, info: RecordInfo) -> Status:
         raise NotImplementedError

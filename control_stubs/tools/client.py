@@ -185,6 +185,9 @@ class RobotDataStub:
     def episode_end(self) -> common_pb2.Status:
         return self._stub.EpisodeEnd(common_pb2.Empty())
 
+    def episode_cancel(self) -> common_pb2.Status:
+        return self._stub.EpisodeCancel(common_pb2.Empty())
+
     def episode_replay(self, repo_name: str, episode_id: int) -> common_pb2.Status:
         return self._stub.EpisodeReplay(
             robot_data_pb2.RecordInfo(repo_name=repo_name, episode_id=episode_id)

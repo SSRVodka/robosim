@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import shutil
 import threading
 import time
 from dataclasses import dataclass
@@ -121,6 +122,12 @@ class LerobotDataRecorder(DataRecorder):
         )
 
     def episode_end(self) -> Status:
+        return self._finish_episode(save=True)
+
+    def episode_cancel(self) -> Status:
+        return self._finish_episode(save=False)
+
+    def _finish_episode(self, *, save: bool) -> Status:
         with self._lock:
             if self._session is None:
                 raise RuntimeError("recording is not in progress")
@@ -130,17 +137,23 @@ class LerobotDataRecorder(DataRecorder):
         session.thread.join()
 
         try:
-            if session.failure is not None:
+            if save and session.failure is not None:
                 if session.dataset.has_pending_frames():
                     session.dataset.clear_episode_buffer()
                 raise session.failure
             if session.dataset.has_pending_frames():
-                session.dataset.save_episode()
+                if save:
+                    session.dataset.save_episode()
+                else:
+                    session.dataset.clear_episode_buffer()
             self._prune_empty_image_dirs(session.plan.dataset_root)
-            return Status(code=common_pb2.STATUS_SUCCESS, message="recording finished")
+            message = "recording finished" if save else "recording cancelled"
+            return Status(code=common_pb2.STATUS_SUCCESS, message=message)
         finally:
             with contextlib.suppress(Exception):
                 session.dataset.finalize()
+            if not save and session.dataset.meta.total_episodes == 0:
+                shutil.rmtree(session.plan.dataset_root)
             with self._lock:
                 if self._session is session:
                     self._session = None
