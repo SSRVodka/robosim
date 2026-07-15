@@ -3,6 +3,8 @@ from __future__ import annotations
 import pytest
 
 from control_stubs import common_pb2, robot_core_pb2, robot_data_pb2
+from control_stubs.tools import teleop
+from control_stubs.tools.joycon import JoyConInput
 from control_stubs.tools.teleop import (
     EpisodeController,
     InputSnapshot,
@@ -244,3 +246,88 @@ def test_teleop_parser_enables_parameterized_joycon_collection() -> None:
     assert args.joint_target == ["panda_hand"]
     assert args.repo_name == "demo1"
     assert args.reset_between_episodes
+
+
+class ClosingInput:
+    fd = 42
+
+    def __init__(self, calls: list[str]) -> None:
+        self.calls = calls
+
+    def close(self) -> None:
+        self.calls.append("input_close")
+
+
+class ClosingRobotCore:
+    def get_robot_spec(self) -> robot_core_pb2.RobotSpecification:
+        return _spec()
+
+    def servo_control_stream(self, commands):
+        del commands
+        return iter(())
+
+
+class FailingRobotData(FakeRobotData):
+    def episode_cancel(self) -> common_pb2.Status:
+        self.calls.append("cancel")
+        raise RuntimeError("cancel failed")
+
+
+class ClosingClient(FakeClient):
+    def __init__(self, *, cancel_fails: bool = False) -> None:
+        super().__init__()
+        self.robot_core = ClosingRobotCore()
+        if cancel_fails:
+            self.robot_data = FailingRobotData(self.calls)
+
+    def close(self) -> None:
+        self.calls.append("client_close")
+
+
+def test_joycon_run_closes_device_and_client_when_episode_cancel_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = ClosingClient(cancel_fails=True)
+    input_device = ClosingInput(client.calls)
+    monkeypatch.setattr(teleop, "RobosimClient", lambda *args: client)
+    monkeypatch.setattr(JoyConInput, "open", lambda *args, **kwargs: input_device)
+    args = build_parser().parse_args(
+        [
+            "--input",
+            "joycon",
+            "--input-device",
+            "/dev/input/fake",
+            "--twist-target",
+            "left_arm:left_tool",
+            "--joint-target",
+            "left_hand",
+            "--repo-name",
+            "quick_dataset",
+        ]
+    )
+
+    with pytest.raises(RuntimeError, match="cancel failed"):
+        teleop.run(args)
+
+    assert "input_close" in client.calls
+    assert "client_close" in client.calls
+
+
+def test_joycon_run_closes_client_when_device_open_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = ClosingClient()
+    monkeypatch.setattr(teleop, "RobosimClient", lambda *args: client)
+
+    def fail_open(*args, **kwargs):
+        raise OSError("device unavailable")
+
+    monkeypatch.setattr(JoyConInput, "open", fail_open)
+    args = build_parser().parse_args(
+        ["--input", "joycon", "--input-device", "/dev/input/missing"]
+    )
+
+    with pytest.raises(OSError, match="device unavailable"):
+        teleop.run(args)
+
+    assert "client_close" in client.calls

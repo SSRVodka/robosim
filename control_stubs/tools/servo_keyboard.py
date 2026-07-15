@@ -481,22 +481,24 @@ def run(args: argparse.Namespace) -> int:
                     last_joint_velocity,
                 )
         finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, original)
-            motion.stop()
-            last_twist, last_joint_velocity = _emit_commands(
-                stream,
-                bindings,
-                motion,
-                time.monotonic(),
-                last_twist,
-                last_joint_velocity,
-            )
-            if episode is not None:
-                episode.stop()
-            stream.close()
-            response_thread.join(timeout=1.0)
-            sys.stdout.write("\n")
-            sys.stdout.flush()
+            try:
+                termios.tcsetattr(fd, termios.TCSADRAIN, original)
+                motion.stop()
+                last_twist, last_joint_velocity = _emit_commands(
+                    stream,
+                    bindings,
+                    motion,
+                    time.monotonic(),
+                    last_twist,
+                    last_joint_velocity,
+                )
+                if episode is not None:
+                    episode.stop()
+            finally:
+                stream.close()
+                response_thread.join(timeout=1.0)
+                sys.stdout.write("\n")
+                sys.stdout.flush()
         return 0
     finally:
         client.close()

@@ -322,13 +322,7 @@ def _run_joycon(args: argparse.Namespace) -> int:
     if args.rate <= 0.0:
         raise ValueError("--rate must be > 0")
     client = RobosimClient(args.host, args.port)
-    input_device = JoyConInput.open(
-        args.input_device,
-        deadzone=args.deadzone,
-        linear_speed=args.linear_step,
-        angular_speed=args.angular_step,
-        joint_speed=args.joint_step,
-    )
+    input_device: JoyConInput | None = None
     stream = CommandStream()
     stop_event = threading.Event()
     response_thread: threading.Thread | None = None
@@ -340,6 +334,13 @@ def _run_joycon(args: argparse.Namespace) -> int:
 
             print(format_robot_spec(spec))
             return 0
+        input_device = JoyConInput.open(
+            args.input_device,
+            deadzone=args.deadzone,
+            linear_speed=args.linear_step,
+            angular_speed=args.angular_step,
+            joint_speed=args.joint_step,
+        )
         twist_targets, joint_targets = resolve_target_requests(
             spec,
             twist_targets=list(args.twist_target),
@@ -388,15 +389,22 @@ def _run_joycon(args: argparse.Namespace) -> int:
                 elif episode is not None:
                     episode.handle(event)
     finally:
-        if "session" in locals():
-            session.stop()
-        if episode is not None:
-            episode.stop()
-        input_device.close()
-        stream.close()
-        if response_thread is not None:
-            response_thread.join(timeout=1.0)
-        client.close()
+        try:
+            if "session" in locals():
+                session.stop()
+        finally:
+            try:
+                if episode is not None:
+                    episode.stop()
+            finally:
+                try:
+                    if input_device is not None:
+                        input_device.close()
+                finally:
+                    stream.close()
+                    if response_thread is not None:
+                        response_thread.join(timeout=1.0)
+                    client.close()
     return 0
 
 
