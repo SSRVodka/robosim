@@ -513,7 +513,11 @@ position target；velocity/twist/torque 控制下的 `get_joint_command_state()`
 ## 关于 LeRobot 数据录制
 
 ### 1. 录制入口
-- `RobotDataService`，仅暴露 `EpisodeStart` / `EpisodeEnd`；
+- 当前 `RobotDataService` 暴露 `EpisodeStart` / `EpisodeEnd` / `EpisodeReplay`。
+  v0.0.6 目标 contract 增加 `EpisodeCancel`；
+- `EpisodeEnd` 保存当前 episode，`EpisodeCancel` 丢弃当前尚未落盘的 episode；
+  两者都必须停止采样线程、finalize dataset 并释放 recorder activity，
+  使快速采集客户端可以立即开始下一个 episode；
 - gRPC server 启动时构造一个 `LerobotDataRecorder`，数据根目录固定为仓库下 `data/lerobot/<repo_name>`；
 - 同一 backend 实例同一时刻只允许一个录制 session。
 
@@ -600,7 +604,58 @@ position target；velocity/twist/torque 控制下的 `get_joint_command_state()`
 
 ## 关于 ServoControlStream 调试客户端
 
-- 调试客户端位于 `control_stubs/tools/servo_keyboard.py`，职责仅限于把终端键盘事件转成 `ServoCommand` 流，不引入新的控制抽象；
-- 客户端启动时先读取 `RobotSpecification`，默认自动选择一个带 end effector 的 `jmg` 作为 twist 控制目标；若存在较小的非 ee `jmg`，则同时把它作为 joint 调试目标；
-- 终端 raw mode 只能稳定拿到 key-down，不能可靠拿到 key-up，因此客户端采用“按键生效一小段保持时间，超时后自动补发零速度”的语义，避免后端持续保持旧 velocity target；
-- `ServoCommand` 是 `oneof`，因此 twist 和 joint 调试命令始终分开发送，客户端每个周期最多发一条 twist 命令和一条 joint 命令。
+### 1. 设备无关的会话核心
+
+- `control_stubs/tools/teleop.py` 负责设备无关的 servo session、JMG 目标选择、
+  录制 episode 状态转换与可选 world reset；它不解析终端或 Linux input event。
+- `control_stubs/tools/servo_keyboard.py` 保留键盘输入与旧入口兼容；
+  `control_stubs/tools/joycon.py` 单独负责 `evdev` 设备能力检查、绝对轴归一化、
+  deadzone 和 right Joy-Con profile。设备适配器只输出 motion、target switch、
+  episode save/retry 和 stop 等语义事件，不包含 robot/JMG/dataset 知识。
+- 不引入 plugin registry、通用 mapping DSL 或 LeRobot robot/teleoperator 封装。
+  当前验收范围只需 keyboard 与一个独立 right Joy-Con profile。
+
+### 2. JMG 选择与切换
+
+- session 启动时读取 `RobotSpecification`，从实际 group/end-effector 声明构造
+  Cartesian target 与 direct-joint target；不硬编码 Panda、arm、hand 或关节名。
+- `--twist-target GROUP[:EE]` 和 `--joint-target GROUP` 可重复指定 allowlist 及初始顺序；
+  未指定时从 robot spec 自动发现候选项。Cartesian 与 direct-joint target
+  可在同一 stream 中独立切换和发送。
+- 切换前必须向旧 target 发送零速度，再更新 active target，避免后端保留
+  stale velocity command。`ServoCommand` 仍然遵守 `oneof`，twist 和 joint 命令分开发送。
+- 键盘 raw mode 仍采用有限 hold time 和超时零速度；Joy-Con 则使用设备维护的
+  axis/button state，并在断连或退出时强制清零。
+
+### 3. 快速 LeRobotDataset 采集
+
+- 统一入口 `python -m control_stubs.tools.teleop` 通过
+  `--input keyboard|joycon` 显式启用输入适配器；Joy-Con 还需要
+  `--input-device` 和 `--input-profile joycon-right`。未指定 `--repo-name` 时只运行 teleop。
+- 指定 `--repo-name` 时，客户端立即开始首个 episode。Save 事件调用
+  `EpisodeEnd`，retry 事件调用 `EpisodeCancel`；两者完成后再开始下一个
+  episode。Stop 事件丢弃未完成 episode 后退出，不保存无意的部分轨迹。
+- dataset schema 在首个 episode 固定，录制的 joint allowlist 默认为所有可切换
+  teleop targets 的有序并集，因此运行时 JMG 切换不会改变 action shape。
+- `--reset-between-episodes` 为 opt-in。顺序固定为 save/cancel -> `ResetWorld`
+  -> next `EpisodeStart`；reset 不能与 active recorder 并发，reset 失败时不得开始
+  下一个 episode。MuJoCo 与 PyBullet 支持恢复初始 scene；Gazebo 在真正实现前
+  必须返回 `UNIMPLEMENTED`，不得仅记录 warning 后虚报 success。
+
+### 4. 失败处理与测试边界
+
+- 设备路径/权限/能力不匹配、device disconnect、gRPC/reset/recorder 失败均必须停止
+  所有 active targets，丢弃 pending episode，关闭 stream/device 并非零退出。
+- 自动化测试不依赖真实硬件或 `/dev/input/event*`。Joy-Con 测试直接向纯事件转换器
+  输入 synthetic `EV_ABS` / `EV_KEY` 值和 `AbsInfo`；session 测试使用 fake input/client。
+- `/dev/input/event15` 只用于不属于 `pytest` 的显式本地验收，用于确认当前
+  kernel/Joy-Con 实际上报的按键与 profile 一致。
+
+本迭代输入依据：
+
+- Linux input event codes: `https://docs.kernel.org/input/event-codes.html`
+- python-evdev 1.9.3 tutorial/API: `https://python-evdev.readthedocs.io/en/stable/tutorial.html`,
+  `https://python-evdev.readthedocs.io/en/stable/apidoc.html`
+- LeRobot gamepad/episode workflow reference（official main documentation；本地实现对照已安装的
+  LeRobot 0.5.1 `teleoperators/gamepad` 与 `scripts/lerobot_record.py`）:
+  `https://github.com/huggingface/lerobot/blob/main/docs/source/hilserl.mdx`

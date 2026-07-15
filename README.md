@@ -205,6 +205,52 @@ python3 -m control_stubs.tools.servo_keyboard --jmg panda_arm --ee hand
 python3 -m control_stubs.tools.servo_keyboard --help
 ```
 
+##### v0.0.6 快速采集入口（当前迭代目标）
+
+本迭代将把键盘输入、外设输入、JMG 切换与 LeRobotDataset episode 管理
+收敛到同一个设备无关入口。目标 Joy-Con 命令为：
+
+```bash
+python3 -m control_stubs.tools.teleop \
+  --input joycon \
+  --input-device /dev/input/event15 \
+  --input-profile joycon-right \
+  --twist-target panda_arm:hand \
+  --joint-target panda_hand \
+  --repo-name demo1 \
+  --task-text "pick and place" \
+  --fps 30 \
+  --reset-between-episodes
+```
+
+`--repo-name` 用于显式启用录制；不指定时只进行 teleop。
+`--twist-target GROUP[:EE]` 和 `--joint-target GROUP` 可重复使用，也可省略后从
+`GetRobotSpec` 自动发现。参数中的 Panda 名称只是 README 示例，实现不绑定该机器人。
+
+键盘将保留现有 motion keys，并增加：
+
+- `n`：切换下一个 Cartesian JMG/end-effector target；
+- `m`：切换下一个 direct-joint JMG target；
+- `e`：保存当前 episode 并开始下一个；
+- `c`：丢弃当前 episode 并立即重试；
+- `space`：当前 motion 清零；
+- `q`：丢弃未完成 episode 并退出。
+
+right Joy-Con 的目标 profile 为：
+
+- stick 控制 Cartesian X/Y，R/ZR 控制 Z 正/负；
+- 按住 rail modifier 时，stick 切换为 roll/pitch，R/ZR 切换为 yaw 正/负；
+- X/Y 控制当前 direct-joint target 正/负，可用于 gripper；
+- Home / stick press 分别切换 Cartesian / direct-joint target；
+- A 保存并进入下一个 episode，B 丢弃并重试，Plus 丢弃并退出。
+
+`--reset-between-episodes` 为 opt-in；开启后 save 和 retry 都会在新 episode 开始前
+调用 `ResetWorld`。MuJoCo 与 PyBullet 已有初始 scene reset 实现，但当前忽略
+`seed` 与 `randomization_params`；Gazebo reset 尚未实现，该模式必须明确失败而不得虚报成功。
+
+自动化测试只使用 synthetic evdev events 和 fake clients，不依赖 Joy-Con 或
+`/dev/input/event15`。真实外设只属于显式手工验收。
+
 > [!TIP]
 >
 > 对于unitree_g1，`drivers_sim/mujoco/assets/robots/unitree_g1/scene.xml`为上半身双臂模型。如需测试29dof的全身模型，请使用`python3 -m robosim.server --port 50051 --backend mujoco --no-headless --scene assets/robots/unitree_g1/g1_29dof.xml`来启动 robosim。
