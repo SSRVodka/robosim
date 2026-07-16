@@ -23,7 +23,6 @@ from control_stubs.tools.teleop import (
     EpisodeController,
     RecordingConfig,
     TeleopEvent,
-    resolve_target_requests,
 )
 from control_stubs.tools.teleop import (
     TargetCatalog as TargetCatalog,
@@ -386,18 +385,10 @@ def run(args: argparse.Namespace) -> int:
         if args.list:
             print(format_robot_spec(spec))
             return 0
-        twist_targets, joint_targets = resolve_target_requests(
+        targets = build_target_catalog(
             spec,
             twist_targets=list(args.twist_target),
             joint_targets=list(args.joint_target),
-            legacy_jmg=args.jmg,
-            legacy_ee=args.ee,
-            legacy_joint_group=args.joint_group,
-        )
-        targets = build_target_catalog(
-            spec,
-            twist_targets=twist_targets,
-            joint_targets=joint_targets,
         )
         bindings = _bindings_from_catalog(targets)
         stream = CommandStream()
@@ -508,15 +499,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", default="localhost")
     parser.add_argument("--port", type=int, default=50051)
-    parser.add_argument(
-        "--jmg",
-        help="Joint model group used for twist servo target selection",
-    )
-    parser.add_argument("--ee", help="End effector name used for twist servo target selection")
-    parser.add_argument(
-        "--joint-group",
-        help="Joint model group used for direct joint velocity servo",
-    )
     parser.add_argument(
         "--twist-target",
         action="append",

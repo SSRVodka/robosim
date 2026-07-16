@@ -5,9 +5,9 @@
 ## CLI surface cleanup
 - [x] 在 `DESIGN.md` 与 README examples 中将 `--twist-target` / `--joint-target`
   定义为唯一 servo target 选择接口；
-- [ ] 删除 `--jmg`、`--ee`、`--joint-group` 与 legacy target 参数转换代码；
-- [ ] 测试旧参数被 parser 拒绝、新参数与自动发现行为保持可用；
-- [ ] 通过 focused/full `pytest`、`ruff`、`mypy` 与 CLI help smoke。
+- [x] 删除 `--jmg`、`--ee`、`--joint-group` 与 legacy target 参数转换代码；
+- [x] 测试旧参数被 parser 拒绝、新参数与自动发现行为保持可用；
+- [x] 通过 focused/full `pytest`、`ruff`、`mypy` 与 CLI help smoke。
 
 ## Documentation checkpoint
 - [x] 在 `DESIGN.md` 记录设备无关 teleop session、JMG 切换、Joy-Con 适配、

@@ -249,46 +249,6 @@ def build_target_catalog(
     return TargetCatalog(tuple(twists), tuple(joints))
 
 
-def resolve_target_requests(
-    spec: core_pb2.RobotSpecification,
-    *,
-    twist_targets: list[str],
-    joint_targets: list[str],
-    legacy_jmg: str | None,
-    legacy_ee: str | None,
-    legacy_joint_group: str | None,
-) -> tuple[list[str], list[str]]:
-    if twist_targets and (legacy_jmg or legacy_ee):
-        raise ValueError("--twist-target cannot be combined with --jmg/--ee")
-    if joint_targets and legacy_joint_group:
-        raise ValueError("--joint-target cannot be combined with --joint-group")
-
-    resolved_twists = list(twist_targets)
-    if not resolved_twists and (legacy_jmg or legacy_ee):
-        group_name = legacy_jmg
-        if group_name is None and legacy_ee:
-            group = next(
-                (
-                    entry
-                    for entry in spec.joint_model_groups
-                    if any(ee.name == legacy_ee for ee in entry.end_effectors)
-                ),
-                None,
-            )
-            if group is None:
-                raise ValueError(f"unable to find end effector '{legacy_ee}'")
-            group_name = group.name
-        assert group_name is not None
-        resolved_twists.append(
-            f"{group_name}:{legacy_ee}" if legacy_ee else group_name
-        )
-
-    resolved_joints = list(joint_targets)
-    if not resolved_joints and legacy_joint_group:
-        resolved_joints.append(legacy_joint_group)
-    return resolved_twists, resolved_joints
-
-
 def build_parser() -> argparse.ArgumentParser:
     from control_stubs.tools.servo_keyboard import build_parser as build_keyboard_parser
 
@@ -341,18 +301,10 @@ def _run_joycon(args: argparse.Namespace) -> int:
             angular_speed=args.angular_step,
             joint_speed=args.joint_step,
         )
-        twist_targets, joint_targets = resolve_target_requests(
+        targets = build_target_catalog(
             spec,
             twist_targets=list(args.twist_target),
             joint_targets=list(args.joint_target),
-            legacy_jmg=args.jmg,
-            legacy_ee=args.ee,
-            legacy_joint_group=args.joint_group,
-        )
-        targets = build_target_catalog(
-            spec,
-            twist_targets=twist_targets,
-            joint_targets=joint_targets,
         )
         session = ServoSession(targets, stream.send)
         responses = client.robot_core.servo_control_stream(stream)

@@ -158,6 +158,30 @@ def test_keyboard_parser_accepts_repeatable_targets() -> None:
     assert args.joint_target == ["left_gripper", "right_gripper"]
 
 
+@pytest.mark.parametrize(
+    "legacy_args",
+    [
+        ["--jmg", "arm"],
+        ["--ee", "tool0"],
+        ["--joint-group", "gripper"],
+    ],
+)
+def test_keyboard_parser_rejects_removed_target_options(
+    legacy_args: list[str],
+) -> None:
+    with pytest.raises(SystemExit):
+        servo_keyboard.build_parser().parse_args(legacy_args)
+
+
+def test_target_catalog_discovers_targets_when_options_are_omitted() -> None:
+    targets = servo_keyboard.build_target_catalog(_make_spec())
+
+    assert targets.active_twist is not None
+    assert targets.active_joint is not None
+    assert targets.active_twist.group_name == "arm"
+    assert targets.active_joint.group_name == "gripper"
+
+
 def test_keyboard_episode_keys_map_to_device_neutral_events() -> None:
     assert servo_keyboard.episode_event_from_key("e") is TeleopEvent.SAVE_EPISODE
     assert servo_keyboard.episode_event_from_key("c") is TeleopEvent.RETRY_EPISODE
