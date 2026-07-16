@@ -194,7 +194,7 @@ robot: panda
 您可以在笛卡尔坐标系下通过键盘驱动末端执行器：
 
 ```bash
-python3 -m control_stubs.tools.servo_keyboard --jmg panda_arm --ee hand
+python3 -m control_stubs.tools.servo_keyboard --twist-target panda_arm:hand
 ```
 
 现在您的终端应该打印消息提示如何操纵这个关节模型组了。根据提示操纵即可。
@@ -218,7 +218,7 @@ python3 -m control_stubs.tools.teleop \
 `--twist-target GROUP[:EE]` 和 `--joint-target GROUP` 均可重复使用。运行期间按 `n`
 切换 Cartesian target，按 `m` 切换 direct-joint target；切换时客户端会先清零旧
 target。省略这些参数时，候选项由 `GetRobotSpec` 自动发现，因此实现不绑定 Panda
-或特定的 arm/gripper 配置。
+或特定的 arm/gripper 配置。这两个参数是唯一的 servo target 选择接口。
 
 > [!TIP]
 >

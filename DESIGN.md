@@ -608,7 +608,7 @@ position target；velocity/twist/torque 控制下的 `get_joint_command_state()`
 
 - `control_stubs/tools/teleop.py` 负责设备无关的 servo session、JMG 目标选择、
   录制 episode 状态转换与可选 world reset；它不解析终端或 Linux input event。
-- `control_stubs/tools/servo_keyboard.py` 保留键盘输入与旧入口兼容；
+- `control_stubs/tools/servo_keyboard.py` 保留键盘输入与独立模块入口；
   `control_stubs/tools/joycon.py` 单独负责 `evdev` 设备能力检查、绝对轴归一化、
   deadzone 和 right Joy-Con profile。设备适配器只输出 motion、target switch、
   episode save/retry 和 stop 等语义事件，不包含 robot/JMG/dataset 知识。
@@ -622,6 +622,8 @@ position target；velocity/twist/torque 控制下的 `get_joint_command_state()`
 - `--twist-target GROUP[:EE]` 和 `--joint-target GROUP` 可重复指定 allowlist 及初始顺序；
   未指定时从 robot spec 自动发现候选项。Cartesian 与 direct-joint target
   可在同一 stream 中独立切换和发送。
+- servo CLI 不提供 `--jmg`、`--ee` 或 `--joint-group` 兼容参数，也不维护参数转换层；
+  Cartesian 和 direct-joint target 分别只通过上述两个参数表达。
 - 切换前必须向旧 target 发送零速度，再更新 active target，避免后端保留
   stale velocity command。`ServoCommand` 仍然遵守 `oneof`，twist 和 joint 命令分开发送。
 - 键盘 raw mode 仍采用有限 hold time 和超时零速度；Joy-Con 则使用设备维护的
