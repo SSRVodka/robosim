@@ -1,0 +1,50 @@
+#usda 1.0
+
+over "World"
+{
+    def PhysicsScene "PhysicsScene"
+    {
+        vector3f physics:gravityDirection = (0, 0, -1)
+        float physics:gravityMagnitude = 9.81
+    }
+
+    over "Objects"
+    {
+        over "Anchor" (
+            prepend apiSchemas = ["PhysicsCollisionAPI"]
+        )
+        {
+            bool physics:collisionEnabled = true
+        }
+
+        over "DynamicBox" (
+            prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
+        )
+        {
+            bool physics:rigidBodyEnabled = true
+            float physics:mass = 1
+
+            over "Geometry" (
+                prepend apiSchemas = ["PhysicsCollisionAPI"]
+            )
+            {
+                bool physics:collisionEnabled = true
+            }
+        }
+    }
+
+    over "Joints"
+    {
+        def PhysicsRevoluteJoint "BoxJoint"
+        {
+            uniform token physics:axis = "Y"
+            rel physics:body0 = </World>
+            rel physics:body1 = </World/Objects/DynamicBox>
+            point3f physics:localPos0 = (0, 0, 0.35)
+            point3f physics:localPos1 = (0, 0, 0)
+            float physics:lowerLimit = -45
+            float physics:upperLimit = 45
+        }
+    }
+}
+

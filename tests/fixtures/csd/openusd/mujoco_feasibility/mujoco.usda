@@ -1,0 +1,27 @@
+#usda 1.0
+
+over "World" (
+    prepend variantSets = "physicsBackend"
+    variants = {
+        string physicsBackend = "mujoco"
+    }
+)
+{
+    variantSet "physicsBackend" = {
+        "mujoco" {
+            over "PhysicsScene" (
+                prepend apiSchemas = ["MjcSceneAPI"]
+            )
+            {
+                double mjc:option:timestep = 0.002
+            }
+        }
+
+        "pybullet" {
+        }
+
+        "gazebo" {
+        }
+    }
+}
+
