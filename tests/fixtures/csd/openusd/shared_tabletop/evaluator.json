@@ -1,0 +1,6 @@
+{
+  "evaluator_id": "predicate_keep_distance",
+  "kind": "success_predicate",
+  "minimum_distance_m": 0.25
+}
+

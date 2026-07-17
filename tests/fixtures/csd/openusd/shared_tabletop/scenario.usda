@@ -1,0 +1,127 @@
+#usda 1.0
+
+def Xform "World" (
+    prepend apiSchemas = ["RobosimCsdRootAPI", "RobosimRandomizationAPI"]
+)
+{
+    uniform string robosim:csd:id = "csd_shared_tabletop"
+    uniform string robosim:csd:schemaVersion = "0.1"
+    uniform string robosim:csd:taskInstanceId = "task_shared_tabletop"
+    uniform string robosim:csd:worldTemplateId = "world_tabletop"
+
+    def Xform "Environment" (
+        prepend apiSchemas = ["RobosimEntityAPI"]
+    )
+    {
+        uniform string robosim:entity:assetId = "world_tabletop"
+        uniform string robosim:entity:id = "environment"
+        uniform token robosim:entity:role = "environment"
+        uniform bool robosim:entity:static = true
+
+        def Scope "Surfaces"
+        {
+            def Cube "Table" (
+                prepend apiSchemas = ["RobosimEntityAPI"]
+            )
+            {
+                uniform string robosim:entity:assetId = "surface_table"
+                uniform string robosim:entity:id = "table"
+                uniform token robosim:entity:role = "support_surface"
+                uniform bool robosim:entity:static = true
+                double size = 1
+                color3f[] primvars:displayColor = [(0.42, 0.30, 0.18)]
+                double3 xformOp:scale = (1.2, 0.8, 0.1)
+                double3 xformOp:translate = (0, 0, -0.05)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+        }
+    }
+
+    def Xform "Robot" (
+        prepend apiSchemas = ["RobosimEntityAPI"]
+    )
+    {
+        uniform string robosim:entity:assetId = "robot_franka_panda"
+        uniform string robosim:entity:id = "robot"
+        uniform token robosim:entity:role = "robot"
+        uniform bool robosim:entity:static = true
+        double3 xformOp:translate = (-0.45, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+
+    def Scope "Materials"
+    {
+        def Material "BoxMaterial"
+        {
+            token outputs:surface.connect = </World/Materials/BoxMaterial/PreviewSurface.outputs:surface>
+
+            def Shader "PreviewSurface"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.8, 0.25, 0.15)
+                float inputs:metallic = 0
+                float inputs:roughness = 0.45
+                token outputs:surface
+            }
+        }
+    }
+
+    def Scope "Objects"
+    {
+        def Xform "DynamicBox" (
+            prepend apiSchemas = ["RobosimEntityAPI"]
+        )
+        {
+            uniform string robosim:entity:assetId = "object_box"
+            uniform string robosim:entity:id = "dynamic_box"
+            uniform token robosim:entity:role = "target_object"
+            uniform bool robosim:entity:static = false
+            double3 xformOp:translate = (0, 0, 0.35)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            def Cube "Geometry" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </World/Materials/BoxMaterial>
+                double size = 0.3
+            }
+        }
+
+        def Cube "Anchor" (
+            prepend apiSchemas = ["RobosimEntityAPI"]
+        )
+        {
+            uniform string robosim:entity:assetId = "object_anchor"
+            uniform string robosim:entity:id = "anchor"
+            uniform token robosim:entity:role = "obstacle"
+            uniform bool robosim:entity:static = true
+            double size = 0.2
+            color3f[] primvars:displayColor = [(0.2, 0.3, 0.8)]
+            double3 xformOp:translate = (0.5, 0, 0.1)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+        }
+    }
+
+    def Scope "Joints"
+    {
+    }
+
+    def Camera "Camera"
+    {
+        float focalLength = 35
+        double3 xformOp:rotateXYZ = (67, 0, 43)
+        double3 xformOp:translate = (2.5, -2.5, 1.8)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ"]
+    }
+
+    def DistantLight "KeyLight"
+    {
+        float inputs:angle = 0.5
+        color3f inputs:color = (1, 0.95, 0.9)
+        float inputs:intensity = 1000
+        double3 xformOp:rotateXYZ = (35, -25, -25)
+        uniform token[] xformOpOrder = ["xformOp:rotateXYZ"]
+    }
+}
+

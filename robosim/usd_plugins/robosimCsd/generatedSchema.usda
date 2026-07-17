@@ -45,6 +45,26 @@ class "RobosimRandomizationAPI" (
     uniform int64 robosim:randomization:seed = 0
 }
 
+class "RobosimPyBulletSceneAPI" (
+    customData = {
+        string userDocBrief = "PyBullet-specific physics-scene overrides."
+    }
+)
+{
+    uniform double robosim:pybullet:fixedTimeStep = 0.004166666666666667
+    uniform int robosim:pybullet:numSolverIterations = 50
+}
+
+class "RobosimGazeboSceneAPI" (
+    customData = {
+        string userDocBrief = "Gazebo-specific physics-scene overrides."
+    }
+)
+{
+    uniform double robosim:gazebo:maxStepSize = 0.001
+    uniform double robosim:gazebo:realTimeUpdateRate = 1000
+}
+
 class RobosimRelationship "RobosimRelationship" (
     customData = {
         string userDocBrief = "Machine-readable semantic relationship between CSD entities."

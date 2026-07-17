@@ -1,0 +1,19 @@
+#usda 1.0
+
+over "World" (
+    prepend variantSets = "physicsBackend"
+)
+{
+    variantSet "physicsBackend" = {
+        "gazebo" {
+            over "PhysicsScene" (
+                prepend apiSchemas = ["RobosimGazeboSceneAPI"]
+            )
+            {
+                uniform double robosim:gazebo:maxStepSize = 0.001
+                uniform double robosim:gazebo:realTimeUpdateRate = 1000
+            }
+        }
+    }
+}
+

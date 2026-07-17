@@ -1,0 +1,78 @@
+#usda 1.0
+
+over "World"
+{
+    def PhysicsScene "PhysicsScene"
+    {
+        vector3f physics:gravityDirection = (0, 0, -1)
+        float physics:gravityMagnitude = 9.81
+    }
+
+    over "Materials"
+    {
+        over "BoxMaterial" (
+            prepend apiSchemas = ["PhysicsMaterialAPI"]
+        )
+        {
+            float physics:dynamicFriction = 0.7
+            float physics:restitution = 0.05
+            float physics:staticFriction = 0.8
+        }
+    }
+
+    over "Environment"
+    {
+        over "Surfaces"
+        {
+            over "Table" (
+                prepend apiSchemas = ["PhysicsCollisionAPI"]
+            )
+            {
+                bool physics:collisionEnabled = true
+            }
+        }
+    }
+
+    over "Objects"
+    {
+        over "DynamicBox" (
+            prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
+        )
+        {
+            bool physics:rigidBodyEnabled = true
+            point3f physics:centerOfMass = (0, 0, 0)
+            float3 physics:diagonalInertia = (0.015, 0.015, 0.015)
+            float physics:mass = 1
+            quatf physics:principalAxes = (1, 0, 0, 0)
+
+            over "Geometry" (
+                prepend apiSchemas = ["PhysicsCollisionAPI"]
+            )
+            {
+                bool physics:collisionEnabled = true
+            }
+        }
+
+        over "Anchor" (
+            prepend apiSchemas = ["PhysicsCollisionAPI"]
+        )
+        {
+            bool physics:collisionEnabled = true
+        }
+    }
+
+    over "Joints"
+    {
+        def PhysicsRevoluteJoint "BoxJoint"
+        {
+            uniform token physics:axis = "Y"
+            rel physics:body0 = </World>
+            rel physics:body1 = </World/Objects/DynamicBox>
+            point3f physics:localPos0 = (0, 0, 0.35)
+            point3f physics:localPos1 = (0, 0, 0)
+            float physics:lowerLimit = -45
+            float physics:upperLimit = 45
+        }
+    }
+}
+

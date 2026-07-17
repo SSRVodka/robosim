@@ -1,0 +1,19 @@
+#usda 1.0
+
+over "World" (
+    prepend variantSets = "physicsBackend"
+)
+{
+    variantSet "physicsBackend" = {
+        "pybullet" {
+            over "PhysicsScene" (
+                prepend apiSchemas = ["RobosimPyBulletSceneAPI"]
+            )
+            {
+                uniform double robosim:pybullet:fixedTimeStep = 0.004166666666666667
+                uniform int robosim:pybullet:numSolverIterations = 80
+            }
+        }
+    }
+}
+

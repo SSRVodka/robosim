@@ -1,0 +1,48 @@
+#usda 1.0
+
+over "World"
+{
+    uniform int64 robosim:randomization:seed = 17
+    custom uniform token robosim:randomization:value:lighting = "soft_left"
+    custom uniform double robosim:randomization:value:objectSpacingM = 0.5
+
+    def Scope "Task" (
+        prepend apiSchemas = ["RobosimTaskAPI"]
+    )
+    {
+        uniform string robosim:task:objective = "keep the box away from the anchor"
+    }
+
+    def Scope "Relationships"
+    {
+        def RobosimRelationship "BoxAvoidsAnchor"
+        {
+            rel robosim:relationship:object = </World/Objects/Anchor>
+            rel robosim:relationship:subject = </World/Objects/DynamicBox>
+            uniform double robosim:relationship:minDistanceM = 0.25
+            uniform token robosim:relationship:type = "avoid_contact"
+        }
+    }
+
+    def Scope "Sensors"
+    {
+        def RobosimSensorRequirement "RgbCamera"
+        {
+            uniform int2 robosim:sensor:minResolution = (64, 64)
+            uniform token robosim:sensor:requirement = "required"
+            rel robosim:sensor:source = </World/Camera>
+            uniform token robosim:sensor:type = "rgb"
+        }
+    }
+
+    def Scope "Evaluators"
+    {
+        def RobosimEvaluatorRef "KeepDistance"
+        {
+            uniform string robosim:evaluator:artifactId = "predicate_keep_distance"
+            uniform token robosim:evaluator:kind = "success_predicate"
+            uniform asset robosim:evaluator:path = @evaluator.json@
+        }
+    }
+}
+

@@ -27,6 +27,8 @@ result = {
             "RobosimEntityAPI",
             "RobosimTaskAPI",
             "RobosimRandomizationAPI",
+            "RobosimPyBulletSceneAPI",
+            "RobosimGazeboSceneAPI",
         )
     },
     "types": {

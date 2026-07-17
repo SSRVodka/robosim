@@ -1,0 +1,12 @@
+#usda 1.0
+
+over "World" (
+    prepend variantSets = "physicsBackend"
+)
+{
+    variantSet "physicsBackend" = {
+        "mujoco" {
+        }
+    }
+}
+
