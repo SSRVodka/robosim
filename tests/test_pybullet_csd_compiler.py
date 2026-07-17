@@ -32,6 +32,10 @@ def _load_registry_fixture(name: str) -> dict[str, object]:
 
 def _fixture_mesh_half_extents(path: Path) -> tuple[float, float, float]:
     name = path.stem
+    if name in {"box", "object_box"}:
+        return (0.15, 0.15, 0.15)
+    if name in {"anchor", "object_anchor"}:
+        return (0.1, 0.1, 0.1)
     if "tray" in name:
         return (0.08, 0.055, 0.012)
     if "marker" in name:
@@ -162,6 +166,56 @@ def test_compile_csd_to_pybullet_consumes_composed_openusd_stage(tmp_path: Path)
     }
     assert collision_mesh.attrib["filename"] == "object_box.obj"
     assert visual_color.attrib["rgba"] == "0.8 0.25 0.15 1"
+
+    client_id = p.connect(p.DIRECT)
+    try:
+        handles = _load_generated_scene(scene_root / "scene.py", client_id)
+        bodies = handles["bodies"]
+        assert isinstance(bodies, dict)
+        for name, expected_size in {
+            "dynamic_box": (0.3, 0.3, 0.3),
+            "anchor": (0.2, 0.2, 0.2),
+        }.items():
+            _, vertices = p.getMeshData(
+                int(bodies[name]),
+                -1,
+                flags=p.MESH_DATA_SIMULATION_MESH,
+                physicsClientId=client_id,
+            )
+            actual_size = tuple(
+                round(
+                    max(vertex[axis] for vertex in vertices)
+                    - min(vertex[axis] for vertex in vertices),
+                    6,
+                )
+                for axis in range(3)
+            )
+            assert actual_size == expected_size
+
+        camera = handles["metadata"]["cameras"][0]
+        view = p.computeViewMatrix(
+            cameraEyePosition=camera["position"],
+            cameraTargetPosition=camera["target"],
+            cameraUpVector=camera["up"],
+        )
+        projection = p.computeProjectionMatrixFOV(
+            fov=60.0,
+            aspect=float(camera["width"]) / float(camera["height"]),
+            nearVal=0.01,
+            farVal=10.0,
+        )
+        _, _, _, _, segmentation = p.getCameraImage(
+            int(camera["width"]),
+            int(camera["height"]),
+            viewMatrix=view,
+            projectionMatrix=projection,
+            renderer=p.ER_TINY_RENDERER,
+            physicsClientId=client_id,
+        )
+        for name in ("dynamic_box", "anchor"):
+            assert int((segmentation == int(bodies[name])).sum()) > 100
+    finally:
+        p.disconnect(client_id)
 
 
 def test_compile_csd_to_pybullet_blocks_invalid_openusd_relationship(tmp_path: Path) -> None:

@@ -54,6 +54,10 @@ def _load_registry_fixture(name: str) -> dict[str, object]:
 
 def _fixture_mesh_half_extents(path: Path) -> tuple[float, float, float]:
     name = path.stem
+    if name in {"box", "object_box"}:
+        return (0.15, 0.15, 0.15)
+    if name in {"anchor", "object_anchor"}:
+        return (0.1, 0.1, 0.1)
     if "tray" in name:
         return (0.08, 0.055, 0.012)
     if "mug" in name:

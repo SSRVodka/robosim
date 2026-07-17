@@ -74,6 +74,10 @@ def _required_element(parent: ET.Element, path: str) -> ET.Element:
 
 def _fixture_mesh_half_extents(path: Path) -> tuple[float, float, float]:
     name = path.stem
+    if name in {"box", "object_box"}:
+        return (0.15, 0.15, 0.15)
+    if name in {"anchor", "object_anchor"}:
+        return (0.1, 0.1, 0.1)
     if "tray" in name:
         return (0.08, 0.055, 0.012)
     if "marker" in name:
@@ -244,6 +248,34 @@ def test_compile_csd_to_mujoco_consumes_composed_openusd_stage(tmp_path: Path) -
         0.0,
         0.0,
     )
+    assert tuple(round(float(value), 6) for value in model.geom("dynamic_box_geom").size) == (
+        0.15,
+        0.15,
+        0.15,
+    )
+    assert tuple(round(float(value), 6) for value in model.geom("anchor_geom").size) == (
+        0.1,
+        0.1,
+        0.1,
+    )
+    data = mujoco.MjData(model)
+    mujoco.mj_forward(model, data)
+    renderer = mujoco.Renderer(model, height=512, width=512)
+    try:
+        renderer.enable_segmentation_rendering()
+        renderer.update_scene(data, camera="Camera")
+        segmentation = renderer.render()
+        for geom_name in ("dynamic_box_geom", "anchor_geom"):
+            geom_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, geom_name)
+            visible_pixels = int(
+                (
+                    (segmentation[:, :, 0] == geom_id)
+                    & (segmentation[:, :, 1] == int(mujoco.mjtObj.mjOBJ_GEOM))
+                ).sum()
+            )
+            assert visible_pixels > 100
+    finally:
+        renderer.close()
 
 
 @pytest.mark.parametrize("fixture_name", MUJOCO_POSITIVE_CSD_FIXTURES)
