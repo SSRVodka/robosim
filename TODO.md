@@ -18,8 +18,8 @@ during an implementation checkpoint without user approval.
 
 ## Checkpoint 2: MuJoCo
 
-- [ ] Adapt the existing MJCF compiler and cache to the typed OpenUSD reader.
-- [ ] Preserve the accepted MuJoCo load, semantic, relationship, physics,
+- [x] Adapt the existing MJCF compiler and cache to the typed OpenUSD reader.
+- [x] Preserve the accepted MuJoCo load, semantic, relationship, physics,
       render, validation-record, runtime-manifest, and package-local asset tests.
 - [ ] Delete JSON-only tests and helpers only after their semantic replacements
       pass.

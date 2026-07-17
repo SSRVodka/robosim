@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Generator, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from shutil import copytree
@@ -16,7 +16,9 @@ import pytest
 from control_stubs import common_pb2, sensing_pb2
 from control_stubs import robot_core_pb2 as core_pb2
 from robosim.backends.mujoco.backend import MuJoCoBackend
-from robosim.core import CsdRealizationManifest, compile_csd_to_mujoco
+from robosim.core import CsdRealizationManifest
+from robosim.core import compile_csd_to_mujoco as compile_csd_to_mujoco_stage
+from tests.openusd_fixture_authoring import author_openusd_csd
 
 SCENE_PATH = (
     Path(__file__).resolve().parent.parent
@@ -27,6 +29,7 @@ G1_29DOF_SCENE_PATH = (
     / "drivers_sim/mujoco/assets/robots/unitree_g1/g1_29dof.xml"
 )
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "csd"
+SHARED_OPENUSD_CSD = FIXTURE_ROOT / "openusd" / "shared_tabletop" / "csd.usda"
 
 
 @pytest.fixture
@@ -49,6 +52,11 @@ def _wait_for_condition(predicate: Callable[[], bool], timeout: float = 1.0) -> 
 
 def _load_json_fixture(name: str) -> dict[str, object]:
     return json.loads((FIXTURE_ROOT / name).read_text(encoding="utf-8"))
+
+
+def compile_csd_to_mujoco(*, csd: Mapping[str, object], **kwargs: object):
+    csd_path = author_openusd_csd(csd, Path(kwargs["output_root"]).parent)
+    return compile_csd_to_mujoco_stage(csd_path=csd_path, **kwargs)
 
 
 def _fixture_mesh_half_extents(path: Path) -> tuple[float, float, float]:
@@ -173,6 +181,50 @@ def test_backend_loads_compiled_csd_realization_manifest(tmp_path: Path) -> None
         instance.shutdown()
 
 
+def test_backend_loads_and_runs_shared_openusd_csd(tmp_path: Path) -> None:
+    registry = {
+        "objects": [
+            {
+                "asset_id": asset_id,
+                "backend_resources": [
+                    {
+                        "backend": "mujoco",
+                        "resource_id": f"mujoco_{asset_id}",
+                        "mesh_path": f"objects/{asset_id}.obj",
+                        "resource_hash": f"hash_{asset_id}",
+                    }
+                ],
+            }
+            for asset_id in ("object_box", "object_anchor")
+        ]
+    }
+    asset_root = tmp_path / "assets"
+    _write_fixture_asset_files(asset_root, registry)
+    result = compile_csd_to_mujoco_stage(
+        csd_path=SHARED_OPENUSD_CSD,
+        asset_registry=registry,
+        output_root=tmp_path / "engine_manifests",
+        asset_root=asset_root,
+    )
+    assert result.blockers == ()
+    assert result.manifest is not None
+
+    instance = MuJoCoBackend.from_csd_realization_manifest(result.manifest, headless=True)
+    try:
+        sensors = {entry.name for entry in instance.list_sensors().entries}
+        image = instance.get_sensors(["Camera"]).images[0]
+        time.sleep(0.05)
+
+        assert "Camera" in sensors
+        assert instance._model.body("dynamic_box").name == "dynamic_box"
+        assert instance._model.body("table").name == "table"
+        assert float(_image_array(image).std()) > 1.0
+        assert np.isfinite(instance._data.qpos).all()
+        assert np.isfinite(instance._data.qvel).all()
+    finally:
+        instance.shutdown()
+
+
 def test_backend_loads_compiled_csd_realization_manifest_file(tmp_path: Path) -> None:
     asset_root = tmp_path / "assets"
     csd = _load_json_fixture("franka_tabletop_single_object.json")
@@ -185,9 +237,7 @@ def test_backend_loads_compiled_csd_realization_manifest_file(tmp_path: Path) ->
         asset_root=asset_root,
     )
     assert isinstance(result.manifest, CsdRealizationManifest)
-    manifest_path = (
-        tmp_path / "engine_manifests" / "mujoco" / "csd_tabletop_0001" / "manifest.json"
-    )
+    manifest_path = tmp_path / "engine_manifests" / "mujoco" / "csd_tabletop_0001" / "manifest.json"
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     payload["root_path"] = "/stale/package/location"
     manifest_path.write_text(json.dumps(payload), encoding="utf-8")
@@ -293,9 +343,7 @@ def test_camera_rendering_remains_valid_across_threads(backend: MuJoCoBackend) -
     assert float(first_frame.std()) > 20.0
     assert float(second_frame.mean()) > 20.0
     assert float(second_frame.std()) > 20.0
-    assert np.mean(
-        np.abs(second_frame.astype(np.int16) - first_frame.astype(np.int16))
-    ) < 10.0
+    assert np.mean(np.abs(second_frame.astype(np.int16) - first_frame.astype(np.int16))) < 10.0
 
 
 def test_set_joint_target_and_reset_world(backend: MuJoCoBackend) -> None:
@@ -362,8 +410,7 @@ def test_idle_loop_holds_initial_configuration(backend: MuJoCoBackend) -> None:
     later = backend.get_robot_state().position[:7]
 
     max_drift = max(
-        abs(current - reference)
-        for reference, current in zip(initial, later, strict=True)
+        abs(current - reference) for reference, current in zip(initial, later, strict=True)
     )
     assert max_drift < 0.01
 
@@ -490,6 +537,5 @@ def test_get_end_effector_state(backend: MuJoCoBackend) -> None:
     assert ee_state.pose_stamped.header.frame_id == "world"
     orientation = ee_state.pose_stamped.pose.orientation
     assert any(
-        abs(value) > 0.0
-        for value in (orientation.x, orientation.y, orientation.z, orientation.w)
+        abs(value) > 0.0 for value in (orientation.x, orientation.y, orientation.z, orientation.w)
     )

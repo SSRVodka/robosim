@@ -144,6 +144,16 @@ package inventory、dependency/path checks 与 probe output 见
 `docs/mujoco-openusd-feasibility.md`。原生 decoder probe test 已随路线关闭而移除；
 composed OpenUSD fixture 与 strict stage test 保留为 compiler 输入契约测试。
 
+实现记录（2026-07-17）：`compile_csd_to_mujoco()` 已改为只接受 canonical
+`csd.usda` 路径。它选择 `physicsBackend=mujoco`、运行 strict/project semantic
+validation、从 composed stage 构造小型 typed compiler view，并以 composed stage
+及其依赖的 digest 作为 cache-key 输入。标准 OpenUSD physics mass、inertia、
+material friction、gravity、xform、camera 与 light 被映射到现有 package-local MJCF
+realization；MuJoCo 专用 friction/contact opinions 只作为命名扩展属性读取。JSON
+mapping parser 不再位于 MuJoCo production path。共享 fixture 的 direct compile、
+MJCF load、step 与 nonblank render test，以及既有 semantic/relationship/physics/
+manifest/package-local asset tests 均通过。
+
 MuJoCo realization 的路径规则：
 
 - `scene.xml` 必须能从 `engine_manifests/mujoco/<csd_id>/scene.xml` 直接被

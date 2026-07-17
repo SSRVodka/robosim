@@ -28,6 +28,10 @@ from robosim.core.csd import (
     find_csd_realization_blockers,
     make_csd_realization_cache_key,
 )
+from robosim.core.openusd_csd import (
+    compiler_csd_from_openusd,
+    read_openusd_csd,
+)
 
 MUJOCO_BACKEND = "mujoco"
 GAZEBO_BACKEND = "gazebo"
@@ -53,7 +57,7 @@ class CsdCompilationResult:
 
 def compile_csd_to_mujoco(
     *,
-    csd: Mapping[str, Any],
+    csd_path: Path,
     asset_registry: Mapping[str, Any],
     output_root: Path,
     asset_root: Path,
@@ -68,32 +72,39 @@ def compile_csd_to_mujoco(
     in the MuJoCo XML Reference. Backend load/render validation remains a later
     runtime step.
     """
-    blockers = find_csd_realization_blockers(
-        csd=csd,
-        asset_registry=asset_registry,
-        backend=MUJOCO_BACKEND,
-    )
+    try:
+        openusd_csd = read_openusd_csd(csd_path, backend=MUJOCO_BACKEND)
+        typed_csd = compiler_csd_from_openusd(openusd_csd)
+    except ValueError as error:
+        csd_id = Path(csd_path).parent.name
+        return CsdCompilationResult(
+            manifest=None,
+            blockers=(
+                _csd_blocker(
+                    csd_id,
+                    "csd_stage",
+                    f"invalid OpenUSD CSD: {error}",
+                ),
+            ),
+        )
+    resources = backend_resource_adapters_by_asset(asset_registry, backend=MUJOCO_BACKEND)
+    blockers = _resource_adapter_blockers(typed_csd, resources, MUJOCO_BACKEND)
     if blockers:
         return CsdCompilationResult(manifest=None, blockers=blockers)
 
-    typed_csd = ConcreteScenarioDefinition.from_mapping(csd)
     realization_config = dict(realization_config or {})
-    csd_id = _required_str(csd, "csd_id")
+    csd_id = typed_csd.csd_id
     simulator_version = simulator_version or _mujoco_simulator_version()
 
-    semantic_blockers = _mujoco_csd_semantic_blockers(
-        typed_csd
-    )
+    semantic_blockers = _mujoco_csd_semantic_blockers(typed_csd)
     if semantic_blockers:
         return CsdCompilationResult(manifest=None, blockers=semantic_blockers)
 
-    resource_hashes = asset_resource_hashes_for_csd(
-        csd=csd,
-        asset_registry=asset_registry,
-        backend=MUJOCO_BACKEND,
-    )
+    resource_hashes = {
+        asset_id: resources[asset_id].resource_hash for asset_id in _compiler_asset_ids(typed_csd)
+    }
     cache_key = make_csd_realization_cache_key(
-        csd=csd,
+        csd_hash=openusd_csd.digest,
         asset_variant_hashes=resource_hashes,
         backend=MUJOCO_BACKEND,
         realization_config=realization_config,
@@ -105,9 +116,8 @@ def compile_csd_to_mujoco(
     if cached_manifest is not None:
         return CsdCompilationResult(manifest=cached_manifest)
 
-    resources = backend_resource_adapters_by_asset(asset_registry, backend=MUJOCO_BACKEND)
     mesh_blockers = _mesh_path_blockers(
-        csd,
+        typed_csd,
         resources,
         Path(asset_root),
         backend=MUJOCO_BACKEND,
@@ -116,7 +126,7 @@ def compile_csd_to_mujoco(
         return CsdCompilationResult(manifest=None, blockers=mesh_blockers)
 
     robot_blockers = _mujoco_robot_template_blockers(
-        csd=csd,
+        csd=typed_csd,
         realization_config=realization_config,
     )
     if robot_blockers:
@@ -127,14 +137,13 @@ def compile_csd_to_mujoco(
     scene_root.mkdir(parents=True, exist_ok=True)
     diagnostics_root.mkdir(exist_ok=True)
     generated_asset_files = _copy_resource_files(
-        csd=csd,
+        csd=typed_csd,
         resources=resources,
         source_asset_root=Path(asset_root),
         compiled_asset_root=compiled_asset_root,
     )
     robot_include, generated_robot_files = _copy_mujoco_robot_template(
         csd=typed_csd,
-        raw_csd=csd,
         realization_config=realization_config,
         scene_root=scene_root,
         compiled_asset_root=compiled_asset_root,
@@ -210,9 +219,7 @@ def compile_csd_to_mujoco(
         ),
     )
     _write_manifest(scene_root / "manifest.json", manifest)
-    return CsdCompilationResult(
-        manifest=manifest
-    )
+    return CsdCompilationResult(manifest=manifest)
 
 
 def compile_csd_to_pybullet(
@@ -363,10 +370,11 @@ def compile_csd_to_pybullet(
 def compile_csd(
     *,
     backend: str,
-    csd: Mapping[str, Any],
     asset_registry: Mapping[str, Any],
     output_root: Path,
     asset_root: Path,
+    csd_path: Path | None = None,
+    csd: Mapping[str, Any] | None = None,
     realization_config: Mapping[str, Any] | None = None,
     realization_version: str = DEFAULT_REALIZATION_VERSION,
     simulator_version: str | None = None,
@@ -374,8 +382,10 @@ def compile_csd(
     """Compile one CSD for a requested backend target."""
     backend_key = backend.strip().lower()
     if backend_key == MUJOCO_BACKEND:
+        if csd_path is None:
+            raise ValueError("MuJoCo compilation requires an OpenUSD csd_path")
         return compile_csd_to_mujoco(
-            csd=csd,
+            csd_path=csd_path,
             asset_registry=asset_registry,
             output_root=output_root,
             asset_root=asset_root,
@@ -383,6 +393,8 @@ def compile_csd(
             realization_version=realization_version,
             simulator_version=simulator_version,
         )
+    if csd is None:
+        raise ValueError(f"{backend_key} compilation still requires a legacy CSD mapping")
     if backend_key == GAZEBO_BACKEND:
         return compile_csd_to_gazebo(
             csd=csd,
@@ -475,9 +487,7 @@ def compile_csd_to_gazebo(
         preview_files=(),
     )
     _write_manifest(world_root / "manifest.json", manifest)
-    return CsdCompilationResult(
-        manifest=manifest
-    )
+    return CsdCompilationResult(manifest=manifest)
 
 
 def _write_mjcf(
@@ -514,7 +524,7 @@ def _write_mjcf(
         ET.SubElement(root, "option", {"gravity": _vector3_text(csd.environment.gravity)})
     ET.SubElement(root, "statistic", {"center": "0.3 0 0.4", "extent": "1"})
     assets = ET.SubElement(root, "asset")
-    for asset_id in _csd_asset_ids(csd.raw):
+    for asset_id in _compiler_asset_ids(csd):
         resource = resources[asset_id]
         mesh_attrs = {
             "name": _mjcf_name(asset_id),
@@ -677,7 +687,7 @@ def _append_environment_surfaces(parent: ET.Element, csd: ConcreteScenarioDefini
 
 def _copy_resource_files(
     *,
-    csd: Mapping[str, Any],
+    csd: Mapping[str, Any] | ConcreteScenarioDefinition,
     resources: Mapping[str, BackendResourceAdapter],
     source_asset_root: Path,
     compiled_asset_root: Path,
@@ -695,12 +705,11 @@ def _copy_resource_files(
 def _copy_mujoco_robot_template(
     *,
     csd: ConcreteScenarioDefinition,
-    raw_csd: Mapping[str, Any],
     realization_config: Mapping[str, Any],
     scene_root: Path,
     compiled_asset_root: Path,
 ) -> tuple[str | None, tuple[str, ...]]:
-    template_dir = _mujoco_robot_template_dir(raw_csd, realization_config)
+    template_dir = _mujoco_robot_template_dir(csd, realization_config)
     if template_dir is None:
         return None, ()
 
@@ -738,14 +747,14 @@ def _copy_mujoco_robot_template(
 
 
 def _mujoco_robot_template_dir(
-    csd: Mapping[str, Any],
+    csd: ConcreteScenarioDefinition,
     realization_config: Mapping[str, Any],
 ) -> Path | None:
     configured = realization_config.get("robot_template_dir")
     if configured:
         return Path(str(configured))
 
-    robot_asset_id = _robot_asset_id(csd)
+    robot_asset_id = csd.robot.asset_id if csd.robot is not None else ""
     if robot_asset_id in {"robot_franka_panda", "franka_panda"}:
         return (
             Path(__file__).resolve().parents[2]
@@ -760,14 +769,14 @@ def _mujoco_robot_template_dir(
 
 def _mujoco_robot_template_blockers(
     *,
-    csd: Mapping[str, Any],
+    csd: ConcreteScenarioDefinition,
     realization_config: Mapping[str, Any],
 ) -> tuple[CsdRealizationBlocker, ...]:
-    robot_asset_id = _robot_asset_id(csd)
+    robot_asset_id = csd.robot.asset_id if csd.robot is not None else ""
     if not robot_asset_id:
         return ()
 
-    csd_id = _required_str(csd, "csd_id")
+    csd_id = csd.csd_id
     template_dir = _mujoco_robot_template_dir(csd, realization_config)
     if template_dir is None:
         return (
@@ -854,10 +863,7 @@ def _mujoco_csd_semantic_blockers(
                 _csd_blocker(
                     csd.csd_id,
                     camera.camera_id,
-                    (
-                        f"camera {camera.camera_id} xyaxes must contain non-zero "
-                        "non-parallel axes"
-                    ),
+                    (f"camera {camera.camera_id} xyaxes must contain non-zero non-parallel axes"),
                 )
             )
     for light in csd.environment.lighting:
@@ -959,10 +965,7 @@ def _pybullet_csd_semantic_blockers(
                     csd.csd_id,
                     camera.camera_id,
                     PYBULLET_BACKEND,
-                    (
-                        f"camera {camera.camera_id} xyaxes must contain non-zero "
-                        "non-parallel axes"
-                    ),
+                    (f"camera {camera.camera_id} xyaxes must contain non-zero non-parallel axes"),
                 )
             )
     for obj in csd.objects:
@@ -1268,8 +1271,7 @@ def _write_pybullet_scene_meta(
         "csd_id": csd.csd_id,
         "gravity": _vector3_json(csd.environment.gravity),
         "objects": {
-            obj.name: _pybullet_object_meta(obj, resources[obj.asset_id])
-            for obj in csd.objects
+            obj.name: _pybullet_object_meta(obj, resources[obj.asset_id]) for obj in csd.objects
         },
         "surfaces": {
             surface.surface_id: _pybullet_surface_meta(surface)
@@ -1286,7 +1288,13 @@ def _write_pybullet_scene_meta(
 def _pybullet_robot_meta(csd: ConcreteScenarioDefinition) -> dict[str, object] | None:
     if csd.robot is None:
         return None
-    position, orientation = _pybullet_robot_pose(csd.raw)
+    position = _vector3_json(csd.robot.pose.position)
+    orientation = [
+        csd.robot.pose.orientation.x,
+        csd.robot.pose.orientation.y,
+        csd.robot.pose.orientation.z,
+        csd.robot.pose.orientation.w,
+    ]
     return {
         "name": "panda",
         "asset_id": csd.robot.asset_id,
@@ -1295,39 +1303,6 @@ def _pybullet_robot_meta(csd: ConcreteScenarioDefinition) -> dict[str, object] |
         "orientation_xyzw": orientation,
         "fixed_base": True,
     }
-
-
-def _pybullet_robot_pose(csd: Mapping[str, Any]) -> tuple[list[float], list[float]]:
-    robot = _csd_scenario(csd).get("robot", {})
-    if not isinstance(robot, Mapping):
-        return [0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]
-    pose = robot.get("pose", {})
-    if not isinstance(pose, Mapping):
-        return [0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]
-    position = pose.get("position", {})
-    orientation = pose.get("orientation", {})
-    return _mapping_vector3_json(position), _mapping_quaternion_xyzw_json(orientation)
-
-
-def _mapping_vector3_json(value: object) -> list[float]:
-    if not isinstance(value, Mapping):
-        return [0.0, 0.0, 0.0]
-    return [
-        _json_float(value.get("x", 0.0)),
-        _json_float(value.get("y", 0.0)),
-        _json_float(value.get("z", 0.0)),
-    ]
-
-
-def _mapping_quaternion_xyzw_json(value: object) -> list[float]:
-    if not isinstance(value, Mapping):
-        return [0.0, 0.0, 0.0, 1.0]
-    return [
-        _json_float(value.get("x", 0.0)),
-        _json_float(value.get("y", 0.0)),
-        _json_float(value.get("z", 0.0)),
-        _json_float(value.get("w", 1.0)),
-    ]
 
 
 def _pybullet_object_meta(
@@ -1551,11 +1526,7 @@ def _write_pybullet_preview(
                 renderer=p.ER_TINY_RENDERER,
                 physicsClientId=client_id,
             )
-            rgb = bytes(
-                channel
-                for index, channel in enumerate(bytes(rgba))
-                if index % 4 != 3
-            )
+            rgb = bytes(channel for index, channel in enumerate(bytes(rgba)) if index % 4 != 3)
             if len(set(rgb)) <= 1:
                 raise ValueError("PyBullet preview image is blank")
             _write_pybullet_ppm(diagnostics_root / "semantic_preview.ppm", width, height, rgb)
@@ -1814,9 +1785,7 @@ def _write_mujoco_load_check(
                     checks.append(
                         _load_check(
                             f"body_inertial_pos:{body_name}",
-                            expected=_vector3_json(
-                                obj.initial_state.inertial.center_of_mass
-                            ),
+                            expected=_vector3_json(obj.initial_state.inertial.center_of_mass),
                             actual=_float_sequence_json(body.ipos),
                         )
                     )
@@ -1859,9 +1828,7 @@ def _write_mujoco_load_check(
                         _load_check(
                             f"body_inertial_pos:{body_name}",
                             passed=False,
-                            expected=_vector3_json(
-                                obj.initial_state.inertial.center_of_mass
-                            ),
+                            expected=_vector3_json(obj.initial_state.inertial.center_of_mass),
                             details={"reason": "body not found in loaded MuJoCo model"},
                         )
                     )
@@ -2018,7 +1985,7 @@ def _load_check(
     details: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     if passed is None:
-        passed = expected == actual
+        passed = _diagnostic_values_match(expected, actual)
     check: dict[str, object] = {
         "name": name,
         "status": "passed" if passed else "failed",
@@ -2030,6 +1997,21 @@ def _load_check(
     if details is not None:
         check["details"] = dict(details)
     return check
+
+
+def _diagnostic_values_match(expected: object, actual: object) -> bool:
+    if isinstance(expected, (int, float)) and isinstance(actual, (int, float)):
+        return math.isclose(float(expected), float(actual), rel_tol=2e-6, abs_tol=2e-6)
+    if isinstance(expected, (list, tuple)) and isinstance(actual, (list, tuple)):
+        return len(expected) == len(actual) and all(
+            _diagnostic_values_match(left, right)
+            for left, right in zip(expected, actual, strict=True)
+        )
+    if isinstance(expected, Mapping) and isinstance(actual, Mapping):
+        return expected.keys() == actual.keys() and all(
+            _diagnostic_values_match(expected[key], actual[key]) for key in expected
+        )
+    return expected == actual
 
 
 def _mujoco_collision_geom_name(model: Any, body_name: str) -> str:
@@ -2252,11 +2234,7 @@ def _relationship_surface(
     if entity_type != "surface":
         return None
     return next(
-        (
-            surface
-            for surface in csd.environment.surfaces
-            if surface.surface_id == entity_id
-        ),
+        (surface for surface in csd.environment.surfaces if surface.surface_id == entity_id),
         None,
     )
 
@@ -2405,10 +2383,10 @@ def _unique_files(paths: Iterable[str]) -> tuple[str, ...]:
 
 
 def _resource_relative_paths(
-    csd: Mapping[str, Any],
+    csd: Mapping[str, Any] | ConcreteScenarioDefinition,
     resources: Mapping[str, BackendResourceAdapter],
 ) -> Iterable[Path]:
-    for asset_id in _csd_asset_ids(csd):
+    for asset_id in _compiler_asset_ids(csd):
         resource = resources[asset_id]
         yield Path(resource.mesh_path)
         if resource.collision_mesh_path:
@@ -2591,15 +2569,15 @@ def _mujoco_contact_attrs(obj: CsdObject) -> dict[str, str]:
 
 
 def _mesh_path_blockers(
-    csd: Mapping[str, Any],
+    csd: Mapping[str, Any] | ConcreteScenarioDefinition,
     resources: Mapping[str, BackendResourceAdapter],
     asset_root: Path,
     *,
     backend: str,
 ) -> tuple[CsdRealizationBlocker, ...]:
-    csd_id = _required_str(csd, "csd_id")
+    csd_id = _compiler_csd_id(csd)
     blockers: list[CsdRealizationBlocker] = []
-    for asset_id in _csd_asset_ids(csd):
+    for asset_id in _compiler_asset_ids(csd):
         relative_path = resources[asset_id].mesh_path
         if not relative_path:
             blockers.append(
@@ -2686,8 +2664,8 @@ def _mesh_path_blockers(
                             "MuJoCo collision mesh resource format is unsupported: "
                             f"{collision_mesh_path}"
                         ),
-                        )
                     )
+                )
             elif backend == PYBULLET_BACKEND and not _is_supported_pybullet_mesh_path(
                 collision_mesh_path
             ):
@@ -2852,6 +2830,39 @@ def _object_csd_blocker(
         asset_id=object_name,
         scope="csd",
         reason=reason,
+    )
+
+
+def _compiler_asset_ids(
+    csd: Mapping[str, Any] | ConcreteScenarioDefinition,
+) -> tuple[str, ...]:
+    if isinstance(csd, ConcreteScenarioDefinition):
+        return tuple(dict.fromkeys(obj.asset_id for obj in csd.objects))
+    return _csd_asset_ids(csd)
+
+
+def _compiler_csd_id(csd: Mapping[str, Any] | ConcreteScenarioDefinition) -> str:
+    if isinstance(csd, ConcreteScenarioDefinition):
+        return csd.csd_id
+    return _required_str(csd, "csd_id")
+
+
+def _resource_adapter_blockers(
+    csd: ConcreteScenarioDefinition,
+    resources: Mapping[str, BackendResourceAdapter],
+    backend: str,
+) -> tuple[CsdRealizationBlocker, ...]:
+    return tuple(
+        CsdRealizationBlocker(
+            blocker_id=f"{csd.csd_id}_{backend}_{asset_id}_resource_missing",
+            csd_id=csd.csd_id,
+            backend=backend,
+            asset_id=asset_id,
+            scope="asset",
+            reason=f"asset has no backend resource adapter for {backend}",
+        )
+        for asset_id in _compiler_asset_ids(csd)
+        if asset_id not in resources
     )
 
 
@@ -3064,9 +3075,7 @@ def _pose_part(obj: Mapping[str, Any], key: str) -> Mapping[str, Any]:
 
 def _object_scalar(obj: Mapping[str, Any] | CsdObject, key: str, default: float) -> str:
     initial_state = (
-        obj.initial_state
-        if isinstance(obj, CsdObject)
-        else obj.get("initial_state", {})
+        obj.initial_state if isinstance(obj, CsdObject) else obj.get("initial_state", {})
     )
     if isinstance(initial_state, Mapping) and key in initial_state:
         return _number_text(initial_state[key])

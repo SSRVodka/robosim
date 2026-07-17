@@ -206,10 +206,19 @@ class CsdRobot:
     """Robot instance requested by a CSD scenario."""
 
     asset_id: str
+    pose: CsdPose
 
     @classmethod
     def from_mapping(cls, payload: Mapping[str, Any]) -> "CsdRobot":
-        return cls(asset_id=_required_str(payload, "asset_id", field="robot"))
+        pose = payload.get("pose")
+        return cls(
+            asset_id=_required_str(payload, "asset_id", field="robot"),
+            pose=(
+                CsdPose.from_mapping(pose, field="robot.pose")
+                if isinstance(pose, Mapping)
+                else _identity_pose()
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -356,7 +365,6 @@ class ConcreteScenarioDefinition:
     robot: CsdRobot | None
     objects: tuple[CsdObject, ...]
     relationships: tuple[CsdRelationship, ...]
-    raw: Mapping[str, Any]
 
     @classmethod
     def from_mapping(cls, payload: Mapping[str, Any]) -> "ConcreteScenarioDefinition":
@@ -384,7 +392,6 @@ class ConcreteScenarioDefinition:
                     field="scenario.relationships",
                 )
             ),
-            raw=payload,
         )
 
 
@@ -798,6 +805,13 @@ def _vector_from_sequence(value: object, *, field: str) -> CsdVector3:
     if not isinstance(value, (list, tuple)) or len(value) != 3:
         raise ValueError(f"{field} must be a 3-element sequence")
     return CsdVector3(x=float(value[0]), y=float(value[1]), z=float(value[2]))
+
+
+def _identity_pose() -> CsdPose:
+    return CsdPose(
+        position=CsdVector3(0.0, 0.0, 0.0),
+        orientation=CsdQuaternion(1.0, 0.0, 0.0, 0.0),
+    )
 
 
 def _csd_id(csd: Mapping[str, Any]) -> str:

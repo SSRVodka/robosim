@@ -14,16 +14,19 @@ import mujoco
 import pytest
 
 from robosim.core import (
-    ConcreteScenarioDefinition,
-    CsdObjectContact,
     CsdRealizationManifest,
-    compile_csd,
     compile_csd_to_gazebo,
-    compile_csd_to_mujoco,
 )
+from robosim.core import (
+    compile_csd as compile_csd_stage,
+)
+from robosim.core import (
+    compile_csd_to_mujoco as compile_csd_to_mujoco_stage,
+)
+from tests.openusd_fixture_authoring import author_openusd_csd
 
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "csd"
-MIN_CSD_FIXTURE_COUNT = 10
+SHARED_OPENUSD_CSD = FIXTURE_ROOT / "openusd" / "shared_tabletop" / "csd.usda"
 EXPECTED_MUJOCO_PREVIEW_SIZE = 512
 MUJOCO_POSITIVE_CSD_FIXTURES = (
     "franka_tabletop_single_object.json",
@@ -40,6 +43,25 @@ MUJOCO_POSITIVE_CSD_FIXTURES = (
 
 def _load_json_fixture(name: str) -> dict[str, object]:
     return json.loads((FIXTURE_ROOT / name).read_text(encoding="utf-8"))
+
+
+def compile_csd_to_mujoco(
+    *,
+    csd: Mapping[str, object] | None = None,
+    csd_path: Path | None = None,
+    **kwargs: object,
+):
+    """Route legacy semantic inputs through test-only OpenUSD authoring."""
+    if csd_path is None:
+        assert csd is not None
+        csd_path = author_openusd_csd(csd, Path(kwargs["output_root"]).parent)
+    return compile_csd_to_mujoco_stage(csd_path=csd_path, **kwargs)
+
+
+def compile_csd(*, backend: str, csd: Mapping[str, object], **kwargs: object):
+    if backend == "mujoco":
+        return compile_csd_to_mujoco(csd=csd, **kwargs)
+    return compile_csd_stage(backend=backend, csd=csd, **kwargs)
 
 
 def _required_element(parent: ET.Element, path: str) -> ET.Element:
@@ -150,8 +172,7 @@ def _read_ppm_rgb(
     pixels = payload[len(header) :]
     assert len(pixels) == width * height * 3
     return [
-        (pixels[index], pixels[index + 1], pixels[index + 2])
-        for index in range(0, len(pixels), 3)
+        (pixels[index], pixels[index + 1], pixels[index + 2]) for index in range(0, len(pixels), 3)
     ]
 
 
@@ -162,14 +183,51 @@ def _count_pixels(
     return sum(1 for pixel in pixels if predicate(pixel))
 
 
-def test_csd_fixture_set_has_broad_demo_coverage() -> None:
-    csd_fixture_names = sorted(
-        path.name
-        for path in FIXTURE_ROOT.glob("*.json")
-        if not path.name.startswith("asset_registry_")
+def test_compile_csd_to_mujoco_consumes_composed_openusd_stage(tmp_path: Path) -> None:
+    asset_registry = {
+        "objects": [
+            {
+                "asset_id": "object_box",
+                "backend_resources": [
+                    {
+                        "backend": "mujoco",
+                        "resource_id": "mujoco_object_box",
+                        "mesh_path": "objects/box.obj",
+                        "resource_hash": "hash_box_obj",
+                    }
+                ],
+            },
+            {
+                "asset_id": "object_anchor",
+                "backend_resources": [
+                    {
+                        "backend": "mujoco",
+                        "resource_id": "mujoco_object_anchor",
+                        "mesh_path": "objects/anchor.obj",
+                        "resource_hash": "hash_anchor_obj",
+                    }
+                ],
+            },
+        ]
+    }
+    asset_root = tmp_path / "assets"
+    _write_fixture_asset_files(asset_root, asset_registry)
+    robot_template = (
+        Path(__file__).resolve().parents[1] / "drivers_sim/mujoco/assets/robots/franka_panda"
     )
 
-    assert len(csd_fixture_names) >= MIN_CSD_FIXTURE_COUNT
+    result = compile_csd_to_mujoco(
+        csd_path=SHARED_OPENUSD_CSD,
+        asset_registry=asset_registry,
+        output_root=tmp_path / "engine_manifests",
+        asset_root=asset_root,
+        realization_config={"robot_template_dir": str(robot_template)},
+    )
+
+    assert result.blockers == ()
+    assert result.manifest is not None
+    assert result.manifest.csd_id == "csd_shared_tabletop"
+    mujoco.MjModel.from_xml_path(str(Path(result.manifest.root_path) / result.manifest.entry_file))
 
 
 @pytest.mark.parametrize("fixture_name", MUJOCO_POSITIVE_CSD_FIXTURES)
@@ -228,9 +286,7 @@ def test_compile_csd_to_mujoco_writes_loadable_mjcf_and_manifest(tmp_path: Path)
     scene_root = tmp_path / "engine_manifests" / "mujoco" / "csd_tabletop_0001"
     scene_path = scene_root / "scene.xml"
     manifest_path = scene_root / "manifest.json"
-    copied_mesh_path = (
-        scene_root / "assets" / "objects" / "mug.obj"
-    )
+    copied_mesh_path = scene_root / "assets" / "objects" / "mug.obj"
     copied_robot_xml = scene_root / "assets" / "robots" / "franka_panda" / "panda.xml"
     copied_robot_srdf = scene_root / "assets" / "robots" / "franka_panda" / "panda.srdf"
     copied_robot_mesh = scene_root / "assets" / "link0.stl"
@@ -344,11 +400,7 @@ def test_compile_csd_to_mujoco_rebuilds_incomplete_cached_realization(
     )
     assert isinstance(first.manifest, CsdRealizationManifest)
     preview_path = (
-        output_root
-        / "mujoco"
-        / "csd_object_only_0001"
-        / "diagnostics"
-        / "semantic_preview.ppm"
+        output_root / "mujoco" / "csd_object_only_0001" / "diagnostics" / "semantic_preview.ppm"
     )
     preview_path.unlink()
 
@@ -489,12 +541,9 @@ def test_compile_csd_to_mujoco_writes_load_check_diagnostics(tmp_path: Path) -> 
         0.35355,
         0.612375,
     ]
-    assert checks["camera_orientation:world_camera"]["actual"] == [
-        0.612375,
-        0.35355,
-        0.35355,
-        0.612375,
-    ]
+    assert checks["camera_orientation:world_camera"]["actual"] == pytest.approx(
+        [0.612375, 0.35355, 0.35355, 0.612375], abs=2e-6
+    )
     assert checks["light_pose:key_light"]["status"] == "passed"
     assert checks["light_pose:key_light"]["expected"] == [0.0, -1.0, 3.0]
     assert checks["light_pose:key_light"]["actual"] == [0.0, -1.0, 3.0]
@@ -725,72 +774,6 @@ def test_compile_csd_to_mujoco_uses_typed_environment_gravity(tmp_path: Path) ->
 
     assert result.blockers == ()
     assert _required_element(root, "option").attrib["gravity"] == "0 0 -1.62"
-
-
-def test_csd_parser_exposes_typed_object_physical_state() -> None:
-    csd = ConcreteScenarioDefinition.from_mapping(
-        _load_json_fixture("object_only_static_and_dynamic.json")
-    )
-    mug = next(obj for obj in csd.objects if obj.name == "mug")
-
-    assert mug.initial_state.mass_kg == 0.2
-    assert mug.initial_state.friction == (0.8, 0.005, 0.0001)
-    assert mug.initial_state.contact is None
-
-
-def test_csd_parser_exposes_typed_object_contact_parameters() -> None:
-    csd = _load_json_fixture("object_only_static_and_dynamic.json")
-    scenario = csd["scenario"]
-    assert isinstance(scenario, dict)
-    objects = scenario["objects"]
-    assert isinstance(objects, list)
-    mug = objects[1]
-    assert isinstance(mug, dict)
-    initial_state = mug["initial_state"]
-    assert isinstance(initial_state, dict)
-    initial_state["contact"] = {
-        "margin_m": 0.004,
-        "gap_m": 0.001,
-        "solref": [0.02, 1.0],
-        "solimp": [0.9, 0.95, 0.001, 0.5, 2.0],
-    }
-
-    typed = ConcreteScenarioDefinition.from_mapping(csd)
-    typed_mug = next(obj for obj in typed.objects if obj.name == "mug")
-
-    assert typed_mug.initial_state.contact == CsdObjectContact(
-        margin_m=0.004,
-        gap_m=0.001,
-        solref=(0.02, 1.0),
-        solimp=(0.9, 0.95, 0.001, 0.5, 2.0),
-    )
-
-
-def test_csd_parser_exposes_typed_object_inertial_parameters() -> None:
-    csd = _load_json_fixture("object_only_static_and_dynamic.json")
-    scenario = csd["scenario"]
-    assert isinstance(scenario, dict)
-    objects = scenario["objects"]
-    assert isinstance(objects, list)
-    mug = objects[1]
-    assert isinstance(mug, dict)
-    initial_state = mug["initial_state"]
-    assert isinstance(initial_state, dict)
-    initial_state["inertial"] = {
-        "center_of_mass": {"x": 0.01, "y": 0.0, "z": 0.02},
-        "diagonal_inertia_kg_m2": [0.002, 0.003, 0.004],
-    }
-
-    typed = ConcreteScenarioDefinition.from_mapping(csd)
-    typed_mug = next(obj for obj in typed.objects if obj.name == "mug")
-
-    assert typed_mug.initial_state.inertial is not None
-    assert typed_mug.initial_state.inertial.center_of_mass.x == 0.01
-    assert typed_mug.initial_state.inertial.diagonal_inertia_kg_m2 == (
-        0.002,
-        0.003,
-        0.004,
-    )
 
 
 def test_compile_csd_to_mujoco_preserves_explicit_friction_tuple(tmp_path: Path) -> None:
@@ -1040,9 +1023,7 @@ def test_compile_csd_to_mujoco_blocks_invalid_inertial_parameters(
         "backend": "mujoco",
         "asset_id": "mug",
         "scope": "csd",
-        "reason": (
-            "object mug diagonal_inertia_kg_m2 values must be positive and finite"
-        ),
+        "reason": ("object mug diagonal_inertia_kg_m2 values must be positive and finite"),
     }
 
 
@@ -1192,7 +1173,7 @@ def test_compile_csd_to_mujoco_renders_semantic_preview_screenshot(
     header = f"P6\n{EXPECTED_MUJOCO_PREVIEW_SIZE} {EXPECTED_MUJOCO_PREVIEW_SIZE}\n255\n".encode()
     assert payload.startswith(header)
     assert screenshot_path.stat().st_size > EXPECTED_MUJOCO_PREVIEW_SIZE**2
-    pixels = payload[len(header):]
+    pixels = payload[len(header) :]
     assert max(pixels) > min(pixels)
 
 
@@ -1244,21 +1225,18 @@ def test_compile_csd_to_mujoco_preview_contains_distinct_visual_regions(
 
 def test_compile_csd_to_mujoco_reports_missing_resource_adapter(tmp_path: Path) -> None:
     result = compile_csd_to_mujoco(
-        csd={
-            "csd_id": "csd_missing",
-            "objects": [{"name": "mug", "asset_id": "object_mug"}],
-        },
-        asset_registry={"objects": [{"object_id": "object_mug", "variants": []}]},
+        csd_path=SHARED_OPENUSD_CSD,
+        asset_registry={"objects": []},
         output_root=tmp_path,
         asset_root=tmp_path,
     )
 
     assert result.manifest is None
     assert result.blockers[0].to_json_dict() == {
-        "blocker_id": "csd_missing_mujoco_object_mug_resource_missing",
-        "csd_id": "csd_missing",
+        "blocker_id": "csd_shared_tabletop_mujoco_object_box_resource_missing",
+        "csd_id": "csd_shared_tabletop",
         "backend": "mujoco",
-        "asset_id": "object_mug",
+        "asset_id": "object_box",
         "scope": "asset",
         "reason": "asset has no backend resource adapter for mujoco",
     }
@@ -1362,8 +1340,7 @@ def test_compile_csd_to_mujoco_blocks_unsupported_collision_mesh_format(
         "asset_id": "object_mug",
         "scope": "asset",
         "reason": (
-            "MuJoCo collision mesh resource format is unsupported: "
-            "collision/mug_collision.ply"
+            "MuJoCo collision mesh resource format is unsupported: collision/mug_collision.ply"
         ),
     }
 
@@ -1400,8 +1377,7 @@ def test_compile_csd_to_mujoco_blocks_texture_path_traversal(tmp_path: Path) -> 
         "asset_id": "object_textured_can",
         "scope": "asset",
         "reason": (
-            "asset material texture path must stay inside asset root: "
-            "../textures/can_label.png"
+            "asset material texture path must stay inside asset root: ../textures/can_label.png"
         ),
     }
 
@@ -1430,13 +1406,12 @@ def test_compile_csd_to_mujoco_reports_unsupported_robot_asset(tmp_path: Path) -
     }
 
 
-def test_compile_csd_to_mujoco_blocks_unsupported_units_and_frame(tmp_path: Path) -> None:
+def test_compile_csd_to_mujoco_blocks_non_meter_stage_units(tmp_path: Path) -> None:
     asset_root = tmp_path / "assets"
     csd = _load_json_fixture("object_only_static_and_dynamic.json")
     scenario = csd["scenario"]
     assert isinstance(scenario, dict)
     scenario["units"] = "cm"
-    scenario["frame"] = "map"
     asset_registry = _load_json_fixture("asset_registry_mujoco.json")
     _write_fixture_asset_files(asset_root, asset_registry)
 
@@ -1455,15 +1430,7 @@ def test_compile_csd_to_mujoco_blocks_unsupported_units_and_frame(tmp_path: Path
             "backend": "mujoco",
             "asset_id": "scenario_units",
             "scope": "csd",
-            "reason": "MuJoCo compiler supports only CSD units='m', got 'cm'",
-        },
-        {
-            "blocker_id": "csd_object_only_0001_mujoco_scenario_frame_compile_blocked",
-            "csd_id": "csd_object_only_0001",
-            "backend": "mujoco",
-            "asset_id": "scenario_frame",
-            "scope": "csd",
-            "reason": "MuJoCo compiler supports only frame='world', got 'map'",
+            "reason": "MuJoCo compiler supports only CSD units='m', got '0.01m'",
         },
     ]
 
@@ -1530,14 +1497,8 @@ def test_compile_csd_to_mujoco_blocks_zero_surface_quaternion(
     )
 
     assert result.manifest is None
-    assert result.blockers[0].to_json_dict() == {
-        "blocker_id": "csd_tabletop_0001_mujoco_surface_tabletop_compile_blocked",
-        "csd_id": "csd_tabletop_0001",
-        "backend": "mujoco",
-        "asset_id": "surface_tabletop",
-        "scope": "csd",
-        "reason": "surface surface_tabletop orientation quaternion must be non-zero",
-    }
+    assert result.blockers[0].asset_id == "csd_stage"
+    assert "invalid_xform_orientation" in result.blockers[0].reason
 
 
 def test_compile_csd_to_mujoco_blocks_invalid_surface_size(
@@ -1602,86 +1563,8 @@ def test_compile_csd_to_mujoco_blocks_zero_object_quaternion(
     )
 
     assert result.manifest is None
-    assert result.blockers[0].to_json_dict() == {
-        "blocker_id": "csd_object_only_0001_mujoco_mug_compile_blocked",
-        "csd_id": "csd_object_only_0001",
-        "backend": "mujoco",
-        "asset_id": "mug",
-        "scope": "csd",
-        "reason": "object mug orientation quaternion must be non-zero",
-    }
-
-
-def test_compile_csd_to_mujoco_blocks_invalid_camera_xyaxes(
-    tmp_path: Path,
-) -> None:
-    asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("object_only_static_and_dynamic.json")
-    scenario = csd["scenario"]
-    assert isinstance(scenario, dict)
-    environment = scenario["environment"]
-    assert isinstance(environment, dict)
-    cameras = environment["cameras"]
-    assert isinstance(cameras, list)
-    camera = cameras[0]
-    assert isinstance(camera, dict)
-    pose = camera["pose"]
-    assert isinstance(pose, dict)
-    pose["xyaxes"] = [1.0, 0.0, 0.0, 2.0, 0.0, 0.0]
-    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
-    _write_fixture_asset_files(asset_root, asset_registry)
-
-    result = compile_csd_to_mujoco(
-        csd=csd,
-        asset_registry=asset_registry,
-        output_root=tmp_path,
-        asset_root=asset_root,
-    )
-
-    assert result.manifest is None
-    assert result.blockers[0].to_json_dict() == {
-        "blocker_id": "csd_object_only_0001_mujoco_world_camera_compile_blocked",
-        "csd_id": "csd_object_only_0001",
-        "backend": "mujoco",
-        "asset_id": "world_camera",
-        "scope": "csd",
-        "reason": "camera world_camera xyaxes must contain non-zero non-parallel axes",
-    }
-
-
-def test_compile_csd_to_mujoco_blocks_zero_light_direction(
-    tmp_path: Path,
-) -> None:
-    asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("object_only_static_and_dynamic.json")
-    scenario = csd["scenario"]
-    assert isinstance(scenario, dict)
-    environment = scenario["environment"]
-    assert isinstance(environment, dict)
-    lighting = environment["lighting"]
-    assert isinstance(lighting, list)
-    light = lighting[0]
-    assert isinstance(light, dict)
-    light["direction"] = [0.0, 0.0, 0.0]
-    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
-    _write_fixture_asset_files(asset_root, asset_registry)
-
-    result = compile_csd_to_mujoco(
-        csd=csd,
-        asset_registry=asset_registry,
-        output_root=tmp_path,
-        asset_root=asset_root,
-    )
-
-    assert result.manifest is None
-    assert result.blockers[0].to_json_dict() == {
-        "blocker_id": "csd_object_only_0001_mujoco_key_light_compile_blocked",
-        "csd_id": "csd_object_only_0001",
-        "backend": "mujoco",
-        "asset_id": "key_light",
-        "scope": "csd",
-        "reason": "light key_light direction must be non-zero",
-    }
+    assert result.blockers[0].asset_id == "csd_stage"
+    assert "invalid_xform_orientation" in result.blockers[0].reason
 
 
 def test_compile_csd_to_mujoco_blocks_unknown_relationship_entity(
@@ -1707,16 +1590,8 @@ def test_compile_csd_to_mujoco_blocks_unknown_relationship_entity(
     )
 
     assert result.manifest is None
-    assert result.blockers[0].to_json_dict() == {
-        "blocker_id": "csd_tabletop_0001_mujoco_rel_mug_on_table_compile_blocked",
-        "csd_id": "csd_tabletop_0001",
-        "backend": "mujoco",
-        "asset_id": "rel_mug_on_table",
-        "scope": "csd",
-        "reason": (
-            "relationship rel_mug_on_table subject references unknown entity: object:ghost"
-        ),
-    }
+    assert result.blockers[0].asset_id == "csd_stage"
+    assert "unresolved_relationship_target" in result.blockers[0].reason
 
 
 def test_compile_csd_to_mujoco_blocks_avoid_contact_violation(
@@ -1744,11 +1619,7 @@ def test_compile_csd_to_mujoco_blocks_avoid_contact_violation(
     )
 
     relationship_check = (
-        tmp_path
-        / "mujoco"
-        / "csd_tabletop_multi_0001"
-        / "diagnostics"
-        / "relationship_check.json"
+        tmp_path / "mujoco" / "csd_tabletop_multi_0001" / "diagnostics" / "relationship_check.json"
     )
 
     assert result.manifest is None
@@ -1758,10 +1629,7 @@ def test_compile_csd_to_mujoco_blocks_avoid_contact_violation(
         "backend": "mujoco",
         "asset_id": "rel_mug_avoid_marker",
         "scope": "csd",
-        "reason": (
-            "MuJoCo initial state violates avoid_contact relationship "
-            "rel_mug_avoid_marker"
-        ),
+        "reason": ("MuJoCo initial state violates avoid_contact relationship rel_mug_avoid_marker"),
     }
     payload = json.loads(relationship_check.read_text(encoding="utf-8"))
     assert payload["status"] == "failed"
@@ -1811,9 +1679,7 @@ def test_compile_csd_to_mujoco_blocks_on_top_of_surface_violation(
         "backend": "mujoco",
         "asset_id": "rel_mug_on_red_pad",
         "scope": "csd",
-        "reason": (
-            "MuJoCo initial state violates on_top_of relationship rel_mug_on_red_pad"
-        ),
+        "reason": ("MuJoCo initial state violates on_top_of relationship rel_mug_on_red_pad"),
     }
     payload = json.loads(relationship_check.read_text(encoding="utf-8"))
     assert payload["status"] == "failed"

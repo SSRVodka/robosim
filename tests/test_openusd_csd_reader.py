@@ -6,7 +6,9 @@ from shutil import copytree
 import pytest
 from pxr import Sdf, Usd
 
+from robosim.core.csd import CsdVector3
 from robosim.core.openusd_csd import (
+    compiler_csd_from_openusd,
     compute_csd_digest,
     read_openusd_csd,
     validate_csd_stage,
@@ -14,6 +16,10 @@ from robosim.core.openusd_csd import (
 
 FIXTURE_ROOT = Path(__file__).parent / "fixtures/csd/openusd/shared_tabletop"
 CSD_PATH = FIXTURE_ROOT / "csd.usda"
+
+
+def _xyz(value: CsdVector3) -> tuple[float, float, float]:
+    return (value.x, value.y, value.z)
 
 
 def test_reader_extracts_typed_csd_handoff_and_backend_variant() -> None:
@@ -61,6 +67,51 @@ def test_reader_extracts_typed_csd_handoff_and_backend_variant() -> None:
 
     physics_scene = csd.stage.GetPrimAtPath("/World/PhysicsScene")
     assert "RobosimPyBulletSceneAPI" in physics_scene.GetMetadata("apiSchemas").GetAppliedItems()
+
+
+def test_compiler_view_reads_standard_openusd_physics_and_transforms() -> None:
+    csd = compiler_csd_from_openusd(read_openusd_csd(CSD_PATH, backend="mujoco"))
+
+    dynamic_box = next(obj for obj in csd.objects if obj.name == "dynamic_box")
+    table = csd.environment.surfaces[0]
+
+    assert dynamic_box.initial_state.mass_kg == 1.0
+    assert dynamic_box.initial_state.friction == (0.7, 0.005, 0.0001)
+    assert dynamic_box.initial_state.inertial is not None
+    assert _xyz(dynamic_box.initial_state.inertial.center_of_mass) == (0.0, 0.0, 0.0)
+    assert dynamic_box.initial_state.inertial.diagonal_inertia_kg_m2 == (
+        0.015,
+        0.015,
+        0.015,
+    )
+    assert _xyz(table.size) == (0.6, 0.4, 0.05)
+    assert _xyz(table.pose.position) == (0.0, 0.0, -0.05)
+    assert csd.robot is not None
+    assert _xyz(csd.robot.pose.position) == (-0.45, 0.0, 0.0)
+    assert len(csd.environment.cameras) == 1
+    assert len(csd.environment.lighting) == 1
+
+
+def test_compiler_view_reads_mujoco_contact_extensions() -> None:
+    openusd_csd = read_openusd_csd(CSD_PATH, backend="mujoco")
+    stage = openusd_csd.stage
+    stage.SetEditTarget(stage.GetSessionLayer())
+    prim = stage.GetPrimAtPath("/World/Objects/DynamicBox")
+    prim.CreateAttribute("mjc:margin", Sdf.ValueTypeNames.Float, custom=True).Set(0.004)
+    prim.CreateAttribute("mjc:gap", Sdf.ValueTypeNames.Float, custom=True).Set(0.001)
+    prim.CreateAttribute("mjc:solref", Sdf.ValueTypeNames.FloatArray, custom=True).Set([0.02, 1.0])
+    prim.CreateAttribute("mjc:solimp", Sdf.ValueTypeNames.FloatArray, custom=True).Set(
+        [0.9, 0.95, 0.001, 0.5, 2.0]
+    )
+
+    csd = compiler_csd_from_openusd(openusd_csd)
+    contact = next(obj for obj in csd.objects if obj.name == "dynamic_box").initial_state.contact
+
+    assert contact is not None
+    assert contact.margin_m == 0.004
+    assert contact.gap_m == 0.001
+    assert contact.solref == (0.02, 1.0)
+    assert contact.solimp == (0.9, 0.95, 0.001, 0.5, 2.0)
 
 
 def test_csd_digest_is_relocation_invariant_and_tracks_layer_content(
