@@ -22,7 +22,10 @@ over "World"
         )
         {
             bool physics:rigidBodyEnabled = true
+            point3f physics:centerOfMass = (0, 0, 0)
+            float3 physics:diagonalInertia = (0.015, 0.015, 0.015)
             float physics:mass = 1
+            quatf physics:principalAxes = (1, 0, 0, 0)
 
             over "Geometry" (
                 prepend apiSchemas = ["PhysicsCollisionAPI"]
@@ -47,4 +50,3 @@ over "World"
         }
     }
 }
-

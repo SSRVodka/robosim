@@ -126,25 +126,23 @@ project semantic validator 能确认 required prims、schemas、entity refs、re
 tokens、sampled values、sensor 与 evaluator refs；并逐个验证所有 authored backend
 variants，而不是只验证 default selection。
 
-### MuJoCo native OpenUSD feasibility gate（2026-07-17）
+### MuJoCo OpenUSD realization decision（2026-07-17）
 
-MuJoCo production path 在 CSD refactor 前一次性决定，不维护 native 与 MJCF 两条
-长期路径。先从未修改的官方 release source 构建 `MUJOCO_WITH_USD=ON` package，
-固定 MuJoCo/OpenUSD/Python 版本，并包含 Python bindings、`usd_decoder_plugin`、
-`mjcPhysics` library/schema resources 及可解析的 runtime dependencies。package 必须
-能在不引用 source/build tree 的新 Python process 中自动发现 decoder。
+MuJoCo production path 已固定为 **OpenUSD-to-MJCF**，不实现或维护第二条 native
+loader。官方 MuJoCo 3.9.0 source 的 `usd_decoder_plugin` 与 `mjcPhysics` 可以在
+`robosim2` 中针对 OpenUSD 26.05 成功构建、选择性打包、从新 Python process 加载，
+并正确保留基础 rigid body、mass/inertia、collision、joint、gravity、renderable
+geometry 与稳定 stepping。但是 probe CSD 中的标准 `UsdGeomCamera` 与 `UsdLux`
+light 在 compiled `mjModel` 中分别得到 `ncam=0`、`nlight=0`，decoder 也没有创建
+CSD 所需 sensor objects 的路径。该结果未通过已批准的 semantic-preservation gate。
 
-native path 的 pass criteria：加载包含 sublayers、references、`UsdPhysics` 与
-`mjcPhysics` opinions 的 CSD；将 units/up-axis、rigid bodies、mass/inertia、collision、
-joints、materials、gravity、actuators/sites 和 camera-visible geometry 保留到 compiled
-`mjModel`；完成 nonblank offscreen render；稳定 forward/step；并输出 package contents、
-versions、decoder warnings 与 semantic comparison diagnostics。任一 packaging、plugin
-discovery、composition、semantic、render 或 physics criterion 失败，就关闭 native
-路线并采用原方案：保留 official prebuilt `mujoco` Python package，把现有 compiler
-输入从 typed JSON model 替换为 composed OpenUSD stage，继续生成 package-local MJCF。
-
-feasibility iteration 只做 package/probe/decision，不同时实现两个 production loaders。
-通过后下一迭代实现 native loader；失败后下一迭代实现 OpenUSD-to-MJCF adapter。
+因此保留 official `mujoco` 3.9.0 package，把现有 compiler 输入从 typed JSON model
+替换为 composed OpenUSD stage，并继续生成 package-local MJCF。这样 cameras、lights、
+sensors 与 runtime/evaluator requirements 可由 `vsim` compiler 显式映射或以 typed
+blocker 拒绝，不能被 native decoder 静默丢弃。完整 versions、build commands、
+package inventory、dependency/path checks 与 probe output 见
+`docs/mujoco-openusd-feasibility.md`。原生 decoder probe test 已随路线关闭而移除；
+composed OpenUSD fixture 与 strict stage test 保留为 compiler 输入契约测试。
 
 MuJoCo realization 的路径规则：
 

@@ -20,3 +20,13 @@ def test_mujoco_openusd_fixture_is_composed_and_concrete() -> None:
     assert stage.GetPrimAtPath("/World/Objects/DynamicBox")
     assert stage.GetPrimAtPath("/World/Objects/Anchor")
     assert stage.GetPrimAtPath("/World/Joints/BoxJoint")
+    assert stage.GetPrimAtPath("/World/Camera")
+    assert stage.GetPrimAtPath("/World/KeyLight")
+
+    backend_variants = stage.GetDefaultPrim().GetVariantSet("physicsBackend")
+    assert backend_variants.GetVariantSelection() == "mujoco"
+    assert set(backend_variants.GetVariantNames()) == {"gazebo", "mujoco", "pybullet"}
+    api_schemas = UsdPhysics.Scene.Get(stage, "/World/PhysicsScene").GetPrim().GetMetadata(
+        "apiSchemas"
+    )
+    assert "MjcSceneAPI" in api_schemas.GetAppliedItems()

@@ -25,8 +25,10 @@
 > The approved CSD migration replaces the JSON CSD with a composed OpenUSD
 > stage rooted at `csd/<csd_id>/csd.usda`. The JSON API described below is the
 > currently implemented legacy path and remains only until the documented
-> MuJoCo native-USD feasibility gate selects either the native loader or the
-> OpenUSD-to-MJCF fallback. See [`DESIGN.md`](./DESIGN.md) for the canonical
+> compiler is adapted to consume that stage. The native MuJoCo USD feasibility
+> gate selected the OpenUSD-to-MJCF path because the official decoder does not
+> preserve required cameras, lights, or sensors. See [`DESIGN.md`](./DESIGN.md)
+> and [`docs/mujoco-openusd-feasibility.md`](./docs/mujoco-openusd-feasibility.md) for the canonical
 > stage contract, backend variants, validation requirements, and acceptance
 > criteria.
 
