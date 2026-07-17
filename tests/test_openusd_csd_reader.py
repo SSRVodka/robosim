@@ -4,7 +4,7 @@ from pathlib import Path
 from shutil import copytree
 
 import pytest
-from pxr import Sdf, Usd
+from pxr import Gf, Sdf, Usd
 
 from robosim.core.csd import CsdVector3
 from robosim.core.openusd_csd import (
@@ -16,10 +16,27 @@ from robosim.core.openusd_csd import (
 
 FIXTURE_ROOT = Path(__file__).parent / "fixtures/csd/openusd/shared_tabletop"
 CSD_PATH = FIXTURE_ROOT / "csd.usda"
+SEMANTIC_FIXTURE_ROOT = FIXTURE_ROOT.parent / "semantic"
 
 
 def _xyz(value: CsdVector3) -> tuple[float, float, float]:
     return (value.x, value.y, value.z)
+
+
+@pytest.mark.parametrize("backend", ("mujoco", "pybullet", "gazebo"))
+@pytest.mark.parametrize(
+    "csd_path",
+    sorted(SEMANTIC_FIXTURE_ROOT.glob("*/csd.usda")),
+    ids=lambda path: path.parent.name,
+)
+def test_semantic_csd_fixtures_are_strictly_valid_for_each_backend(
+    csd_path: Path,
+    backend: str,
+) -> None:
+    csd = read_openusd_csd(csd_path, backend=backend)
+
+    assert csd.backend == backend
+    assert csd.csd_id
 
 
 def test_reader_extracts_typed_csd_handoff_and_backend_variant() -> None:
@@ -175,3 +192,24 @@ def test_semantic_validation_rejects_nonconcrete_randomization() -> None:
     issues = validate_csd_stage(stage)
 
     assert any(issue.code == "nonconcrete_randomization" for issue in issues)
+
+
+def test_semantic_validation_rejects_unpaired_or_rotated_inertia() -> None:
+    stage = Usd.Stage.Open(str(CSD_PATH))
+    assert stage is not None
+    stage.SetEditTarget(stage.GetSessionLayer())
+    anchor = stage.GetPrimAtPath("/World/Objects/Anchor")
+    anchor.CreateAttribute("physics:diagonalInertia", Sdf.ValueTypeNames.Float3).Set(
+        Gf.Vec3f(0.01, 0.01, 0.01)
+    )
+
+    issues = validate_csd_stage(stage)
+
+    assert any(issue.code == "invalid_inertia_pair" for issue in issues)
+
+    anchor.CreateAttribute("physics:principalAxes", Sdf.ValueTypeNames.Quatf).Set(
+        Gf.Quatf(0.7071068, 0.0, 0.0, 0.7071068)
+    )
+    issues = validate_csd_stage(stage)
+
+    assert any(issue.code == "unsupported_principal_axes" for issue in issues)

@@ -10,6 +10,8 @@ from pxr import Sdf, Usd, UsdGeom
 
 from robosim.core.openusd_csd import csd_plugin_root, register_csd_plugins
 
+FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "csd" / "openusd"
+
 
 def test_codeless_csd_schemas_register_in_fresh_process() -> None:
     probe = """
@@ -98,3 +100,21 @@ def test_codeless_csd_schema_authors_a_strictly_valid_layer(tmp_path: Path) -> N
     )
 
     assert completed.returncode == 0, completed.stdout + completed.stderr
+
+
+def test_committed_csd_fixtures_pass_official_openusd_validation() -> None:
+    env = os.environ.copy()
+    env["PXR_PLUGINPATH_NAME"] = str(csd_plugin_root())
+    fixture_paths = (
+        FIXTURE_ROOT / "shared_tabletop" / "csd.usda",
+        *sorted((FIXTURE_ROOT / "semantic").glob("*/csd.usda")),
+    )
+
+    for fixture_path in fixture_paths:
+        completed = subprocess.run(
+            ["usdchecker", str(fixture_path)],
+            capture_output=True,
+            env=env,
+            text=True,
+        )
+        assert completed.returncode == 0, f"{fixture_path}\n{completed.stdout}{completed.stderr}"

@@ -13,43 +13,20 @@ import pybullet as p
 
 from robosim.core import (
     CsdRealizationManifest,
+    compile_csd,
+    compile_csd_to_pybullet,
 )
-from robosim.core import (
-    compile_csd as compile_csd_stage,
-)
-from robosim.core import (
-    compile_csd_to_pybullet as compile_csd_to_pybullet_stage,
-)
-from tests.openusd_fixture_authoring import author_openusd_csd
 
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "csd"
 SHARED_OPENUSD_CSD = FIXTURE_ROOT / "openusd" / "shared_tabletop" / "csd.usda"
+SEMANTIC_OPENUSD_ROOT = FIXTURE_ROOT / "openusd" / "semantic"
 
 
-def compile_csd_to_pybullet(
-    *,
-    csd: Mapping[str, object] | None = None,
-    csd_path: Path | None = None,
-    **kwargs: object,
-):
-    """Route legacy semantic inputs through test-only OpenUSD authoring."""
-    if csd_path is None:
-        assert csd is not None
-        csd_path = author_openusd_csd(csd, Path(kwargs["output_root"]).parent)
-    return compile_csd_to_pybullet_stage(csd_path=csd_path, **kwargs)
+def _csd_fixture(name: str) -> Path:
+    return SEMANTIC_OPENUSD_ROOT / name.removesuffix(".json") / "csd.usda"
 
 
-def compile_csd(
-    *,
-    backend: str,
-    csd: Mapping[str, object],
-    **kwargs: object,
-):
-    csd_path = author_openusd_csd(csd, Path(kwargs["output_root"]).parent)
-    return compile_csd_stage(backend=backend, csd_path=csd_path, **kwargs)
-
-
-def _load_json_fixture(name: str) -> dict[str, object]:
+def _load_registry_fixture(name: str) -> dict[str, object]:
     return json.loads((FIXTURE_ROOT / name).read_text(encoding="utf-8"))
 
 
@@ -199,7 +176,7 @@ def test_compile_csd_to_pybullet_blocks_invalid_openusd_relationship(tmp_path: P
         encoding="utf-8",
     )
 
-    result = compile_csd_to_pybullet_stage(
+    result = compile_csd_to_pybullet(
         csd_path=csd_root / "csd.usda",
         asset_registry={"objects": []},
         output_root=tmp_path / "engine_manifests",
@@ -215,12 +192,12 @@ def test_compile_csd_to_pybullet_blocks_invalid_openusd_relationship(tmp_path: P
 
 def test_compile_csd_to_pybullet_writes_self_contained_package(tmp_path: Path) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("object_only_static_and_dynamic.json")
-    asset_registry = _load_json_fixture("asset_registry_pybullet.json")
+    csd_path = _csd_fixture("object_only_static_and_dynamic")
+    asset_registry = _load_registry_fixture("asset_registry_pybullet.json")
     _write_fixture_asset_files(asset_root, asset_registry)
 
     result = compile_csd_to_pybullet(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path / "engine_manifests",
         asset_root=asset_root,
@@ -272,12 +249,12 @@ def test_compile_csd_to_pybullet_writes_self_contained_package(tmp_path: Path) -
 
 def test_compile_csd_to_pybullet_includes_franka_robot(tmp_path: Path) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("franka_tabletop_single_object.json")
-    asset_registry = _load_json_fixture("asset_registry_pybullet.json")
+    csd_path = _csd_fixture("franka_tabletop_single_object")
+    asset_registry = _load_registry_fixture("asset_registry_pybullet.json")
     _write_fixture_asset_files(asset_root, asset_registry)
 
     result = compile_csd_to_pybullet(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path / "engine_manifests",
         asset_root=asset_root,
@@ -311,13 +288,13 @@ def test_compile_csd_to_pybullet_includes_franka_robot(tmp_path: Path) -> None:
 
 def test_compile_csd_dispatches_to_pybullet(tmp_path: Path) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("object_only_static_and_dynamic.json")
-    asset_registry = _load_json_fixture("asset_registry_pybullet.json")
+    csd_path = _csd_fixture("object_only_static_and_dynamic")
+    asset_registry = _load_registry_fixture("asset_registry_pybullet.json")
     _write_fixture_asset_files(asset_root, asset_registry)
 
     result = compile_csd(
         backend="pybullet",
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path / "engine_manifests",
         asset_root=asset_root,

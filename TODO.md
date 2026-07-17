@@ -21,7 +21,7 @@ during an implementation checkpoint without user approval.
 - [x] Adapt the existing MJCF compiler and cache to the typed OpenUSD reader.
 - [x] Preserve the accepted MuJoCo load, semantic, relationship, physics,
       render, validation-record, runtime-manifest, and package-local asset tests.
-- [ ] Delete JSON-only tests and helpers only after their semantic replacements
+- [x] Delete JSON-only tests and helpers only after their semantic replacements
       pass.
 
 ## Checkpoint 3: PyBullet
@@ -40,9 +40,9 @@ during an implementation checkpoint without user approval.
 
 ## Checkpoint 5: Three-backend acceptance
 
-- [ ] Remove the legacy CSD JSON schema, persistence, fixtures, and compiler
+- [x] Remove the legacy CSD JSON schema, persistence, fixtures, and compiler
       entry points after all semantic coverage has migrated.
-- [ ] Verify strict OpenUSD validation, all project tests, ruff, mypy, generated
+- [x] Verify strict OpenUSD validation, all project tests, ruff, mypy, generated
       protobuf consistency, and a clean repository diff.
-- [ ] Commit each checkpoint in `vsim` first and then update the parent
+- [x] Commit each checkpoint in `vsim` first and then update the parent
       submodule pointer and synchronized thesis documentation.

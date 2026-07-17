@@ -17,28 +17,17 @@ from control_stubs.robot_data_pb2 import RecordInfo, RecordOptions
 from robosim.backends.pybullet.backend import PyBulletBackend
 from robosim.core import (
     CsdRealizationManifest,
-)
-from robosim.core import (
-    compile_csd_to_pybullet as compile_csd_to_pybullet_stage,
+    compile_csd_to_pybullet,
 )
 from robosim.core.impl.recorder_lerobot import LerobotDataRecorder
-from tests.openusd_fixture_authoring import author_openusd_csd
 
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "csd"
 SHARED_OPENUSD_CSD = FIXTURE_ROOT / "openusd" / "shared_tabletop" / "csd.usda"
+SEMANTIC_OPENUSD_ROOT = FIXTURE_ROOT / "openusd" / "semantic"
 
 
-def compile_csd_to_pybullet(
-    *,
-    csd: Mapping[str, object] | None = None,
-    csd_path: Path | None = None,
-    **kwargs: object,
-):
-    """Route legacy semantic inputs through test-only OpenUSD authoring."""
-    if csd_path is None:
-        assert csd is not None
-        csd_path = author_openusd_csd(csd, Path(kwargs["output_root"]).parent)
-    return compile_csd_to_pybullet_stage(csd_path=csd_path, **kwargs)
+def _csd_fixture(name: str) -> Path:
+    return SEMANTIC_OPENUSD_ROOT / name.removesuffix(".json") / "csd.usda"
 
 
 @pytest.fixture
@@ -59,7 +48,7 @@ def _wait_for_condition(predicate: Callable[[], bool], timeout: float = 1.0) -> 
     return False
 
 
-def _load_json_fixture(name: str) -> dict[str, object]:
+def _load_registry_fixture(name: str) -> dict[str, object]:
     return json.loads((FIXTURE_ROOT / name).read_text(encoding="utf-8"))
 
 
@@ -184,11 +173,11 @@ def test_pybullet_backend_reports_end_effector_pose(backend: PyBulletBackend) ->
 
 def test_pybullet_backend_loads_compiled_csd_manifest(tmp_path: Path) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("object_only_static_and_dynamic.json")
-    asset_registry = _load_json_fixture("asset_registry_pybullet.json")
+    csd_path = _csd_fixture("object_only_static_and_dynamic")
+    asset_registry = _load_registry_fixture("asset_registry_pybullet.json")
     _write_fixture_asset_files(asset_root, asset_registry)
     result = compile_csd_to_pybullet(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path / "engine_manifests",
         asset_root=asset_root,
@@ -235,7 +224,7 @@ def test_pybullet_backend_loads_and_runs_shared_openusd_csd(tmp_path: Path) -> N
     }
     asset_root = tmp_path / "assets"
     _write_fixture_asset_files(asset_root, registry)
-    result = compile_csd_to_pybullet_stage(
+    result = compile_csd_to_pybullet(
         csd_path=SHARED_OPENUSD_CSD,
         asset_registry=registry,
         output_root=tmp_path / "engine_manifests",
@@ -265,11 +254,11 @@ def test_pybullet_backend_loads_compiled_franka_csd_as_controllable_robot(
     tmp_path: Path,
 ) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("franka_tabletop_single_object.json")
-    asset_registry = _load_json_fixture("asset_registry_pybullet.json")
+    csd_path = _csd_fixture("franka_tabletop_single_object")
+    asset_registry = _load_registry_fixture("asset_registry_pybullet.json")
     _write_fixture_asset_files(asset_root, asset_registry)
     result = compile_csd_to_pybullet(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path / "engine_manifests",
         asset_root=asset_root,

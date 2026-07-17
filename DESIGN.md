@@ -277,8 +277,9 @@ server 启动路径也可使用 `python -m robosim.server --backend mujoco
 --csd-manifest <engine_manifests/mujoco/<csd_id>/manifest.json>` 直接加载 compiled
 CSD realization；普通 `--scene` 路径保持可用。
 
-CSD compiler tests must keep scenario definitions as composed USDA fixtures
-under `tests/fixtures/csd/` instead of embedding large Python dictionaries.
+CSD compiler tests must keep scenario definitions as USDA fixtures under
+`tests/fixtures/csd/` instead of embedding large Python dictionaries, with at
+least one fixture exercising the complete composed-layer contract.
 Fixture coverage must include a minimal rigid body, robot tabletop scene,
 multiple static/dynamic objects, object-only scene, typed relationships,
 sampled overrides, sensors/evaluator refs, material/texture resources, separate
@@ -297,6 +298,18 @@ Backend resource adapters are also typed at the compiler boundary. The
 hash, visual mesh path, optional mesh scale, optional material/texture, and
 optional collision mesh path. Compiler internals should use this model instead
 of anonymous registry dictionaries.
+
+实现记录（2026-07-17）：legacy CSD JSON surface 已删除。生产 compiler dispatch、
+cache API 与三个 backend entry point 只接受 composed-stage digest 或 `csd.usda`
+path；typed compiler view 只能由 strict OpenUSD reader 构造。旧 scenario JSON
+fixtures 与 test-only JSON-to-USD adapter 已替换成直接 USDA fixtures，变体测试通过
+USD property/relationship edits 表达 simulator extension 与 invalid-stage cases。
+Asset registry、evaluator、manifest、diagnostics 继续使用 JSON，因为这些是独立的
+typed artifact contracts，不是 CSD sidecar 或第二语义来源。
+所有 committed CSD fixtures 还必须通过官方 `usdchecker` 的全部 backend variant；
+例如 `physics:diagonalInertia` 必须与 `physics:principalAxes` 成对 author。当前
+backend compiler 仅支持 identity principal axes，rotated axes 会成为显式 stage
+validation blocker，不能被静默丢弃。
 
 实现记录（2026-07-09，2026-07-17 修正）：第一版
 `compile_csd_to_gazebo()` 曾依据最新 SDFormat 1.12 specification 与 Gazebo Sim 8

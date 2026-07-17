@@ -16,9 +16,7 @@ import pytest
 from control_stubs import common_pb2, sensing_pb2
 from control_stubs import robot_core_pb2 as core_pb2
 from robosim.backends.mujoco.backend import MuJoCoBackend
-from robosim.core import CsdRealizationManifest
-from robosim.core import compile_csd_to_mujoco as compile_csd_to_mujoco_stage
-from tests.openusd_fixture_authoring import author_openusd_csd
+from robosim.core import CsdRealizationManifest, compile_csd_to_mujoco
 
 SCENE_PATH = (
     Path(__file__).resolve().parent.parent
@@ -30,6 +28,7 @@ G1_29DOF_SCENE_PATH = (
 )
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "csd"
 SHARED_OPENUSD_CSD = FIXTURE_ROOT / "openusd" / "shared_tabletop" / "csd.usda"
+SEMANTIC_OPENUSD_ROOT = FIXTURE_ROOT / "openusd" / "semantic"
 
 
 @pytest.fixture
@@ -50,13 +49,12 @@ def _wait_for_condition(predicate: Callable[[], bool], timeout: float = 1.0) -> 
     return False
 
 
-def _load_json_fixture(name: str) -> dict[str, object]:
+def _load_registry_fixture(name: str) -> dict[str, object]:
     return json.loads((FIXTURE_ROOT / name).read_text(encoding="utf-8"))
 
 
-def compile_csd_to_mujoco(*, csd: Mapping[str, object], **kwargs: object):
-    csd_path = author_openusd_csd(csd, Path(kwargs["output_root"]).parent)
-    return compile_csd_to_mujoco_stage(csd_path=csd_path, **kwargs)
+def _csd_fixture(name: str) -> Path:
+    return SEMANTIC_OPENUSD_ROOT / name.removesuffix(".json") / "csd.usda"
 
 
 def _fixture_mesh_half_extents(path: Path) -> tuple[float, float, float]:
@@ -104,7 +102,7 @@ def _write_box_mesh(path: Path) -> None:
     )
 
 
-def _write_fixture_asset_files(asset_root: Path, asset_registry: dict[str, object]) -> None:
+def _write_fixture_asset_files(asset_root: Path, asset_registry: Mapping[str, object]) -> None:
     records = asset_registry.get("objects", ())
     if not isinstance(records, list):
         return
@@ -150,8 +148,8 @@ def test_robot_spec_uses_srdf_groups(backend: MuJoCoBackend) -> None:
 
 def test_backend_loads_compiled_csd_realization_manifest(tmp_path: Path) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("franka_tabletop_single_object.json")
-    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    csd_path = _csd_fixture("franka_tabletop_single_object")
+    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
     _write_fixture_asset_files(asset_root, asset_registry)
     source_template = Path(__file__).resolve().parents[1] / (
         "drivers_sim/mujoco/assets/robots/franka_panda"
@@ -159,7 +157,7 @@ def test_backend_loads_compiled_csd_realization_manifest(tmp_path: Path) -> None
     template_copy = tmp_path / "template_src" / "franka_panda"
     copytree(source_template, template_copy)
     result = compile_csd_to_mujoco(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path / "engine_manifests",
         asset_root=asset_root,
@@ -200,7 +198,7 @@ def test_backend_loads_and_runs_shared_openusd_csd(tmp_path: Path) -> None:
     }
     asset_root = tmp_path / "assets"
     _write_fixture_asset_files(asset_root, registry)
-    result = compile_csd_to_mujoco_stage(
+    result = compile_csd_to_mujoco(
         csd_path=SHARED_OPENUSD_CSD,
         asset_registry=registry,
         output_root=tmp_path / "engine_manifests",
@@ -227,11 +225,11 @@ def test_backend_loads_and_runs_shared_openusd_csd(tmp_path: Path) -> None:
 
 def test_backend_loads_compiled_csd_realization_manifest_file(tmp_path: Path) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("franka_tabletop_single_object.json")
-    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    csd_path = _csd_fixture("franka_tabletop_single_object")
+    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
     _write_fixture_asset_files(asset_root, asset_registry)
     result = compile_csd_to_mujoco(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path / "engine_manifests",
         asset_root=asset_root,
@@ -254,11 +252,11 @@ def test_backend_runtime_renders_and_steps_compiled_csd_realization(
     tmp_path: Path,
 ) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("franka_tabletop_single_object.json")
-    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    csd_path = _csd_fixture("franka_tabletop_single_object")
+    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
     _write_fixture_asset_files(asset_root, asset_registry)
     result = compile_csd_to_mujoco(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path / "engine_manifests",
         asset_root=asset_root,

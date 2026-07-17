@@ -1,0 +1,105 @@
+#usda 1.0
+(
+    defaultPrim = "World"
+    metersPerUnit = 1
+    upAxis = "Z"
+)
+
+def Xform "World" (
+    prepend apiSchemas = ["RobosimCsdRootAPI", "RobosimRandomizationAPI"]
+    variants = {
+        string physicsBackend = "mujoco"
+    }
+    prepend variantSets = "physicsBackend"
+)
+{
+    custom string robosim:csd:id = "csd_textured_scaled_0001"
+    custom string robosim:csd:schemaVersion = "0.2"
+    custom string robosim:csd:taskInstanceId = "task_textured_scaled_0001"
+    custom string robosim:csd:worldTemplateId = "env_empty_floor"
+    custom int64 robosim:randomization:seed = 11
+
+    def Xform "Environment" (
+        prepend apiSchemas = ["RobosimEntityAPI"]
+    )
+    {
+        custom string robosim:entity:assetId = "env_empty_floor"
+        custom string robosim:entity:id = "environment"
+        custom token robosim:entity:role = "environment"
+        custom bool robosim:entity:static = 1
+    }
+
+    def PhysicsScene "PhysicsScene"
+    {
+        vector3f physics:gravityDirection = (0, 0, -1)
+        float physics:gravityMagnitude = 9.81
+    }
+
+    def Camera "world_camera"
+    {
+        quatd xformOp:orient = (1, 0, 0, 0)
+        quatd xformOp:orient:xyaxes = (0.612374681131375, 0.353549501356241, 0.353549501356241, 0.6123746811313752)
+        double3 xformOp:translate = (1.4, 0, 1.2)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:orient:xyaxes"]
+    }
+
+    def DistantLight "key_light"
+    {
+        quatd xformOp:orient = (1, 0, 0, 0)
+        double3 xformOp:translate = (0, -1, 3)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+    }
+
+    def Scope "Objects"
+    {
+        def Xform "labelled_can" (
+            prepend apiSchemas = ["RobosimEntityAPI", "PhysicsMassAPI", "PhysicsRigidBodyAPI", "MaterialBindingAPI"]
+        )
+        {
+            rel material:binding = </World/Materials/object_labelled_can>
+            float physics:mass = 0.35
+            bool physics:rigidBodyEnabled = 1
+            custom string robosim:entity:assetId = "object_textured_can"
+            custom string robosim:entity:id = "labelled_can"
+            custom token robosim:entity:role = "interactive_object"
+            custom bool robosim:entity:static = 0
+            quatd xformOp:orient = (1, 0, 0, 0)
+            double3 xformOp:translate = (0.15, 0.05, 0.2)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+        }
+    }
+
+    def "Materials"
+    {
+        def Material "object_labelled_can" (
+            prepend apiSchemas = ["PhysicsMaterialAPI"]
+        )
+        {
+            float physics:dynamicFriction = 0.75
+            float physics:staticFriction = 0.75
+        }
+    }
+
+    def Scope "Task" (
+        prepend apiSchemas = ["RobosimTaskAPI"]
+    )
+    {
+        custom string robosim:task:objective = "render a scaled textured can as an interactive object"
+    }
+
+    def Scope "Relationships"
+    {
+    }
+    variantSet "physicsBackend" = {
+        "gazebo" {
+
+        }
+        "mujoco" {
+
+        }
+        "pybullet" {
+
+        }
+    }
+}
+

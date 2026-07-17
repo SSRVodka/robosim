@@ -8,74 +8,62 @@ import xml.etree.ElementTree as ET
 import zlib
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from shutil import copytree
+from shutil import copy2, copytree
 
 import mujoco
 import pytest
+from pxr import Gf, Sdf, Usd, UsdGeom
 
 from robosim.core import (
     CsdRealizationManifest,
+    compile_csd,
+    compile_csd_to_gazebo,
+    compile_csd_to_mujoco,
 )
-from robosim.core import (
-    compile_csd as compile_csd_stage,
-)
-from robosim.core import (
-    compile_csd_to_gazebo as compile_csd_to_gazebo_stage,
-)
-from robosim.core import (
-    compile_csd_to_mujoco as compile_csd_to_mujoco_stage,
-)
-from tests.openusd_fixture_authoring import author_openusd_csd
 
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "csd"
 SHARED_OPENUSD_CSD = FIXTURE_ROOT / "openusd" / "shared_tabletop" / "csd.usda"
+SEMANTIC_OPENUSD_ROOT = FIXTURE_ROOT / "openusd" / "semantic"
 EXPECTED_MUJOCO_PREVIEW_SIZE = 512
 MUJOCO_POSITIVE_CSD_FIXTURES = (
-    "franka_tabletop_single_object.json",
-    "franka_tabletop_multi_object.json",
-    "object_only_static_and_dynamic.json",
-    "textured_scaled_object.json",
-    "visual_tabletop_regions.json",
-    "object_only_default_camera.json",
-    "object_inertial_contact.json",
-    "tabletop_rotated_surface_object.json",
-    "low_gravity_static_layout.json",
+    "franka_tabletop_single_object",
+    "franka_tabletop_multi_object",
+    "object_only_static_and_dynamic",
+    "textured_scaled_object",
+    "visual_tabletop_regions",
+    "object_only_default_camera",
+    "object_inertial_contact",
+    "tabletop_rotated_surface_object",
+    "low_gravity_static_layout",
 )
 
 
-def _load_json_fixture(name: str) -> dict[str, object]:
+def _load_registry_fixture(name: str) -> dict[str, object]:
     return json.loads((FIXTURE_ROOT / name).read_text(encoding="utf-8"))
 
 
-def compile_csd_to_mujoco(
-    *,
-    csd: Mapping[str, object] | None = None,
-    csd_path: Path | None = None,
-    **kwargs: object,
-):
-    """Route legacy semantic inputs through test-only OpenUSD authoring."""
-    if csd_path is None:
-        assert csd is not None
-        csd_path = author_openusd_csd(csd, Path(kwargs["output_root"]).parent)
-    return compile_csd_to_mujoco_stage(csd_path=csd_path, **kwargs)
+def _csd_fixture(name: str) -> Path:
+    return SEMANTIC_OPENUSD_ROOT / name.removesuffix(".json") / "csd.usda"
 
 
-def compile_csd_to_gazebo(
-    *,
-    csd: Mapping[str, object] | None = None,
-    csd_path: Path | None = None,
-    **kwargs: object,
-):
-    """Route legacy semantic inputs through test-only OpenUSD authoring."""
-    if csd_path is None:
-        assert csd is not None
-        csd_path = author_openusd_csd(csd, Path(kwargs["output_root"]).parent)
-    return compile_csd_to_gazebo_stage(csd_path=csd_path, **kwargs)
+def _editable_csd_fixture(name: str, root: Path) -> tuple[Path, Usd.Stage]:
+    source = _csd_fixture(name)
+    path = root / "csd_inputs" / name.removesuffix(".json") / "csd.usda"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    copy2(source, path)
+    stage = Usd.Stage.Open(str(path))
+    assert stage is not None
+    return path, stage
 
 
-def compile_csd(*, backend: str, csd: Mapping[str, object], **kwargs: object):
-    csd_path = author_openusd_csd(csd, Path(kwargs["output_root"]).parent)
-    return compile_csd_stage(backend=backend, csd_path=csd_path, **kwargs)
+def _save_stage(stage: Usd.Stage) -> None:
+    stage.GetRootLayer().Save()
+
+
+def _csd_id(path: Path) -> str:
+    stage = Usd.Stage.Open(str(path))
+    assert stage is not None
+    return str(stage.GetPrimAtPath("/World").GetAttribute("robosim:csd:id").Get())
 
 
 def _required_element(parent: ET.Element, path: str) -> ET.Element:
@@ -250,13 +238,13 @@ def test_compile_csd_to_mujoco_loads_and_renders_positive_fixtures(
     fixture_name: str,
 ) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture(fixture_name)
-    csd_id = str(csd["csd_id"])
-    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    csd_path = _csd_fixture(fixture_name)
+    csd_id = _csd_id(csd_path)
+    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
     _write_fixture_asset_files(asset_root, asset_registry)
 
     result = compile_csd_to_mujoco(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path / "engine_manifests",
         asset_root=asset_root,
@@ -276,8 +264,8 @@ def test_compile_csd_to_mujoco_loads_and_renders_positive_fixtures(
 
 def test_compile_csd_to_mujoco_writes_loadable_mjcf_and_manifest(tmp_path: Path) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("franka_tabletop_single_object.json")
-    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    csd_path = _csd_fixture("franka_tabletop_single_object")
+    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
     _write_fixture_asset_files(asset_root, asset_registry)
     source_template = Path(__file__).resolve().parents[1] / (
         "drivers_sim/mujoco/assets/robots/franka_panda"
@@ -287,7 +275,7 @@ def test_compile_csd_to_mujoco_writes_loadable_mjcf_and_manifest(tmp_path: Path)
 
     result = compile_csd(
         backend="mujoco",
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path / "engine_manifests",
         asset_root=asset_root,
@@ -355,8 +343,8 @@ def test_compile_csd_to_mujoco_reuses_complete_cached_realization(
     tmp_path: Path,
 ) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("franka_tabletop_single_object.json")
-    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    csd_path = _csd_fixture("franka_tabletop_single_object")
+    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
     _write_fixture_asset_files(asset_root, asset_registry)
     source_template = Path(__file__).resolve().parents[1] / (
         "drivers_sim/mujoco/assets/robots/franka_panda"
@@ -367,7 +355,7 @@ def test_compile_csd_to_mujoco_reuses_complete_cached_realization(
     realization_config = {"robot_template_dir": str(template_copy)}
 
     first = compile_csd_to_mujoco(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=output_root,
         asset_root=asset_root,
@@ -383,7 +371,7 @@ def test_compile_csd_to_mujoco_reuses_complete_cached_realization(
             source_file.unlink()
 
     second = compile_csd_to_mujoco(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=output_root,
         asset_root=asset_root,
@@ -401,13 +389,13 @@ def test_compile_csd_to_mujoco_rebuilds_incomplete_cached_realization(
     tmp_path: Path,
 ) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("object_only_static_and_dynamic.json")
-    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    csd_path = _csd_fixture("object_only_static_and_dynamic")
+    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
     _write_fixture_asset_files(asset_root, asset_registry)
     output_root = tmp_path / "engine_manifests"
 
     first = compile_csd_to_mujoco(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=output_root,
         asset_root=asset_root,
@@ -419,7 +407,7 @@ def test_compile_csd_to_mujoco_rebuilds_incomplete_cached_realization(
     preview_path.unlink()
 
     second = compile_csd_to_mujoco(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=output_root,
         asset_root=asset_root,
@@ -435,18 +423,18 @@ def test_compile_csd_to_mujoco_cache_key_includes_default_simulator_version(
     tmp_path: Path,
 ) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("object_only_static_and_dynamic.json")
-    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    csd_path = _csd_fixture("object_only_static_and_dynamic")
+    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
     _write_fixture_asset_files(asset_root, asset_registry)
 
     default_result = compile_csd_to_mujoco(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path / "default" / "engine_manifests",
         asset_root=asset_root,
     )
     explicit_result = compile_csd_to_mujoco(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path / "explicit" / "engine_manifests",
         asset_root=asset_root,
@@ -462,12 +450,12 @@ def test_compile_csd_to_mujoco_handles_multi_object_static_dynamic_scene(
     tmp_path: Path,
 ) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("franka_tabletop_multi_object.json")
-    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    csd_path = _csd_fixture("franka_tabletop_multi_object")
+    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
     _write_fixture_asset_files(asset_root, asset_registry)
 
     result = compile_csd_to_mujoco(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path / "engine_manifests",
         asset_root=asset_root,
@@ -501,12 +489,12 @@ def test_compile_csd_to_mujoco_handles_multi_object_static_dynamic_scene(
 
 def test_compile_csd_to_mujoco_writes_load_check_diagnostics(tmp_path: Path) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("object_only_static_and_dynamic.json")
-    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    csd_path = _csd_fixture("object_only_static_and_dynamic")
+    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
     _write_fixture_asset_files(asset_root, asset_registry)
 
     result = compile_csd_to_mujoco(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path / "engine_manifests",
         asset_root=asset_root,
@@ -570,30 +558,19 @@ def test_compile_csd_to_mujoco_writes_orientation_load_diagnostics(
     tmp_path: Path,
 ) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("franka_tabletop_single_object.json")
-    scenario = csd["scenario"]
-    assert isinstance(scenario, dict)
-    environment = scenario["environment"]
-    objects = scenario["objects"]
-    assert isinstance(environment, dict)
-    surfaces = environment["surfaces"]
-    assert isinstance(surfaces, list)
-    assert isinstance(objects, list)
-    surface = surfaces[0]
-    mug = objects[0]
-    assert isinstance(surface, dict)
-    assert isinstance(mug, dict)
-    surface_pose = surface["pose"]
-    mug_pose = mug["pose"]
-    assert isinstance(surface_pose, dict)
-    assert isinstance(mug_pose, dict)
-    surface_pose["orientation"] = {"w": 0.9238795325, "x": 0.0, "y": 0.0, "z": 0.3826834324}
-    mug_pose["orientation"] = {"w": 0.7071067812, "x": 0.0, "y": 0.0, "z": 0.7071067812}
-    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    csd_path, stage = _editable_csd_fixture("franka_tabletop_single_object", tmp_path)
+    stage.GetPrimAtPath("/World/Environment/surface_tabletop").GetAttribute("xformOp:orient").Set(
+        Gf.Quatd(0.9238795325, 0.0, 0.0, 0.3826834324)
+    )
+    stage.GetPrimAtPath("/World/Objects/mug").GetAttribute("xformOp:orient").Set(
+        Gf.Quatd(0.7071067812, 0.0, 0.0, 0.7071067812)
+    )
+    _save_stage(stage)
+    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
     _write_fixture_asset_files(asset_root, asset_registry)
 
     result = compile_csd_to_mujoco(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path / "engine_manifests",
         asset_root=asset_root,
@@ -641,12 +618,12 @@ def test_compile_csd_to_mujoco_writes_orientation_load_diagnostics(
 
 def test_compile_csd_to_mujoco_writes_physics_check_diagnostics(tmp_path: Path) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("object_only_static_and_dynamic.json")
-    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    csd_path = _csd_fixture("object_only_static_and_dynamic")
+    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
     _write_fixture_asset_files(asset_root, asset_registry)
 
     result = compile_csd_to_mujoco(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path / "engine_manifests",
         asset_root=asset_root,
@@ -673,12 +650,12 @@ def test_compile_csd_to_mujoco_writes_physics_check_diagnostics(tmp_path: Path) 
 
 def test_compile_csd_to_mujoco_writes_validation_record(tmp_path: Path) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("object_only_static_and_dynamic.json")
-    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    csd_path = _csd_fixture("object_only_static_and_dynamic")
+    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
     _write_fixture_asset_files(asset_root, asset_registry)
 
     result = compile_csd_to_mujoco(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path / "engine_manifests",
         asset_root=asset_root,
@@ -712,17 +689,17 @@ def test_compile_csd_to_mujoco_writes_validation_record(tmp_path: Path) -> None:
 
 def test_compile_csd_to_mujoco_realizes_world_template_geometry(tmp_path: Path) -> None:
     asset_root = tmp_path / "assets"
-    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
     _write_fixture_asset_files(asset_root, asset_registry)
 
     tabletop_result = compile_csd_to_mujoco(
-        csd=_load_json_fixture("franka_tabletop_single_object.json"),
+        csd_path=_csd_fixture("franka_tabletop_single_object"),
         asset_registry=asset_registry,
         output_root=tmp_path / "engine_manifests",
         asset_root=asset_root,
     )
     empty_floor_result = compile_csd_to_mujoco(
-        csd=_load_json_fixture("object_only_static_and_dynamic.json"),
+        csd_path=_csd_fixture("object_only_static_and_dynamic"),
         asset_registry=asset_registry,
         output_root=tmp_path / "engine_manifests",
         asset_root=asset_root,
@@ -767,17 +744,14 @@ def test_compile_csd_to_mujoco_realizes_world_template_geometry(tmp_path: Path) 
 
 def test_compile_csd_to_mujoco_uses_typed_environment_gravity(tmp_path: Path) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("object_only_static_and_dynamic.json")
-    scenario = csd["scenario"]
-    assert isinstance(scenario, dict)
-    environment = scenario["environment"]
-    assert isinstance(environment, dict)
-    environment["gravity"] = [0.0, 0.0, -1.62]
-    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    csd_path, stage = _editable_csd_fixture("object_only_static_and_dynamic", tmp_path)
+    stage.GetPrimAtPath("/World/PhysicsScene").GetAttribute("physics:gravityMagnitude").Set(1.62)
+    _save_stage(stage)
+    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
     _write_fixture_asset_files(asset_root, asset_registry)
 
     result = compile_csd_to_mujoco(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path / "engine_manifests",
         asset_root=asset_root,
@@ -792,21 +766,16 @@ def test_compile_csd_to_mujoco_uses_typed_environment_gravity(tmp_path: Path) ->
 
 def test_compile_csd_to_mujoco_preserves_explicit_friction_tuple(tmp_path: Path) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("object_only_static_and_dynamic.json")
-    scenario = csd["scenario"]
-    assert isinstance(scenario, dict)
-    objects = scenario["objects"]
-    assert isinstance(objects, list)
-    mug = objects[1]
-    assert isinstance(mug, dict)
-    initial_state = mug["initial_state"]
-    assert isinstance(initial_state, dict)
-    initial_state["friction"] = [0.9, 0.02, 0.003]
-    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    csd_path, stage = _editable_csd_fixture("object_only_static_and_dynamic", tmp_path)
+    stage.GetPrimAtPath("/World/Objects/mug").CreateAttribute(
+        "robosim:mujoco:friction", Sdf.ValueTypeNames.Double3
+    ).Set(Gf.Vec3d(0.9, 0.02, 0.003))
+    _save_stage(stage)
+    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
     _write_fixture_asset_files(asset_root, asset_registry)
 
     result = compile_csd_to_mujoco(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path / "engine_manifests",
         asset_root=asset_root,
@@ -825,26 +794,20 @@ def test_compile_csd_to_mujoco_preserves_object_contact_parameters(
     tmp_path: Path,
 ) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("object_only_static_and_dynamic.json")
-    scenario = csd["scenario"]
-    assert isinstance(scenario, dict)
-    objects = scenario["objects"]
-    assert isinstance(objects, list)
-    mug = objects[1]
-    assert isinstance(mug, dict)
-    initial_state = mug["initial_state"]
-    assert isinstance(initial_state, dict)
-    initial_state["contact"] = {
-        "margin_m": 0.004,
-        "gap_m": 0.001,
-        "solref": [0.02, 1.0],
-        "solimp": [0.9, 0.95, 0.001, 0.5, 2.0],
-    }
-    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    csd_path, stage = _editable_csd_fixture("object_only_static_and_dynamic", tmp_path)
+    mug = stage.GetPrimAtPath("/World/Objects/mug")
+    mug.CreateAttribute("mjc:margin", Sdf.ValueTypeNames.Double).Set(0.004)
+    mug.CreateAttribute("mjc:gap", Sdf.ValueTypeNames.Double).Set(0.001)
+    mug.CreateAttribute("mjc:solref", Sdf.ValueTypeNames.DoubleArray).Set([0.02, 1.0])
+    mug.CreateAttribute("mjc:solimp", Sdf.ValueTypeNames.DoubleArray).Set(
+        [0.9, 0.95, 0.001, 0.5, 2.0]
+    )
+    _save_stage(stage)
+    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
     _write_fixture_asset_files(asset_root, asset_registry)
 
     result = compile_csd_to_mujoco(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path / "engine_manifests",
         asset_root=asset_root,
@@ -892,24 +855,23 @@ def test_compile_csd_to_mujoco_preserves_explicit_object_inertial(
     tmp_path: Path,
 ) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("object_only_static_and_dynamic.json")
-    scenario = csd["scenario"]
-    assert isinstance(scenario, dict)
-    objects = scenario["objects"]
-    assert isinstance(objects, list)
-    mug = objects[1]
-    assert isinstance(mug, dict)
-    initial_state = mug["initial_state"]
-    assert isinstance(initial_state, dict)
-    initial_state["inertial"] = {
-        "center_of_mass": {"x": 0.01, "y": 0.0, "z": 0.02},
-        "diagonal_inertia_kg_m2": [0.002, 0.003, 0.004],
-    }
-    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    csd_path, stage = _editable_csd_fixture("object_only_static_and_dynamic", tmp_path)
+    mug = stage.GetPrimAtPath("/World/Objects/mug")
+    mug.CreateAttribute("physics:centerOfMass", Sdf.ValueTypeNames.Point3f).Set(
+        Gf.Vec3f(0.01, 0.0, 0.02)
+    )
+    mug.CreateAttribute("physics:diagonalInertia", Sdf.ValueTypeNames.Float3).Set(
+        Gf.Vec3f(0.002, 0.003, 0.004)
+    )
+    mug.CreateAttribute("physics:principalAxes", Sdf.ValueTypeNames.Quatf).Set(
+        Gf.Quatf(1.0, 0.0, 0.0, 0.0)
+    )
+    _save_stage(stage)
+    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
     _write_fixture_asset_files(asset_root, asset_registry)
 
     result = compile_csd_to_mujoco(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path / "engine_manifests",
         asset_root=asset_root,
@@ -948,27 +910,20 @@ def test_compile_csd_to_mujoco_blocks_invalid_physical_parameters(
     tmp_path: Path,
 ) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("object_only_static_and_dynamic.json")
-    scenario = csd["scenario"]
-    assert isinstance(scenario, dict)
-    objects = scenario["objects"]
-    assert isinstance(objects, list)
-    tray = objects[0]
-    mug = objects[1]
-    assert isinstance(tray, dict)
-    assert isinstance(mug, dict)
-    tray_state = tray["initial_state"]
-    mug_state = mug["initial_state"]
-    assert isinstance(tray_state, dict)
-    assert isinstance(mug_state, dict)
-    tray_state["mass_kg"] = 0.0
-    mug_state["friction"] = [-0.1, 0.005, 0.0001]
-    mug_state["contact"] = {"margin_m": 0.001, "gap_m": 0.002}
-    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    csd_path, stage = _editable_csd_fixture("object_only_static_and_dynamic", tmp_path)
+    stage.GetPrimAtPath("/World/Objects/tray").GetAttribute("physics:mass").Set(0.0)
+    mug = stage.GetPrimAtPath("/World/Objects/mug")
+    mug.CreateAttribute("robosim:mujoco:friction", Sdf.ValueTypeNames.Double3).Set(
+        Gf.Vec3d(-0.1, 0.005, 0.0001)
+    )
+    mug.CreateAttribute("mjc:margin", Sdf.ValueTypeNames.Double).Set(0.001)
+    mug.CreateAttribute("mjc:gap", Sdf.ValueTypeNames.Double).Set(0.002)
+    _save_stage(stage)
+    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
     _write_fixture_asset_files(asset_root, asset_registry)
 
     result = compile_csd_to_mujoco(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path,
         asset_root=asset_root,
@@ -1007,24 +962,23 @@ def test_compile_csd_to_mujoco_blocks_invalid_inertial_parameters(
     tmp_path: Path,
 ) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("object_only_static_and_dynamic.json")
-    scenario = csd["scenario"]
-    assert isinstance(scenario, dict)
-    objects = scenario["objects"]
-    assert isinstance(objects, list)
-    mug = objects[1]
-    assert isinstance(mug, dict)
-    initial_state = mug["initial_state"]
-    assert isinstance(initial_state, dict)
-    initial_state["inertial"] = {
-        "center_of_mass": {"x": 0.0, "y": 0.0, "z": 0.0},
-        "diagonal_inertia_kg_m2": [0.002, 0.0, 0.004],
-    }
-    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    csd_path, stage = _editable_csd_fixture("object_only_static_and_dynamic", tmp_path)
+    mug = stage.GetPrimAtPath("/World/Objects/mug")
+    mug.CreateAttribute("physics:centerOfMass", Sdf.ValueTypeNames.Point3f).Set(
+        Gf.Vec3f(0.0, 0.0, 0.0)
+    )
+    mug.CreateAttribute("physics:diagonalInertia", Sdf.ValueTypeNames.Float3).Set(
+        Gf.Vec3f(0.002, 0.0, 0.004)
+    )
+    mug.CreateAttribute("physics:principalAxes", Sdf.ValueTypeNames.Quatf).Set(
+        Gf.Quatf(1.0, 0.0, 0.0, 0.0)
+    )
+    _save_stage(stage)
+    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
     _write_fixture_asset_files(asset_root, asset_registry)
 
     result = compile_csd_to_mujoco(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path,
         asset_root=asset_root,
@@ -1045,12 +999,12 @@ def test_compile_csd_to_mujoco_preserves_texture_material_and_mesh_scale(
     tmp_path: Path,
 ) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("textured_scaled_object.json")
-    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    csd_path = _csd_fixture("textured_scaled_object")
+    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
     _write_fixture_asset_files(asset_root, asset_registry)
 
     result = compile_csd_to_mujoco(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path / "engine_manifests",
         asset_root=asset_root,
@@ -1091,17 +1045,12 @@ def test_compile_csd_to_mujoco_preserves_separate_collision_mesh(
     tmp_path: Path,
 ) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("object_only_static_and_dynamic.json")
-    scenario = csd["scenario"]
-    assert isinstance(scenario, dict)
-    objects = scenario["objects"]
-    assert isinstance(objects, list)
-    mug = objects[1]
-    assert isinstance(mug, dict)
-    initial_state = mug["initial_state"]
-    assert isinstance(initial_state, dict)
-    initial_state["contact"] = {"margin_m": 0.003}
-    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    csd_path, stage = _editable_csd_fixture("object_only_static_and_dynamic", tmp_path)
+    stage.GetPrimAtPath("/World/Objects/mug").CreateAttribute(
+        "mjc:margin", Sdf.ValueTypeNames.Double
+    ).Set(0.003)
+    _save_stage(stage)
+    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
     records = asset_registry["objects"]
     assert isinstance(records, list)
     for record in records:
@@ -1114,7 +1063,7 @@ def test_compile_csd_to_mujoco_preserves_separate_collision_mesh(
     _write_fixture_asset_files(asset_root, asset_registry)
 
     result = compile_csd_to_mujoco(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path / "engine_manifests",
         asset_root=asset_root,
@@ -1159,12 +1108,12 @@ def test_compile_csd_to_mujoco_renders_semantic_preview_screenshot(
     tmp_path: Path,
 ) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("object_only_static_and_dynamic.json")
-    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    csd_path = _csd_fixture("object_only_static_and_dynamic")
+    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
     _write_fixture_asset_files(asset_root, asset_registry)
 
     result = compile_csd_to_mujoco(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path / "engine_manifests",
         asset_root=asset_root,
@@ -1195,12 +1144,12 @@ def test_compile_csd_to_mujoco_preview_contains_distinct_visual_regions(
     tmp_path: Path,
 ) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("visual_tabletop_regions.json")
-    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    csd_path = _csd_fixture("visual_tabletop_regions")
+    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
     _write_fixture_asset_files(asset_root, asset_registry)
 
     result = compile_csd_to_mujoco(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path / "engine_manifests",
         asset_root=asset_root,
@@ -1258,8 +1207,8 @@ def test_compile_csd_to_mujoco_reports_missing_resource_adapter(tmp_path: Path) 
 
 def test_compile_csd_to_mujoco_blocks_unsupported_mesh_format(tmp_path: Path) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("object_only_static_and_dynamic.json")
-    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    csd_path = _csd_fixture("object_only_static_and_dynamic")
+    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
     records = asset_registry["objects"]
     assert isinstance(records, list)
     for record in records:
@@ -1272,7 +1221,7 @@ def test_compile_csd_to_mujoco_blocks_unsupported_mesh_format(tmp_path: Path) ->
     _write_fixture_asset_files(asset_root, asset_registry)
 
     result = compile_csd_to_mujoco(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path,
         asset_root=asset_root,
@@ -1291,8 +1240,8 @@ def test_compile_csd_to_mujoco_blocks_unsupported_mesh_format(tmp_path: Path) ->
 
 def test_compile_csd_to_mujoco_blocks_mesh_path_traversal(tmp_path: Path) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("object_only_static_and_dynamic.json")
-    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    csd_path = _csd_fixture("object_only_static_and_dynamic")
+    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
     records = asset_registry["objects"]
     assert isinstance(records, list)
     for record in records:
@@ -1305,7 +1254,7 @@ def test_compile_csd_to_mujoco_blocks_mesh_path_traversal(tmp_path: Path) -> Non
     _write_box_mesh(asset_root / "objects" / "tray.obj")
 
     result = compile_csd_to_mujoco(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path,
         asset_root=asset_root,
@@ -1326,8 +1275,8 @@ def test_compile_csd_to_mujoco_blocks_unsupported_collision_mesh_format(
     tmp_path: Path,
 ) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("object_only_static_and_dynamic.json")
-    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    csd_path = _csd_fixture("object_only_static_and_dynamic")
+    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
     records = asset_registry["objects"]
     assert isinstance(records, list)
     for record in records:
@@ -1340,7 +1289,7 @@ def test_compile_csd_to_mujoco_blocks_unsupported_collision_mesh_format(
     _write_fixture_asset_files(asset_root, asset_registry)
 
     result = compile_csd_to_mujoco(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path,
         asset_root=asset_root,
@@ -1361,8 +1310,8 @@ def test_compile_csd_to_mujoco_blocks_unsupported_collision_mesh_format(
 
 def test_compile_csd_to_mujoco_blocks_texture_path_traversal(tmp_path: Path) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("textured_scaled_object.json")
-    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    csd_path = _csd_fixture("textured_scaled_object")
+    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
     records = asset_registry["objects"]
     assert isinstance(records, list)
     for record in records:
@@ -1377,7 +1326,7 @@ def test_compile_csd_to_mujoco_blocks_texture_path_traversal(tmp_path: Path) -> 
     _write_box_mesh(asset_root / "objects" / "can.obj")
 
     result = compile_csd_to_mujoco(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path,
         asset_root=asset_root,
@@ -1398,12 +1347,12 @@ def test_compile_csd_to_mujoco_blocks_texture_path_traversal(tmp_path: Path) -> 
 
 def test_compile_csd_to_mujoco_reports_unsupported_robot_asset(tmp_path: Path) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("unsupported_robot.json")
-    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    csd_path = _csd_fixture("unsupported_robot")
+    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
     _write_fixture_asset_files(asset_root, asset_registry)
 
     result = compile_csd_to_mujoco(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path,
         asset_root=asset_root,
@@ -1422,15 +1371,14 @@ def test_compile_csd_to_mujoco_reports_unsupported_robot_asset(tmp_path: Path) -
 
 def test_compile_csd_to_mujoco_blocks_non_meter_stage_units(tmp_path: Path) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("object_only_static_and_dynamic.json")
-    scenario = csd["scenario"]
-    assert isinstance(scenario, dict)
-    scenario["units"] = "cm"
-    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    csd_path, stage = _editable_csd_fixture("object_only_static_and_dynamic", tmp_path)
+    UsdGeom.SetStageMetersPerUnit(stage, 0.01)
+    _save_stage(stage)
+    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
     _write_fixture_asset_files(asset_root, asset_registry)
 
     result = compile_csd_to_mujoco(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path,
         asset_root=asset_root,
@@ -1453,21 +1401,14 @@ def test_compile_csd_to_mujoco_blocks_unsupported_environment_surface(
     tmp_path: Path,
 ) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("franka_tabletop_single_object.json")
-    scenario = csd["scenario"]
-    assert isinstance(scenario, dict)
-    environment = scenario["environment"]
-    assert isinstance(environment, dict)
-    surfaces = environment["surfaces"]
-    assert isinstance(surfaces, list)
-    surface = surfaces[0]
-    assert isinstance(surface, dict)
-    surface["type"] = "cylinder"
-    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    csd_path, stage = _editable_csd_fixture("franka_tabletop_single_object", tmp_path)
+    stage.GetPrimAtPath("/World/Environment/surface_tabletop").SetTypeName("Cylinder")
+    _save_stage(stage)
+    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
     _write_fixture_asset_files(asset_root, asset_registry)
 
     result = compile_csd_to_mujoco(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path,
         asset_root=asset_root,
@@ -1488,23 +1429,16 @@ def test_compile_csd_to_mujoco_blocks_zero_surface_quaternion(
     tmp_path: Path,
 ) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("franka_tabletop_single_object.json")
-    scenario = csd["scenario"]
-    assert isinstance(scenario, dict)
-    environment = scenario["environment"]
-    assert isinstance(environment, dict)
-    surfaces = environment["surfaces"]
-    assert isinstance(surfaces, list)
-    surface = surfaces[0]
-    assert isinstance(surface, dict)
-    pose = surface["pose"]
-    assert isinstance(pose, dict)
-    pose["orientation"] = {"w": 0.0, "x": 0.0, "y": 0.0, "z": 0.0}
-    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    csd_path, stage = _editable_csd_fixture("franka_tabletop_single_object", tmp_path)
+    stage.GetPrimAtPath("/World/Environment/surface_tabletop").GetAttribute("xformOp:orient").Set(
+        Gf.Quatd(0.0, 0.0, 0.0, 0.0)
+    )
+    _save_stage(stage)
+    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
     _write_fixture_asset_files(asset_root, asset_registry)
 
     result = compile_csd_to_mujoco(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path,
         asset_root=asset_root,
@@ -1519,23 +1453,16 @@ def test_compile_csd_to_mujoco_blocks_invalid_surface_size(
     tmp_path: Path,
 ) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("franka_tabletop_single_object.json")
-    scenario = csd["scenario"]
-    assert isinstance(scenario, dict)
-    environment = scenario["environment"]
-    assert isinstance(environment, dict)
-    surfaces = environment["surfaces"]
-    assert isinstance(surfaces, list)
-    surface = surfaces[0]
-    assert isinstance(surface, dict)
-    size = surface["size"]
-    assert isinstance(size, dict)
-    size["z"] = -0.04
-    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    csd_path, stage = _editable_csd_fixture("franka_tabletop_single_object", tmp_path)
+    stage.GetPrimAtPath("/World/Environment/surface_tabletop").GetAttribute("xformOp:scale").Set(
+        Gf.Vec3f(0.45, 0.35, -0.04)
+    )
+    _save_stage(stage)
+    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
     _write_fixture_asset_files(asset_root, asset_registry)
 
     result = compile_csd_to_mujoco(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path,
         asset_root=asset_root,
@@ -1556,21 +1483,16 @@ def test_compile_csd_to_mujoco_blocks_zero_object_quaternion(
     tmp_path: Path,
 ) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("object_only_static_and_dynamic.json")
-    scenario = csd["scenario"]
-    assert isinstance(scenario, dict)
-    objects = scenario["objects"]
-    assert isinstance(objects, list)
-    mug = objects[1]
-    assert isinstance(mug, dict)
-    pose = mug["pose"]
-    assert isinstance(pose, dict)
-    pose["orientation"] = {"w": 0.0, "x": 0.0, "y": 0.0, "z": 0.0}
-    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    csd_path, stage = _editable_csd_fixture("object_only_static_and_dynamic", tmp_path)
+    stage.GetPrimAtPath("/World/Objects/mug").GetAttribute("xformOp:orient").Set(
+        Gf.Quatd(0.0, 0.0, 0.0, 0.0)
+    )
+    _save_stage(stage)
+    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
     _write_fixture_asset_files(asset_root, asset_registry)
 
     result = compile_csd_to_mujoco(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path,
         asset_root=asset_root,
@@ -1585,19 +1507,16 @@ def test_compile_csd_to_mujoco_blocks_unknown_relationship_entity(
     tmp_path: Path,
 ) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("franka_tabletop_single_object.json")
-    scenario = csd["scenario"]
-    assert isinstance(scenario, dict)
-    relationships = scenario["relationships"]
-    assert isinstance(relationships, list)
-    relationship = relationships[0]
-    assert isinstance(relationship, dict)
-    relationship["subject"] = "object:ghost"
-    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    csd_path, stage = _editable_csd_fixture("franka_tabletop_single_object", tmp_path)
+    stage.GetPrimAtPath("/World/Relationships/rel_mug_on_table").GetRelationship(
+        "robosim:relationship:subject"
+    ).SetTargets([Sdf.Path("/World/Objects/ghost")])
+    _save_stage(stage)
+    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
     _write_fixture_asset_files(asset_root, asset_registry)
 
     result = compile_csd_to_mujoco(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path,
         asset_root=asset_root,
@@ -1612,21 +1531,17 @@ def test_compile_csd_to_mujoco_blocks_avoid_contact_violation(
     tmp_path: Path,
 ) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("franka_tabletop_multi_object.json")
-    scenario = csd["scenario"]
-    assert isinstance(scenario, dict)
-    objects = scenario["objects"]
-    assert isinstance(objects, list)
-    mug = objects[0]
-    marker = objects[2]
-    assert isinstance(mug, dict)
-    assert isinstance(marker, dict)
-    marker["pose"] = mug["pose"]
-    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    csd_path, stage = _editable_csd_fixture("franka_tabletop_multi_object", tmp_path)
+    mug = stage.GetPrimAtPath("/World/Objects/mug")
+    marker = stage.GetPrimAtPath("/World/Objects/marker")
+    marker.GetAttribute("xformOp:translate").Set(mug.GetAttribute("xformOp:translate").Get())
+    marker.GetAttribute("xformOp:orient").Set(mug.GetAttribute("xformOp:orient").Get())
+    _save_stage(stage)
+    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
     _write_fixture_asset_files(asset_root, asset_registry)
 
     result = compile_csd_to_mujoco(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path,
         asset_root=asset_root,
@@ -1654,23 +1569,16 @@ def test_compile_csd_to_mujoco_blocks_on_top_of_surface_violation(
     tmp_path: Path,
 ) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("visual_tabletop_regions.json")
-    scenario = csd["scenario"]
-    assert isinstance(scenario, dict)
-    objects = scenario["objects"]
-    assert isinstance(objects, list)
-    mug = objects[0]
-    assert isinstance(mug, dict)
-    pose = mug["pose"]
-    assert isinstance(pose, dict)
-    position = pose["position"]
-    assert isinstance(position, dict)
-    position["y"] = 0.45
-    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    csd_path, stage = _editable_csd_fixture("visual_tabletop_regions", tmp_path)
+    mug = stage.GetPrimAtPath("/World/Objects/mug_left")
+    position = mug.GetAttribute("xformOp:translate").Get()
+    mug.GetAttribute("xformOp:translate").Set(Gf.Vec3d(position[0], 0.45, position[2]))
+    _save_stage(stage)
+    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
     _write_fixture_asset_files(asset_root, asset_registry)
 
     result = compile_csd_to_mujoco(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path,
         asset_root=asset_root,
@@ -1702,17 +1610,14 @@ def test_compile_csd_to_mujoco_blocks_on_top_of_surface_violation(
 
 def test_compile_csd_to_mujoco_applies_template_nondefault_gravity(tmp_path: Path) -> None:
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("franka_tabletop_single_object.json")
-    scenario = csd["scenario"]
-    assert isinstance(scenario, dict)
-    environment = scenario["environment"]
-    assert isinstance(environment, dict)
-    environment["gravity"] = [0.0, 0.0, -1.62]
-    asset_registry = _load_json_fixture("asset_registry_mujoco.json")
+    csd_path, stage = _editable_csd_fixture("franka_tabletop_single_object", tmp_path)
+    stage.GetPrimAtPath("/World/PhysicsScene").GetAttribute("physics:gravityMagnitude").Set(1.62)
+    _save_stage(stage)
+    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
     _write_fixture_asset_files(asset_root, asset_registry)
 
     result = compile_csd_to_mujoco(
-        csd=csd,
+        csd_path=csd_path,
         asset_registry=asset_registry,
         output_root=tmp_path,
         asset_root=asset_root,
@@ -1753,7 +1658,7 @@ def test_compile_csd_to_gazebo_consumes_composed_openusd_stage(tmp_path: Path) -
     asset_root = tmp_path / "assets"
     _write_fixture_asset_files(asset_root, registry)
 
-    result = compile_csd_stage(
+    result = compile_csd(
         backend="gazebo",
         csd_path=SHARED_OPENUSD_CSD,
         asset_registry=registry,

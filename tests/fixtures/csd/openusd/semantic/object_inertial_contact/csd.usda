@@ -1,0 +1,112 @@
+#usda 1.0
+(
+    defaultPrim = "World"
+    metersPerUnit = 1
+    upAxis = "Z"
+)
+
+def Xform "World" (
+    prepend apiSchemas = ["RobosimCsdRootAPI", "RobosimRandomizationAPI"]
+    variants = {
+        string physicsBackend = "mujoco"
+    }
+    prepend variantSets = "physicsBackend"
+)
+{
+    custom string robosim:csd:id = "csd_object_inertial_contact_0001"
+    custom string robosim:csd:schemaVersion = "0.2"
+    custom string robosim:csd:taskInstanceId = "task_object_inertial_contact_0001"
+    custom string robosim:csd:worldTemplateId = "env_empty_floor_inertial"
+    custom int64 robosim:randomization:seed = 37
+
+    def Xform "Environment" (
+        prepend apiSchemas = ["RobosimEntityAPI"]
+    )
+    {
+        custom string robosim:entity:assetId = "env_empty_floor_inertial"
+        custom string robosim:entity:id = "environment"
+        custom token robosim:entity:role = "environment"
+        custom bool robosim:entity:static = 1
+    }
+
+    def PhysicsScene "PhysicsScene"
+    {
+        vector3f physics:gravityDirection = (0, 0, -1)
+        float physics:gravityMagnitude = 9.81
+    }
+
+    def Camera "world_camera"
+    {
+        quatd xformOp:orient = (1, 0, 0, 0)
+        quatd xformOp:orient:xyaxes = (0.612374681131375, 0.353549501356241, 0.353549501356241, 0.6123746811313752)
+        double3 xformOp:translate = (1.4, 0, 1.2)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:orient:xyaxes"]
+    }
+
+    def DistantLight "key_light"
+    {
+        quatd xformOp:orient = (1, 0, 0, 0)
+        double3 xformOp:translate = (0, -1, 3)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+    }
+
+    def Scope "Objects"
+    {
+        def Xform "mug_inertial" (
+            prepend apiSchemas = ["RobosimEntityAPI", "PhysicsMassAPI", "PhysicsRigidBodyAPI", "MaterialBindingAPI"]
+        )
+        {
+            rel material:binding = </World/Materials/object_mug_inertial>
+            custom double mjc:gap = 0.001
+            custom double mjc:margin = 0.003
+            custom double[] mjc:solimp = [0.9, 0.95, 0.001, 0.5, 2]
+            custom double[] mjc:solref = [0.02, 1]
+            point3f physics:centerOfMass = (0.01, 0, 0.02)
+            float3 physics:diagonalInertia = (0.002, 0.003, 0.004)
+            float physics:mass = 0.24
+            quatf physics:principalAxes = (1, 0, 0, 0)
+            bool physics:rigidBodyEnabled = 1
+            custom string robosim:entity:assetId = "object_mug"
+            custom string robosim:entity:id = "mug_inertial"
+            custom token robosim:entity:role = "interactive_object"
+            custom bool robosim:entity:static = 0
+            custom double3 robosim:mujoco:friction = (0.85, 0.006, 0.0002)
+            quatd xformOp:orient = (0.9238795, 0, 0, 0.3826834)
+            double3 xformOp:translate = (0.1, -0.05, 0.28)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+        }
+    }
+
+    def "Materials"
+    {
+        def Material "object_mug_inertial" (
+            prepend apiSchemas = ["PhysicsMaterialAPI"]
+        )
+        {
+            float physics:dynamicFriction = 0.85
+            float physics:staticFriction = 0.85
+        }
+    }
+
+    def Scope "Task" (
+        prepend apiSchemas = ["RobosimTaskAPI"]
+    )
+    {
+        custom string robosim:task:objective = "verify explicit object inertial and contact parameters in MuJoCo"
+    }
+
+    def Scope "Relationships"
+    {
+    }
+    variantSet "physicsBackend" = {
+        "gazebo" {
+
+        }
+        "mujoco" {
+
+        }
+        "pybullet" {
+
+        }
+    }
+}

@@ -3,7 +3,6 @@ from pathlib import Path
 import pytest
 from pxr import Sdf, Usd, UsdGeom, UsdPhysics
 
-
 FIXTURE_ROOT = Path(__file__).parent / "fixtures/csd/openusd/mujoco_feasibility"
 CSD_PATH = FIXTURE_ROOT / "csd.usda"
 

@@ -1,0 +1,144 @@
+#usda 1.0
+(
+    defaultPrim = "World"
+    metersPerUnit = 1
+    upAxis = "Z"
+)
+
+def Xform "World" (
+    prepend apiSchemas = ["RobosimCsdRootAPI", "RobosimRandomizationAPI"]
+    variants = {
+        string physicsBackend = "mujoco"
+    }
+    prepend variantSets = "physicsBackend"
+)
+{
+    custom string robosim:csd:id = "csd_unknown_robot"
+    custom string robosim:csd:schemaVersion = "0.2"
+    custom string robosim:csd:taskInstanceId = "task_unknown_robot"
+    custom string robosim:csd:worldTemplateId = "env_tabletop_lab"
+    custom int64 robosim:randomization:seed = 13
+
+    def Xform "Environment" (
+        prepend apiSchemas = ["RobosimEntityAPI"]
+    )
+    {
+        custom string robosim:entity:assetId = "env_tabletop_lab"
+        custom string robosim:entity:id = "environment"
+        custom token robosim:entity:role = "environment"
+        custom bool robosim:entity:static = 1
+
+        def Cube "surface_tabletop" (
+            prepend apiSchemas = ["RobosimEntityAPI", "PhysicsCollisionAPI", "MaterialBindingAPI"]
+        )
+        {
+            rel material:binding = </World/Materials/surface_surface_tabletop>
+            bool physics:collisionEnabled = 1
+            color3f[] primvars:displayColor = [(0.42, 0.36, 0.28)]
+            float[] primvars:displayOpacity = [1]
+            custom string robosim:entity:assetId = "env_tabletop_lab"
+            custom string robosim:entity:id = "surface_tabletop"
+            custom token robosim:entity:role = "support_surface"
+            custom bool robosim:entity:static = 1
+            quatd xformOp:orient = (1, 0, 0, 0)
+            float3 xformOp:scale = (0.45, 0.35, 0.04)
+            double3 xformOp:translate = (0.5, 0, 0.74)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+        }
+    }
+
+    def PhysicsScene "PhysicsScene"
+    {
+        vector3f physics:gravityDirection = (0, 0, -1)
+        float physics:gravityMagnitude = 9.81
+    }
+
+    def "Materials"
+    {
+        def Material "surface_surface_tabletop" (
+            prepend apiSchemas = ["PhysicsMaterialAPI"]
+        )
+        {
+            float physics:dynamicFriction = 1.2
+            float physics:staticFriction = 1.2
+        }
+
+        def Material "object_mug" (
+            prepend apiSchemas = ["PhysicsMaterialAPI"]
+        )
+        {
+            float physics:dynamicFriction = 0.8
+            float physics:staticFriction = 0.8
+        }
+    }
+
+    def Camera "world_camera"
+    {
+        quatd xformOp:orient = (1, 0, 0, 0)
+        quatd xformOp:orient:xyaxes = (0.612374681131375, 0.353549501356241, 0.353549501356241, 0.6123746811313752)
+        double3 xformOp:translate = (1.4, 0, 1.2)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:orient:xyaxes"]
+    }
+
+    def DistantLight "key_light"
+    {
+        quatd xformOp:orient = (1, 0, 0, 0)
+        double3 xformOp:translate = (0, -1, 3)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+    }
+
+    def Xform "Robot" (
+        prepend apiSchemas = ["RobosimEntityAPI"]
+    )
+    {
+        custom string robosim:entity:assetId = "robot_unknown"
+        custom string robosim:entity:id = "robot"
+        custom token robosim:entity:role = "robot"
+        custom bool robosim:entity:static = 1
+        quatd xformOp:orient = (1, 0, 0, 0)
+        double3 xformOp:translate = (0, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+    }
+
+    def Scope "Objects"
+    {
+        def Xform "mug" (
+            prepend apiSchemas = ["RobosimEntityAPI", "PhysicsMassAPI", "PhysicsRigidBodyAPI", "MaterialBindingAPI"]
+        )
+        {
+            rel material:binding = </World/Materials/object_mug>
+            float physics:mass = 0.2
+            bool physics:rigidBodyEnabled = 1
+            custom string robosim:entity:assetId = "object_mug"
+            custom string robosim:entity:id = "mug"
+            custom token robosim:entity:role = "interactive_object"
+            custom bool robosim:entity:static = 0
+            quatd xformOp:orient = (1, 0, 0, 0)
+            double3 xformOp:translate = (0.25, -0.1, 0.82)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+        }
+    }
+
+    def Scope "Task" (
+        prepend apiSchemas = ["RobosimTaskAPI"]
+    )
+    {
+        custom string robosim:task:objective = "verify unsupported robot assets produce typed blockers"
+    }
+
+    def Scope "Relationships"
+    {
+    }
+    variantSet "physicsBackend" = {
+        "gazebo" {
+
+        }
+        "mujoco" {
+
+        }
+        "pybullet" {
+
+        }
+    }
+}
+

@@ -1,0 +1,139 @@
+#usda 1.0
+(
+    defaultPrim = "World"
+    metersPerUnit = 1
+    upAxis = "Z"
+)
+
+def Xform "World" (
+    prepend apiSchemas = ["RobosimCsdRootAPI", "RobosimRandomizationAPI"]
+    variants = {
+        string physicsBackend = "mujoco"
+    }
+    prepend variantSets = "physicsBackend"
+)
+{
+    custom string robosim:csd:id = "csd_tabletop_rotated_surface_0001"
+    custom string robosim:csd:schemaVersion = "0.2"
+    custom string robosim:csd:taskInstanceId = "task_tabletop_rotated_surface_0001"
+    custom string robosim:csd:worldTemplateId = "env_rotated_tabletop"
+    custom int64 robosim:randomization:seed = 41
+
+    def Xform "Environment" (
+        prepend apiSchemas = ["RobosimEntityAPI"]
+    )
+    {
+        custom string robosim:entity:assetId = "env_rotated_tabletop"
+        custom string robosim:entity:id = "environment"
+        custom token robosim:entity:role = "environment"
+        custom bool robosim:entity:static = 1
+
+        def Cube "surface_rotated_tabletop" (
+            prepend apiSchemas = ["RobosimEntityAPI", "PhysicsCollisionAPI", "MaterialBindingAPI"]
+        )
+        {
+            rel material:binding = </World/Materials/surface_surface_rotated_tabletop>
+            bool physics:collisionEnabled = 1
+            color3f[] primvars:displayColor = [(0.35, 0.28, 0.2)]
+            float[] primvars:displayOpacity = [1]
+            custom string robosim:entity:assetId = "env_rotated_tabletop"
+            custom string robosim:entity:id = "surface_rotated_tabletop"
+            custom token robosim:entity:role = "support_surface"
+            custom bool robosim:entity:static = 1
+            quatd xformOp:orient = (0.9659258, 0, 0, 0.258819)
+            float3 xformOp:scale = (0.36, 0.24, 0.035)
+            double3 xformOp:translate = (0.45, 0, 0.62)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+        }
+    }
+
+    def PhysicsScene "PhysicsScene"
+    {
+        vector3f physics:gravityDirection = (0, 0, -1)
+        float physics:gravityMagnitude = 9.81
+    }
+
+    def "Materials"
+    {
+        def Material "surface_surface_rotated_tabletop" (
+            prepend apiSchemas = ["PhysicsMaterialAPI"]
+        )
+        {
+            float physics:dynamicFriction = 1
+            float physics:staticFriction = 1
+        }
+
+        def Material "object_marker_rotated" (
+            prepend apiSchemas = ["PhysicsMaterialAPI"]
+        )
+        {
+            float physics:dynamicFriction = 0.6
+            float physics:staticFriction = 0.6
+        }
+    }
+
+    def Camera "world_camera"
+    {
+        quatd xformOp:orient = (1, 0, 0, 0)
+        quatd xformOp:orient:xyaxes = (0.6023329525682853, 0.3703984533585038, 0.37039845335850374, 0.6023329525682856)
+        double3 xformOp:translate = (1.35, 0, 1)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:orient:xyaxes"]
+    }
+
+    def DistantLight "key_light"
+    {
+        quatd xformOp:orient = (1, 0, 0, 0)
+        double3 xformOp:translate = (0.2, -1, 2.8)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+    }
+
+    def Scope "Objects"
+    {
+        def Xform "marker_rotated" (
+            prepend apiSchemas = ["RobosimEntityAPI", "PhysicsMassAPI", "PhysicsRigidBodyAPI", "MaterialBindingAPI"]
+        )
+        {
+            rel material:binding = </World/Materials/object_marker_rotated>
+            float physics:mass = 0.05
+            bool physics:rigidBodyEnabled = 1
+            custom string robosim:entity:assetId = "object_marker"
+            custom string robosim:entity:id = "marker_rotated"
+            custom token robosim:entity:role = "distractor"
+            custom bool robosim:entity:static = 0
+            quatd xformOp:orient = (0.7071068, 0, 0, 0.7071068)
+            double3 xformOp:translate = (0.45, 0, 0.72)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+        }
+    }
+
+    def Scope "Task" (
+        prepend apiSchemas = ["RobosimTaskAPI"]
+    )
+    {
+        custom string robosim:task:objective = "verify rotated environment surface and rotated object realization"
+    }
+
+    def Scope "Relationships"
+    {
+        def RobosimRelationship "rel_marker_on_rotated_surface"
+        {
+            custom double robosim:relationship:minDistanceM = 0
+            custom rel robosim:relationship:object = </World/Environment/surface_rotated_tabletop>
+            custom rel robosim:relationship:subject = </World/Objects/marker_rotated>
+            custom double robosim:relationship:tolerance = 0.04
+            custom token robosim:relationship:type = "on_top_of"
+        }
+    }
+    variantSet "physicsBackend" = {
+        "gazebo" {
+
+        }
+        "mujoco" {
+
+        }
+        "pybullet" {
+
+        }
+    }
+}
+

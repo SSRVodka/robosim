@@ -1,0 +1,121 @@
+#usda 1.0
+(
+    defaultPrim = "World"
+    metersPerUnit = 1
+    upAxis = "Z"
+)
+
+def Xform "World" (
+    prepend apiSchemas = ["RobosimCsdRootAPI", "RobosimRandomizationAPI"]
+    variants = {
+        string physicsBackend = "mujoco"
+    }
+    prepend variantSets = "physicsBackend"
+)
+{
+    custom string robosim:csd:id = "csd_object_only_default_camera_0001"
+    custom string robosim:csd:schemaVersion = "0.2"
+    custom string robosim:csd:taskInstanceId = "task_object_only_default_camera_0001"
+    custom string robosim:csd:worldTemplateId = "env_empty_floor_default_camera"
+    custom int64 robosim:randomization:seed = 31
+
+    def Xform "Environment" (
+        prepend apiSchemas = ["RobosimEntityAPI"]
+    )
+    {
+        custom string robosim:entity:assetId = "env_empty_floor_default_camera"
+        custom string robosim:entity:id = "environment"
+        custom token robosim:entity:role = "environment"
+        custom bool robosim:entity:static = 1
+    }
+
+    def PhysicsScene "PhysicsScene"
+    {
+        vector3f physics:gravityDirection = (0, 0, -1)
+        float physics:gravityMagnitude = 9.81
+    }
+
+    def Scope "Objects"
+    {
+        def Xform "tray" (
+            prepend apiSchemas = ["RobosimEntityAPI", "PhysicsMassAPI", "MaterialBindingAPI"]
+        )
+        {
+            rel material:binding = </World/Materials/object_tray>
+            float physics:mass = 1
+            custom string robosim:entity:assetId = "object_tray"
+            custom string robosim:entity:id = "tray"
+            custom token robosim:entity:role = "support"
+            custom bool robosim:entity:static = 1
+            quatd xformOp:orient = (1, 0, 0, 0)
+            double3 xformOp:translate = (0, 0, 0.15)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+        }
+
+        def Xform "mug" (
+            prepend apiSchemas = ["RobosimEntityAPI", "PhysicsMassAPI", "PhysicsRigidBodyAPI", "MaterialBindingAPI"]
+        )
+        {
+            rel material:binding = </World/Materials/object_mug>
+            float physics:mass = 0.2
+            bool physics:rigidBodyEnabled = 1
+            custom string robosim:entity:assetId = "object_mug"
+            custom string robosim:entity:id = "mug"
+            custom token robosim:entity:role = "interactive_object"
+            custom bool robosim:entity:static = 0
+            quatd xformOp:orient = (1, 0, 0, 0)
+            double3 xformOp:translate = (0.08, 0, 0.32)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+        }
+    }
+
+    def "Materials"
+    {
+        def Material "object_tray" (
+            prepend apiSchemas = ["PhysicsMaterialAPI"]
+        )
+        {
+            float physics:dynamicFriction = 0.7
+            float physics:staticFriction = 0.7
+        }
+
+        def Material "object_mug" (
+            prepend apiSchemas = ["PhysicsMaterialAPI"]
+        )
+        {
+            float physics:dynamicFriction = 0.8
+            float physics:staticFriction = 0.8
+        }
+    }
+
+    def Scope "Task" (
+        prepend apiSchemas = ["RobosimTaskAPI"]
+    )
+    {
+        custom string robosim:task:objective = "verify default MuJoCo camera and light generation for object-only scenes"
+    }
+
+    def Scope "Relationships"
+    {
+        def RobosimRelationship "rel_mug_near_tray"
+        {
+            custom double robosim:relationship:minDistanceM = 0
+            custom rel robosim:relationship:object = </World/Objects/tray>
+            custom rel robosim:relationship:subject = </World/Objects/mug>
+            custom double robosim:relationship:tolerance = 0
+            custom token robosim:relationship:type = "near"
+        }
+    }
+    variantSet "physicsBackend" = {
+        "gazebo" {
+
+        }
+        "mujoco" {
+
+        }
+        "pybullet" {
+
+        }
+    }
+}
+

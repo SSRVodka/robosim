@@ -384,6 +384,38 @@ def validate_csd_stage(stage: Usd.Stage) -> tuple[CsdStageValidationIssue, ...]:
                     )
                 )
 
+    for prim in stage.Traverse():
+        diagonal = prim.GetAttribute("physics:diagonalInertia")
+        principal_axes = prim.GetAttribute("physics:principalAxes")
+        has_diagonal = bool(diagonal) and diagonal.HasAuthoredValueOpinion()
+        has_principal_axes = bool(principal_axes) and principal_axes.HasAuthoredValueOpinion()
+        if has_diagonal != has_principal_axes:
+            issues.append(
+                _issue(
+                    "invalid_inertia_pair",
+                    prim.GetPath(),
+                    "physics:diagonalInertia and physics:principalAxes must be authored together",
+                )
+            )
+            continue
+        if not has_principal_axes:
+            continue
+        quaternion = principal_axes.Get()
+        values = (quaternion.GetReal(), *quaternion.GetImaginary())
+        norm = math.sqrt(sum(float(value) ** 2 for value in values))
+        if (
+            not all(math.isfinite(float(value)) for value in values)
+            or math.isclose(norm, 0.0)
+            or not all(math.isclose(float(value), 0.0, abs_tol=1e-6) for value in values[1:])
+        ):
+            issues.append(
+                _issue(
+                    "unsupported_principal_axes",
+                    prim.GetPath(),
+                    "backend compilers currently require identity physics:principalAxes",
+                )
+            )
+
     for prim in _prims_of_type(stage, "RobosimRelationship"):
         relationship_type = str(prim.GetAttribute("robosim:relationship:type").Get() or "")
         if relationship_type not in _RELATIONSHIP_TYPES:
