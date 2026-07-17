@@ -371,9 +371,7 @@ class ConcreteScenarioDefinition:
                 _required_mapping(scenario, "environment", field="scenario")
             ),
             robot=(
-                CsdRobot.from_mapping(robot_payload)
-                if isinstance(robot_payload, Mapping)
-                else None
+                CsdRobot.from_mapping(robot_payload) if isinstance(robot_payload, Mapping) else None
             ),
             objects=tuple(
                 CsdObject.from_mapping(obj)
@@ -526,9 +524,7 @@ class CsdRealizationManifest:
             cache_key=str(payload["cache_key"]),
             root_path=str(payload["root_path"]),
             entry_file=str(payload["entry_file"]),
-            generated_files=tuple(
-                str(path) for path in payload.get("generated_files", [])
-            ),
+            generated_files=tuple(str(path) for path in payload.get("generated_files", [])),
             preview_files=tuple(str(path) for path in payload.get("preview_files", [])),
         )
 
@@ -640,7 +636,8 @@ class CsdRealizationBlocker:
 
 def make_csd_realization_cache_key(
     *,
-    csd: Mapping[str, Any],
+    csd: Mapping[str, Any] | None = None,
+    csd_hash: str | None = None,
     asset_variant_hashes: Mapping[str, str],
     backend: str,
     realization_config: Mapping[str, Any],
@@ -652,13 +649,19 @@ def make_csd_realization_cache_key(
         raise ValueError("backend is required")
     if not realization_version:
         raise ValueError("realization_version is required")
-    csd_hash = _canonical_hash(csd)
+    if (csd is None) == (csd_hash is None):
+        raise ValueError("exactly one of csd or csd_hash is required")
+    if csd_hash is not None:
+        resolved_csd_hash = csd_hash
+    else:
+        assert csd is not None
+        resolved_csd_hash = _canonical_hash(csd)
     asset_variant_hash = _canonical_hash(asset_variant_hashes)
     realization_config_hash = _canonical_hash(realization_config)
     digest = _canonical_hash(
         {
             "backend": backend,
-            "csd_hash": csd_hash,
+            "csd_hash": resolved_csd_hash,
             "asset_variant_hash": asset_variant_hash,
             "realization_config_hash": realization_config_hash,
             "realization_version": realization_version,
@@ -668,7 +671,7 @@ def make_csd_realization_cache_key(
     return CsdRealizationCacheKey(
         backend=backend,
         digest=digest,
-        csd_hash=csd_hash,
+        csd_hash=resolved_csd_hash,
         asset_variant_hash=asset_variant_hash,
         realization_config_hash=realization_config_hash,
         realization_version=realization_version,

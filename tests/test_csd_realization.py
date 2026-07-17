@@ -61,6 +61,19 @@ def test_csd_realization_cache_key_changes_by_backend() -> None:
     assert gazebo.digest != mujoco.digest
 
 
+def test_csd_realization_cache_key_accepts_composed_stage_digest() -> None:
+    key = make_csd_realization_cache_key(
+        csd_hash="a" * 64,
+        asset_variant_hashes={"object_box": "resource-hash"},
+        backend="mujoco",
+        realization_config={},
+        realization_version="0.4",
+        simulator_version="3.9.0",
+    )
+
+    assert key.csd_hash == "a" * 64
+
+
 def test_csd_realization_manifest_round_trips_backend_artifacts() -> None:
     manifest = CsdRealizationManifest(
         manifest_id="manifest_mujoco_csd_0001",

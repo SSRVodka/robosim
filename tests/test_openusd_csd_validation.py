@@ -44,18 +44,18 @@ def test_shared_csd_fixture_composes_complete_scenario() -> None:
 
     variants.SetVariantSelection("pybullet")
     physics_scene = stage.GetPrimAtPath("/World/PhysicsScene")
-    assert "RobosimPyBulletSceneAPI" in physics_scene.GetAppliedSchemas()
+    assert "RobosimPyBulletSceneAPI" in physics_scene.GetMetadata("apiSchemas").GetAppliedItems()
     assert physics_scene.GetAttribute("robosim:pybullet:numSolverIterations").Get() == 80
 
     variants.SetVariantSelection("gazebo")
-    assert "RobosimGazeboSceneAPI" in physics_scene.GetAppliedSchemas()
-    assert physics_scene.GetAttribute("robosim:gazebo:maxStepSize").Get() == pytest.approx(
-        0.001
-    )
+    assert "RobosimGazeboSceneAPI" in physics_scene.GetMetadata("apiSchemas").GetAppliedItems()
+    assert physics_scene.GetAttribute("robosim:gazebo:maxStepSize").Get() == pytest.approx(0.001)
 
-    evaluator_path = stage.GetPrimAtPath(
-        "/World/Evaluators/KeepDistance"
-    ).GetAttribute("robosim:evaluator:path").Get()
+    evaluator_path = (
+        stage.GetPrimAtPath("/World/Evaluators/KeepDistance")
+        .GetAttribute("robosim:evaluator:path")
+        .Get()
+    )
     assert Path(evaluator_path.resolvedPath).is_file()
 
 

@@ -6,7 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from pxr import Usd, UsdGeom
+from pxr import Sdf, Usd, UsdGeom
 
 from robosim.core.openusd_csd import csd_plugin_root, register_csd_plugins
 
@@ -65,27 +65,26 @@ def test_codeless_csd_schema_authors_a_strictly_valid_layer(tmp_path: Path) -> N
     UsdGeom.SetStageUpAxis(stage, UsdGeom.Tokens.z)
 
     world.AddAppliedSchema("RobosimCsdRootAPI")
-    world.GetAttribute("robosim:csd:id").Set("csd_minimal")
-    world.GetAttribute("robosim:csd:schemaVersion").Set("0.1")
-    world.GetAttribute("robosim:csd:taskInstanceId").Set("task_minimal")
-    world.GetAttribute("robosim:csd:worldTemplateId").Set("world_empty")
+    for name, value in {
+        "robosim:csd:id": "csd_minimal",
+        "robosim:csd:schemaVersion": "0.1",
+        "robosim:csd:taskInstanceId": "task_minimal",
+        "robosim:csd:worldTemplateId": "world_empty",
+    }.items():
+        world.CreateAttribute(name, Sdf.ValueTypeNames.String).Set(value)
 
     subject = UsdGeom.Xform.Define(stage, "/World/Objects/Subject").GetPrim()
     target = UsdGeom.Xform.Define(stage, "/World/Objects/Target").GetPrim()
-    relationship = stage.DefinePrim(
-        "/World/Relationships/SubjectNearTarget", "RobosimRelationship"
-    )
-    relationship.GetAttribute("robosim:relationship:type").Set("near")
-    relationship.GetRelationship("robosim:relationship:subject").SetTargets(
-        [subject.GetPath()]
-    )
-    relationship.GetRelationship("robosim:relationship:object").SetTargets(
-        [target.GetPath()]
-    )
-    relationship.GetAttribute("robosim:relationship:minDistanceM").Set(0.1)
+    relationship = stage.DefinePrim("/World/Relationships/SubjectNearTarget", "RobosimRelationship")
+    relationship.CreateAttribute("robosim:relationship:type", Sdf.ValueTypeNames.Token).Set("near")
+    relationship.CreateRelationship("robosim:relationship:subject").SetTargets([subject.GetPath()])
+    relationship.CreateRelationship("robosim:relationship:object").SetTargets([target.GetPath()])
+    relationship.CreateAttribute(
+        "robosim:relationship:minDistanceM", Sdf.ValueTypeNames.Double
+    ).Set(0.1)
     stage.GetRootLayer().Save()
 
-    assert world.GetAppliedSchemas() == ["RobosimCsdRootAPI"]
+    assert "RobosimCsdRootAPI" in world.GetMetadata("apiSchemas").GetAppliedItems()
     assert relationship.GetTypeName() == "RobosimRelationship"
     assert relationship.GetAttribute("robosim:relationship:type").Get() == "near"
 

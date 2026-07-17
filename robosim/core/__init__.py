@@ -26,6 +26,14 @@ from robosim.core.csd_compiler import (
     compile_csd_to_mujoco,
     compile_csd_to_pybullet,
 )
+from robosim.core.openusd_csd import (
+    CsdStageValidationIssue,
+    OpenUsdCsd,
+    compute_csd_digest,
+    read_openusd_csd,
+    register_csd_plugins,
+    validate_csd_stage,
+)
 
 __all__ = [
     "CsdCompilationResult",
@@ -40,6 +48,8 @@ __all__ = [
     "CsdRealizationManifest",
     "CsdRealizationValidationRecord",
     "CsdRelationshipType",
+    "CsdStageValidationIssue",
+    "OpenUsdCsd",
     "SimulatorBackend",
     "Capability",
     "asset_resource_hashes_for_csd",
@@ -49,8 +59,12 @@ __all__ = [
     "compile_csd_to_gazebo",
     "compile_csd_to_mujoco",
     "compile_csd_to_pybullet",
+    "compute_csd_digest",
     "find_csd_realization_blockers",
     "make_csd_realization_cache_key",
+    "read_openusd_csd",
+    "register_csd_plugins",
+    "validate_csd_stage",
 ]
 
 
