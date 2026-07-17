@@ -229,7 +229,21 @@ def test_compile_csd_to_mujoco_consumes_composed_openusd_stage(tmp_path: Path) -
     assert result.blockers == ()
     assert result.manifest is not None
     assert result.manifest.csd_id == "csd_shared_tabletop"
-    mujoco.MjModel.from_xml_path(str(Path(result.manifest.root_path) / result.manifest.entry_file))
+    model = mujoco.MjModel.from_xml_path(
+        str(Path(result.manifest.root_path) / result.manifest.entry_file)
+    )
+    assert mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "ground") == -1
+    assert tuple(round(float(value), 6) for value in model.body("link0").pos) == (
+        -0.45,
+        0.0,
+        0.0,
+    )
+    assert tuple(round(float(value), 6) for value in model.body("link0").quat) == (
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+    )
 
 
 @pytest.mark.parametrize("fixture_name", MUJOCO_POSITIVE_CSD_FIXTURES)
@@ -1038,7 +1052,7 @@ def test_compile_csd_to_mujoco_preserves_texture_material_and_mesh_scale(
     (asset_root / "objects" / "can.obj").unlink()
     (asset_root / "textures" / "can_label.png").unlink()
     model = mujoco.MjModel.from_xml_path(str(scene_path))
-    assert model.ngeom >= 2
+    assert model.ngeom == 1
 
 
 def test_compile_csd_to_mujoco_preserves_separate_collision_mesh(
@@ -1101,7 +1115,7 @@ def test_compile_csd_to_mujoco_preserves_separate_collision_mesh(
     (asset_root / "objects" / "mug.obj").unlink()
     (asset_root / "collision" / "mug_collision.obj").unlink()
     model = mujoco.MjModel.from_xml_path(str(scene_path))
-    assert model.ngeom >= 4
+    assert model.ngeom == 3
 
 
 def test_compile_csd_to_mujoco_renders_semantic_preview_screenshot(

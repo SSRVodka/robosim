@@ -20,6 +20,7 @@ from robosim.core.csd import (
     BackendResourceMaterial,
     ConcreteScenarioDefinition,
     CsdObject,
+    CsdPose,
     CsdRealizationBlocker,
     CsdRealizationManifest,
     CsdRealizationValidationRecord,
@@ -37,7 +38,7 @@ from robosim.core.openusd_csd import (
 MUJOCO_BACKEND = "mujoco"
 GAZEBO_BACKEND = "gazebo"
 PYBULLET_BACKEND = "pybullet"
-DEFAULT_REALIZATION_VERSION = "csd-compiler-0.3"
+DEFAULT_REALIZATION_VERSION = "csd-compiler-0.4"
 MUJOCO_MESH_EXTENSIONS = frozenset({".obj", ".stl", ".msh"})
 PYBULLET_MESH_EXTENSIONS = frozenset({".obj"})
 MUJOCO_PREVIEW_SIZE_PX = 512
@@ -651,16 +652,6 @@ def _write_mjcf(
     worldbody = ET.SubElement(root, "worldbody")
     _append_lights(worldbody, csd)
     _append_cameras(worldbody, csd)
-    ET.SubElement(
-        worldbody,
-        "geom",
-        {
-            "name": "ground",
-            "type": "plane",
-            "size": "2 2 0.02",
-            "rgba": "0.8 0.8 0.8 1",
-        },
-    )
     _append_environment_surfaces(worldbody, csd)
     for obj in csd.objects:
         _append_object_body(worldbody, obj, resources)
@@ -954,6 +945,8 @@ def _copy_mujoco_robot_template(
         entry_destination,
         gravity=_vector3_text(csd.environment.gravity),
     )
+    if csd.robot is not None:
+        _patch_mujoco_template_robot_pose(entry_destination, pose=csd.robot.pose)
 
     mesh_source_root = template_dir / "assets"
     if mesh_source_root.is_dir():
@@ -2170,6 +2163,18 @@ def _patch_mujoco_template_gravity(path: Path, *, gravity: str) -> None:
         compiler = root.find("compiler")
         root.insert(1 if compiler is not None else 0, option)
     option.set("gravity", gravity)
+    ET.indent(root, space="  ")
+    tree.write(path, encoding="utf-8", xml_declaration=False)
+
+
+def _patch_mujoco_template_robot_pose(path: Path, *, pose: CsdPose) -> None:
+    tree = ET.parse(path)
+    root = tree.getroot()
+    robot_body = root.find("worldbody/body")
+    if robot_body is None:
+        raise ValueError("MuJoCo robot template has no root body")
+    robot_body.set("pos", _vector3_text(pose.position))
+    robot_body.set("quat", _quaternion_text(pose.orientation))
     ET.indent(root, space="  ")
     tree.write(path, encoding="utf-8", xml_declaration=False)
 
