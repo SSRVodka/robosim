@@ -494,6 +494,7 @@ def _compiler_object(
             contact=_compiler_contact(prim),
             inertial=inertial,
         ),
+        rgba=_compiler_object_rgba(prim),
     )
 
 
@@ -645,6 +646,34 @@ def _compiler_friction(
         if sliding is not None:
             return (_clean_float(sliding), default[1], default[2])
     return default
+
+
+def _compiler_object_rgba(prim: Usd.Prim) -> tuple[float, float, float, float] | None:
+    for candidate in Usd.PrimRange(prim):
+        material, _ = UsdShade.MaterialBindingAPI(candidate).ComputeBoundMaterial()
+        if material:
+            shader = material.ComputeSurfaceSource()[0]
+            if shader:
+                diffuse = shader.GetInput("diffuseColor").Get()
+                if diffuse is not None:
+                    opacity = shader.GetInput("opacity").Get()
+                    return (
+                        _clean_float(diffuse[0]),
+                        _clean_float(diffuse[1]),
+                        _clean_float(diffuse[2]),
+                        _clean_float(opacity) if opacity is not None else 1.0,
+                    )
+        if candidate.IsA(UsdGeom.Gprim):
+            colors = UsdGeom.Gprim(candidate).GetDisplayColorAttr().Get() or ()
+            if colors:
+                opacities = UsdGeom.Gprim(candidate).GetDisplayOpacityAttr().Get() or ()
+                return (
+                    _clean_float(colors[0][0]),
+                    _clean_float(colors[0][1]),
+                    _clean_float(colors[0][2]),
+                    _clean_float(opacities[0]) if opacities else 1.0,
+                )
+    return None
 
 
 def _compiler_contact(prim: Usd.Prim) -> CsdObjectContact | None:

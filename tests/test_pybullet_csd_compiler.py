@@ -4,18 +4,49 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import xml.etree.ElementTree as ET
 from pathlib import Path
+from shutil import copytree
 from typing import Mapping
 
 import pybullet as p
 
 from robosim.core import (
     CsdRealizationManifest,
-    compile_csd,
-    compile_csd_to_pybullet,
 )
+from robosim.core import (
+    compile_csd as compile_csd_stage,
+)
+from robosim.core import (
+    compile_csd_to_pybullet as compile_csd_to_pybullet_stage,
+)
+from tests.openusd_fixture_authoring import author_openusd_csd
 
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "csd"
+SHARED_OPENUSD_CSD = FIXTURE_ROOT / "openusd" / "shared_tabletop" / "csd.usda"
+
+
+def compile_csd_to_pybullet(
+    *,
+    csd: Mapping[str, object] | None = None,
+    csd_path: Path | None = None,
+    **kwargs: object,
+):
+    """Route legacy semantic inputs through test-only OpenUSD authoring."""
+    if csd_path is None:
+        assert csd is not None
+        csd_path = author_openusd_csd(csd, Path(kwargs["output_root"]).parent)
+    return compile_csd_to_pybullet_stage(csd_path=csd_path, **kwargs)
+
+
+def compile_csd(
+    *,
+    backend: str,
+    csd: Mapping[str, object],
+    **kwargs: object,
+):
+    csd_path = author_openusd_csd(csd, Path(kwargs["output_root"]).parent)
+    return compile_csd_stage(backend=backend, csd_path=csd_path, **kwargs)
 
 
 def _load_json_fixture(name: str) -> dict[str, object]:
@@ -94,6 +125,92 @@ def _load_generated_scene(scene_path: Path, client_id: int) -> dict[str, object]
     handles = module.load_scene(client_id)
     assert isinstance(handles, dict)
     return handles
+
+
+def test_compile_csd_to_pybullet_consumes_composed_openusd_stage(tmp_path: Path) -> None:
+    registry = {
+        "objects": [
+            {
+                "asset_id": asset_id,
+                "backend_resources": [
+                    {
+                        "backend": "pybullet",
+                        "resource_id": f"pybullet_{asset_id}",
+                        "mesh_path": f"objects/{asset_id}.obj",
+                        "resource_hash": f"hash_{asset_id}",
+                    }
+                ],
+            }
+            for asset_id in ("object_box", "object_anchor")
+        ]
+    }
+    asset_root = tmp_path / "assets"
+    _write_fixture_asset_files(asset_root, registry)
+
+    result = compile_csd_to_pybullet(
+        csd_path=SHARED_OPENUSD_CSD,
+        asset_registry=registry,
+        output_root=tmp_path / "engine_manifests",
+        asset_root=asset_root,
+        simulator_version="test-pybullet",
+    )
+
+    assert result.blockers == ()
+    assert result.manifest is not None
+    scene_root = Path(result.manifest.root_path)
+    metadata = json.loads((scene_root / "scene_meta.json").read_text(encoding="utf-8"))
+    assert metadata["csd_id"] == "csd_shared_tabletop"
+    assert metadata["gravity"] == [0.0, 0.0, -9.81]
+    assert metadata["objects"]["dynamic_box"]["mass_kg"] == 1.0
+    assert metadata["objects"]["dynamic_box"]["friction"][0] == 0.7
+    assert metadata["objects"]["dynamic_box"]["rgba"] == [0.8, 0.25, 0.15, 1.0]
+    assert metadata["surfaces"]["table"]["half_extents"] == [0.6, 0.4, 0.05]
+    assert metadata["robot"]["position"] == [-0.45, 0.0, 0.0]
+    assert metadata["cameras"][0]["name"] == "Camera"
+
+    urdf = ET.parse(scene_root / "assets" / "objects" / "dynamic_box.urdf").getroot()
+    inertia = urdf.find("link/inertial/inertia")
+    collision_mesh = urdf.find("link/collision/geometry/mesh")
+    visual_color = urdf.find("link/visual/material/color")
+    assert inertia is not None
+    assert collision_mesh is not None
+    assert visual_color is not None
+    assert inertia.attrib == {
+        "ixx": "0.015",
+        "ixy": "0",
+        "ixz": "0",
+        "iyy": "0.015",
+        "iyz": "0",
+        "izz": "0.015",
+    }
+    assert collision_mesh.attrib["filename"] == "object_box.obj"
+    assert visual_color.attrib["rgba"] == "0.8 0.25 0.15 1"
+
+
+def test_compile_csd_to_pybullet_blocks_invalid_openusd_relationship(tmp_path: Path) -> None:
+    csd_root = tmp_path / "invalid_relationship"
+    copytree(SHARED_OPENUSD_CSD.parent, csd_root)
+    task_layer = csd_root / "layers" / "task.usda"
+    task_layer.write_text(
+        task_layer.read_text(encoding="utf-8").replace(
+            "</World/Objects/Anchor>",
+            "</World/Objects/Missing>",
+        ),
+        encoding="utf-8",
+    )
+
+    result = compile_csd_to_pybullet_stage(
+        csd_path=csd_root / "csd.usda",
+        asset_registry={"objects": []},
+        output_root=tmp_path / "engine_manifests",
+        asset_root=tmp_path / "assets",
+        simulator_version="test-pybullet",
+    )
+
+    assert result.manifest is None
+    assert len(result.blockers) == 1
+    assert result.blockers[0].backend == "pybullet"
+    assert "unresolved_relationship_target" in result.blockers[0].reason
 
 
 def test_compile_csd_to_pybullet_writes_self_contained_package(tmp_path: Path) -> None:

@@ -309,6 +309,7 @@ class CsdObject:
     pose: CsdPose
     static: bool
     initial_state: CsdObjectInitialState
+    rgba: tuple[float, float, float, float] | None = None
 
     @classmethod
     def from_mapping(cls, payload: Mapping[str, Any]) -> "CsdObject":
@@ -324,6 +325,7 @@ class CsdObject:
             initial_state=CsdObjectInitialState.from_mapping(
                 _optional_mapping(payload, "initial_state")
             ),
+            rgba=None,
         )
 
 

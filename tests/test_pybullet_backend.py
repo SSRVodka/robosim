@@ -15,10 +15,30 @@ from control_stubs.common_pb2 import Point, Pose, Quaternion
 from control_stubs.robot_core_pb2 import ServoCommand
 from control_stubs.robot_data_pb2 import RecordInfo, RecordOptions
 from robosim.backends.pybullet.backend import PyBulletBackend
-from robosim.core import CsdRealizationManifest, compile_csd_to_pybullet
+from robosim.core import (
+    CsdRealizationManifest,
+)
+from robosim.core import (
+    compile_csd_to_pybullet as compile_csd_to_pybullet_stage,
+)
 from robosim.core.impl.recorder_lerobot import LerobotDataRecorder
+from tests.openusd_fixture_authoring import author_openusd_csd
 
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "csd"
+SHARED_OPENUSD_CSD = FIXTURE_ROOT / "openusd" / "shared_tabletop" / "csd.usda"
+
+
+def compile_csd_to_pybullet(
+    *,
+    csd: Mapping[str, object] | None = None,
+    csd_path: Path | None = None,
+    **kwargs: object,
+):
+    """Route legacy semantic inputs through test-only OpenUSD authoring."""
+    if csd_path is None:
+        assert csd is not None
+        csd_path = author_openusd_csd(csd, Path(kwargs["output_root"]).parent)
+    return compile_csd_to_pybullet_stage(csd_path=csd_path, **kwargs)
 
 
 @pytest.fixture
@@ -133,10 +153,7 @@ def test_pybullet_backend_position_control_and_servo_stream(backend: PyBulletBac
     )
 
     assert _wait_for_condition(
-        lambda: abs(
-            float(backend.get_robot_state().position[index]) - target
-        )
-        < 0.03,
+        lambda: abs(float(backend.get_robot_state().position[index]) - target) < 0.03,
         timeout=2.0,
     )
     command_state = backend.get_joint_command_state()
@@ -199,6 +216,51 @@ def test_pybullet_backend_loads_compiled_csd_manifest(tmp_path: Path) -> None:
         instance.shutdown()
 
 
+def test_pybullet_backend_loads_and_runs_shared_openusd_csd(tmp_path: Path) -> None:
+    registry = {
+        "objects": [
+            {
+                "asset_id": asset_id,
+                "backend_resources": [
+                    {
+                        "backend": "pybullet",
+                        "resource_id": f"pybullet_{asset_id}",
+                        "mesh_path": f"objects/{asset_id}.obj",
+                        "resource_hash": f"hash_{asset_id}",
+                    }
+                ],
+            }
+            for asset_id in ("object_box", "object_anchor")
+        ]
+    }
+    asset_root = tmp_path / "assets"
+    _write_fixture_asset_files(asset_root, registry)
+    result = compile_csd_to_pybullet_stage(
+        csd_path=SHARED_OPENUSD_CSD,
+        asset_registry=registry,
+        output_root=tmp_path / "engine_manifests",
+        asset_root=asset_root,
+        simulator_version="test-pybullet",
+    )
+    assert result.blockers == ()
+    assert result.manifest is not None
+
+    instance = PyBulletBackend.from_csd_realization_manifest(result.manifest, headless=True)
+    try:
+        sensors = {entry.name for entry in instance.list_sensors().entries}
+        image = instance.get_sensors(["Camera"]).images[0]
+        time.sleep(0.05)
+
+        assert "Camera" in sensors
+        assert {"dynamic_box", "anchor", "table", "panda"} <= set(instance.body_names)
+        assert float(_image_array(image).std()) > 1.0
+        state = instance.get_robot_state()
+        assert np.isfinite(state.position).all()
+        assert np.isfinite(state.velocity).all()
+    finally:
+        instance.shutdown()
+
+
 def test_pybullet_backend_loads_compiled_franka_csd_as_controllable_robot(
     tmp_path: Path,
 ) -> None:
@@ -242,9 +304,7 @@ def test_pybullet_backend_records_and_replays_lerobot_episode(
     job = recorder.episode_start(options)
     time.sleep(0.25)
     end_status = recorder.episode_end()
-    replay_status = recorder.episode_replay(
-        RecordInfo(repo_name="pybullet_demo", episode_id=0)
-    )
+    replay_status = recorder.episode_replay(RecordInfo(repo_name="pybullet_demo", episode_id=0))
 
     assert job.episode_id == 0
     assert end_status.code == 1

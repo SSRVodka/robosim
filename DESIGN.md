@@ -520,6 +520,14 @@ state/spec/control 能力。同一 CSD 的 MuJoCo 与 PyBullet preview 应输出
 目录，由自动非空检查和人工视觉检查确认主体布局相似，差异仅能来自 simulator
 renderer、材质和 contact/numeric 语义差异。
 
+实现记录（2026-07-17）：`compile_csd_to_pybullet()` 已改为只接受 canonical
+`csd.usda` 路径，并与 MuJoCo 共享 composed-stage validation、typed compiler view
+和 digest cache input。共享 fixture 已验证 robot/object/surface transform、gravity、
+mass/diagonal inertia、collision mesh、standard physics friction、UsdPreviewSurface
+diffuse color、camera/sensor handoff、关系 target blocker、package-local resources、
+finite stepping、runtime manifest loading 和 nonblank render。JSON mapping 不再位于
+PyBullet production path。
+
 第一阶段支持：
 - CSD units=`m`、frame=`world`；
 - package-local URDF robot template。`robot_franka_panda`/`franka_panda` 当前映射到

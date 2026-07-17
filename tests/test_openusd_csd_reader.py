@@ -77,6 +77,7 @@ def test_compiler_view_reads_standard_openusd_physics_and_transforms() -> None:
 
     assert dynamic_box.initial_state.mass_kg == 1.0
     assert dynamic_box.initial_state.friction == (0.7, 0.005, 0.0001)
+    assert dynamic_box.rgba == (0.8, 0.25, 0.15, 1.0)
     assert dynamic_box.initial_state.inertial is not None
     assert _xyz(dynamic_box.initial_state.inertial.center_of_mass) == (0.0, 0.0, 0.0)
     assert dynamic_box.initial_state.inertial.diagonal_inertia_kg_m2 == (

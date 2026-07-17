@@ -24,8 +24,8 @@
 >
 > The approved CSD migration replaces the JSON CSD with a composed OpenUSD
 > stage rooted at `csd/<csd_id>/csd.usda`. MuJoCo now consumes that stage
-> directly; the legacy JSON compiler input remains temporarily only for the
-> PyBullet and Gazebo checkpoints. The native MuJoCo USD feasibility
+> directly; PyBullet uses the same path, and the legacy JSON compiler input
+> remains temporarily only for the Gazebo checkpoint. The native MuJoCo USD feasibility
 > gate selected the OpenUSD-to-MJCF path because the official decoder does not
 > preserve required cameras, lights, or sensors. See [`DESIGN.md`](./DESIGN.md)
 > and [`docs/mujoco-openusd-feasibility.md`](./docs/mujoco-openusd-feasibility.md) for the canonical
@@ -41,8 +41,8 @@ equivalent JSON CSD.
 `vsim` exposes the CSD compiler boundary through `robosim.core.compile_csd`.
 
 Pass `backend="mujoco"`, `backend="gazebo"`, or `backend="pybullet"`. MuJoCo
-accepts `csd_path=Path("csd/<csd_id>/csd.usda")`; PyBullet and Gazebo will move
-to the same interface in their checkpoints. The compiler also consumes an
+and PyBullet accept `csd_path=Path("csd/<csd_id>/csd.usda")`; Gazebo will move
+to the same interface in its checkpoint. The compiler also consumes an
 asset registry with passed backend variants, an output root, and an asset root.
 In benchmark packages, pass
 `output_root=Path("<package>/engine_manifests")`.

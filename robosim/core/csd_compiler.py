@@ -224,7 +224,7 @@ def compile_csd_to_mujoco(
 
 def compile_csd_to_pybullet(
     *,
-    csd: Mapping[str, Any],
+    csd_path: Path,
     asset_registry: Mapping[str, Any],
     output_root: Path,
     asset_root: Path,
@@ -233,15 +233,27 @@ def compile_csd_to_pybullet(
     simulator_version: str | None = None,
 ) -> CsdCompilationResult:
     """Compile a fixed CSD into a PyBullet realization package."""
-    blockers = find_csd_realization_blockers(
-        csd=csd,
-        asset_registry=asset_registry,
-        backend=PYBULLET_BACKEND,
-    )
+    try:
+        openusd_csd = read_openusd_csd(csd_path, backend=PYBULLET_BACKEND)
+        typed_csd = compiler_csd_from_openusd(openusd_csd)
+    except ValueError as error:
+        csd_id = Path(csd_path).parent.name
+        return CsdCompilationResult(
+            manifest=None,
+            blockers=(
+                _backend_csd_blocker(
+                    csd_id,
+                    "csd_stage",
+                    PYBULLET_BACKEND,
+                    f"invalid OpenUSD CSD: {error}",
+                ),
+            ),
+        )
+    resources = backend_resource_adapters_by_asset(asset_registry, backend=PYBULLET_BACKEND)
+    blockers = _resource_adapter_blockers(typed_csd, resources, PYBULLET_BACKEND)
     if blockers:
         return CsdCompilationResult(manifest=None, blockers=blockers)
 
-    typed_csd = ConcreteScenarioDefinition.from_mapping(csd)
     semantic_blockers = _pybullet_csd_semantic_blockers(typed_csd)
     if semantic_blockers:
         return CsdCompilationResult(manifest=None, blockers=semantic_blockers)
@@ -250,15 +262,13 @@ def compile_csd_to_pybullet(
         return CsdCompilationResult(manifest=None, blockers=robot_blockers)
 
     realization_config = dict(realization_config or {})
-    csd_id = _required_str(csd, "csd_id")
+    csd_id = typed_csd.csd_id
     simulator_version = simulator_version or _pybullet_simulator_version()
-    resource_hashes = asset_resource_hashes_for_csd(
-        csd=csd,
-        asset_registry=asset_registry,
-        backend=PYBULLET_BACKEND,
-    )
+    resource_hashes = {
+        asset_id: resources[asset_id].resource_hash for asset_id in _compiler_asset_ids(typed_csd)
+    }
     cache_key = make_csd_realization_cache_key(
-        csd=csd,
+        csd_hash=openusd_csd.digest,
         asset_variant_hashes=resource_hashes,
         backend=PYBULLET_BACKEND,
         realization_config=realization_config,
@@ -270,9 +280,8 @@ def compile_csd_to_pybullet(
     if cached_manifest is not None:
         return CsdCompilationResult(manifest=cached_manifest)
 
-    resources = backend_resource_adapters_by_asset(asset_registry, backend=PYBULLET_BACKEND)
     mesh_blockers = _mesh_path_blockers(
-        csd,
+        typed_csd,
         resources,
         Path(asset_root),
         backend=PYBULLET_BACKEND,
@@ -285,7 +294,7 @@ def compile_csd_to_pybullet(
     scene_root.mkdir(parents=True, exist_ok=True)
     diagnostics_root.mkdir(exist_ok=True)
     generated_asset_files = _copy_resource_files(
-        csd=csd,
+        csd=typed_csd,
         resources=resources,
         source_asset_root=Path(asset_root),
         compiled_asset_root=compiled_asset_root,
@@ -393,11 +402,11 @@ def compile_csd(
             realization_version=realization_version,
             simulator_version=simulator_version,
         )
-    if csd is None:
-        raise ValueError(f"{backend_key} compilation still requires a legacy CSD mapping")
-    if backend_key == GAZEBO_BACKEND:
-        return compile_csd_to_gazebo(
-            csd=csd,
+    if backend_key == PYBULLET_BACKEND:
+        if csd_path is None:
+            raise ValueError("PyBullet compilation requires an OpenUSD csd_path")
+        return compile_csd_to_pybullet(
+            csd_path=csd_path,
             asset_registry=asset_registry,
             output_root=output_root,
             asset_root=asset_root,
@@ -405,8 +414,10 @@ def compile_csd(
             realization_version=realization_version,
             simulator_version=simulator_version,
         )
-    if backend_key == PYBULLET_BACKEND:
-        return compile_csd_to_pybullet(
+    if csd is None:
+        raise ValueError(f"{backend_key} compilation still requires a legacy CSD mapping")
+    if backend_key == GAZEBO_BACKEND:
+        return compile_csd_to_gazebo(
             csd=csd,
             asset_registry=asset_registry,
             output_root=output_root,
@@ -1145,7 +1156,7 @@ def _write_pybullet_object_urdfs(
             },
         )
         visual = ET.SubElement(link, "visual", {"name": f"{_mjcf_name(obj.name)}_visual"})
-        _append_urdf_mesh(visual, mesh_ref.as_posix(), resource)
+        _append_urdf_mesh(visual, mesh_ref.as_posix(), resource, fallback_rgba=obj.rgba)
         collision = ET.SubElement(
             link,
             "collision",
@@ -1163,6 +1174,7 @@ def _append_urdf_mesh(
     parent: ET.Element,
     mesh_filename: str,
     resource: BackendResourceAdapter,
+    fallback_rgba: tuple[float, float, float, float] | None = None,
 ) -> None:
     geometry = ET.SubElement(parent, "geometry")
     attrs = {"filename": mesh_filename}
@@ -1171,10 +1183,12 @@ def _append_urdf_mesh(
         attrs["scale"] = scale
     ET.SubElement(geometry, "mesh", attrs)
     material = resource.material
-    if material is not None and material.rgba is not None and parent.tag == "visual":
-        material_el = ET.SubElement(parent, "material", {"name": material.name or "material"})
+    rgba = material.rgba if material is not None and material.rgba is not None else fallback_rgba
+    if rgba is not None and parent.tag == "visual":
+        material_name = material.name if material is not None else None
+        material_el = ET.SubElement(parent, "material", {"name": material_name or "material"})
         color = ET.SubElement(material_el, "color")
-        color.set("rgba", _numbers_text(material.rgba))
+        color.set("rgba", _numbers_text(rgba))
 
 
 def _write_pybullet_scene_loader(path: Path) -> None:
@@ -1309,7 +1323,7 @@ def _pybullet_object_meta(
     obj: CsdObject,
     resource: BackendResourceAdapter,
 ) -> dict[str, object]:
-    return {
+    payload: dict[str, object] = {
         "asset_id": obj.asset_id,
         "role": obj.role,
         "urdf_path": str(Path("assets") / "objects" / f"{_mjcf_name(obj.name)}.urdf"),
@@ -1320,6 +1334,9 @@ def _pybullet_object_meta(
         "mass_kg": _json_float(obj.initial_state.mass_kg),
         "friction": _float_sequence_json(obj.initial_state.friction),
     }
+    if obj.rgba is not None:
+        payload["rgba"] = _rgba_sequence_json(obj.rgba)
+    return payload
 
 
 def _pybullet_surface_meta(surface: CsdSurface) -> dict[str, object]:
@@ -2428,7 +2445,7 @@ def _append_object_body(
         "name": f"{_mjcf_name(obj.name)}_geom",
         "type": "mesh",
         "mesh": _mjcf_name(asset_id),
-        "rgba": "0.7 0.7 0.7 1",
+        "rgba": _numbers_text(obj.rgba or (0.7, 0.7, 0.7, 1.0)),
     }
     material = resource.material
     if material is not None:

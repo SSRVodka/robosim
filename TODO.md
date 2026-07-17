@@ -26,8 +26,8 @@ during an implementation checkpoint without user approval.
 
 ## Checkpoint 3: PyBullet
 
-- [ ] Adapt PyBullet URDF/scene/meta generation to the same OpenUSD fixture.
-- [ ] Match the shared transform, mass/inertia, collision, gravity, camera,
+- [x] Adapt PyBullet URDF/scene/meta generation to the same OpenUSD fixture.
+- [x] Match the shared transform, mass/inertia, collision, gravity, camera,
       sensor, material, relationship/blocker, render, and stepping checks.
 
 ## Checkpoint 4: Gazebo
