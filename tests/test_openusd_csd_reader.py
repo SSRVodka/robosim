@@ -73,7 +73,7 @@ def test_csd_digest_is_relocation_invariant_and_tracks_layer_content(
     relocated_digest = compute_csd_digest(relocated / "csd.usda")
     assert relocated_digest == original_digest
 
-    task_layer = relocated / "task.usda"
+    task_layer = relocated / "layers" / "task.usda"
     task_layer.write_text(
         task_layer.read_text(encoding="utf-8").replace("soft_left", "soft_right"),
         encoding="utf-8",

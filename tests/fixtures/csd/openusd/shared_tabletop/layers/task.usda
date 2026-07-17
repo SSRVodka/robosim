@@ -41,8 +41,7 @@ over "World"
         {
             uniform string robosim:evaluator:artifactId = "predicate_keep_distance"
             uniform token robosim:evaluator:kind = "success_predicate"
-            uniform asset robosim:evaluator:path = @evaluator.json@
+            uniform asset robosim:evaluator:path = @../evaluator.json@
         }
     }
 }
-

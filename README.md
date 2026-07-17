@@ -32,6 +32,11 @@
 > stage contract, backend variants, validation requirements, and acceptance
 > criteria.
 
+The implemented handoff utilities now provide packaged codeless schemas,
+strict semantic validation, dependency hashing, backend variant selection, and
+`read_openusd_csd(Path(...), backend=...)`. The compiler call shown below is
+still the legacy entry point being replaced in the MuJoCo checkpoint.
+
 `vsim` exposes the CSD compiler boundary through `robosim.core.compile_csd`.
 
 Pass `backend="mujoco"`, `backend="gazebo"`, or `backend="pybullet"`. The compiler consumes a fixed Concrete Scenario Definition, an asset registry with passed backend variants, an output root, and an asset root. In benchmark packages, pass `output_root=Path("<package>/engine_manifests")`. 

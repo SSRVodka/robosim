@@ -5,14 +5,14 @@ during an implementation checkpoint without user approval.
 
 ## Checkpoint 1: OpenUSD handoff contract
 
-- [ ] Package the project codeless CSD schemas and registration helper.
-- [ ] Replace `Mapping`/JSON compiler input with a composed-stage path and typed
-      OpenUSD reader.
-- [ ] Hash and validate the composed CSD, its layers, all backend variants, and
+- [x] Package the project codeless CSD schemas and registration helper.
+- [x] Add the composed-stage path and typed OpenUSD reader; migrate the public
+      compiler input in Checkpoint 2.
+- [x] Hash and validate the composed CSD, its layers, all backend variants, and
       resolved dependencies.
-- [ ] Make the benchmark generator persist `csd/<csd_id>/csd.usda` plus layers,
+- [x] Make the benchmark generator persist `csd/<csd_id>/csd.usda` plus layers,
       with no equivalent CSD JSON.
-- [ ] Add shared composed fixtures covering environment, robot, objects,
+- [x] Add shared composed fixtures covering environment, robot, objects,
       material/physics, relationships, sampled overrides, sensors, evaluators,
       and all three backend variants.
 
@@ -46,4 +46,3 @@ during an implementation checkpoint without user approval.
       protobuf consistency, and a clean repository diff.
 - [ ] Commit each checkpoint in `vsim` first and then update the parent
       submodule pointer and synchronized thesis documentation.
-

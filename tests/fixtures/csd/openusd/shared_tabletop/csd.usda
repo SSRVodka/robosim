@@ -4,12 +4,12 @@
     metersPerUnit = 1
     upAxis = "Z"
     subLayers = [
-        @scenario.usda@,
-        @task.usda@,
-        @physics.usda@,
-        @backends/mujoco.usda@,
-        @backends/pybullet.usda@,
-        @backends/gazebo.usda@
+        @layers/scenario.usda@,
+        @layers/task.usda@,
+        @layers/physics.usda@,
+        @layers/backends/mujoco.usda@,
+        @layers/backends/pybullet.usda@,
+        @layers/backends/gazebo.usda@
     ]
 )
 
@@ -21,4 +21,3 @@ over "World" (
 )
 {
 }
-
