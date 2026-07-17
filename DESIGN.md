@@ -289,6 +289,33 @@ assert compiled entity, transform, mass/inertia, collision, joint, gravity, and
 material semantics. PyBullet and Gazebo fixtures must exercise the same portable
 CSD expectations and report explicit backend losses.
 
+Backend realization has a strict scene-entity parity invariant. A compiler may
+translate an authored OpenUSD prim into the target engine's native representation,
+but it must not silently add a physical or rendered floor, support surface,
+object, robot, camera, or light that is absent from the composed CSD. If a backend
+requires such an entity, it must be authored in a selected backend layer or the
+compiler must return a typed blocker. Engine defaults may fill only native solver
+parameters that do not create an observable scene entity or change authored
+geometry, pose, collision, or rendering semantics.
+
+Portable CSD fields must have the same effective interpretation in MuJoCo,
+PyBullet, and Gazebo. In particular, robot and object world poses, environment
+surface dimensions, asset instance scale, material color, gravity, and camera
+placement are backend-independent inputs. Temporary robot templates must be
+transformed to the authored CSD robot pose after they are copied into a realization
+package. Test resource adapters must describe geometry consistent with the
+OpenUSD fixture; a synthetic mesh with different dimensions is not valid parity
+evidence merely because every backend can load it.
+
+Three-backend acceptance uses a portable scene matrix rather than treating schema
+validation as realization coverage. The initial matrix contains the shared
+tabletop scene, an object-only static/dynamic scene, a rotated support-surface
+scene, and a low-gravity static layout. Every matrix entry must compile and pass
+native load/semantic checks in all three backends. MuJoCo and PyBullet additionally
+produce deterministic previews with entity-visibility checks; Gazebo Classic 11
+uses official SDF validation and isolated headless loading until image capture is
+implemented as a separate checkpoint.
+
 Implementation code must not convert the stage back into the legacy CSD JSON
 shape. Compiler-facing access uses `pxr.UsdStage` plus small typed semantic views
 for project schema values, entity refs, relationships, and validation results.

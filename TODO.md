@@ -38,7 +38,7 @@ during an implementation checkpoint without user approval.
 - [x] Add package-local asset, physics, camera/light/sensor, blocker, manifest,
       and runtime handoff evidence.
 
-## Checkpoint 5: Three-backend acceptance
+## Checkpoint 5: Three-backend acceptance (reopened)
 
 - [x] Remove the legacy CSD JSON schema, persistence, fixtures, and compiler
       entry points after all semantic coverage has migrated.
@@ -46,3 +46,13 @@ during an implementation checkpoint without user approval.
       protobuf consistency, and a clean repository diff.
 - [x] Commit each checkpoint in `vsim` first and then update the parent
       submodule pointer and synchronized thesis documentation.
+- [ ] Enforce scene-entity parity: backend compilers must not add physical or
+      rendered entities that are absent from the selected OpenUSD stage.
+- [ ] Apply the authored robot pose to the copied MuJoCo robot template and
+      reject regressions with native-model and preview-visibility assertions.
+- [ ] Make shared test asset dimensions agree with the authored OpenUSD geometry.
+- [ ] Compile and load the portable four-scene acceptance matrix in MuJoCo,
+      PyBullet, and Gazebo; require deterministic preview visibility from MuJoCo
+      and PyBullet and official SDF/headless-load evidence from Gazebo Classic 11.
+- [ ] Re-run strict OpenUSD validation, all project tests, ruff, mypy, and the
+      generated-protobuf consistency check before closing this checkpoint again.
