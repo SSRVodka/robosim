@@ -1,0 +1,131 @@
+#usda 1.0
+(
+    subLayers = [
+        @usd/schema.usda@
+    ]
+)
+
+over "GLOBAL" (
+    customData = {
+        string libraryName = "robosimCsd"
+        string libraryPath = "."
+        string libraryPrefix = "Robosim"
+        bool skipCodeGeneration = 1
+        bool useLiteralIdentifier = 0
+    }
+)
+{
+}
+
+class "RobosimCsdRootAPI" (
+    customData = {
+        string className = "CsdRootAPI"
+    }
+    doc = "Identity and handoff metadata for a canonical RoboSim CSD root."
+    inherits = </APISchemaBase>
+)
+{
+    uniform string robosim:csd:id
+    uniform string robosim:csd:schemaVersion
+    uniform string robosim:csd:taskInstanceId
+    uniform string robosim:csd:worldTemplateId
+}
+
+class "RobosimEntityAPI" (
+    customData = {
+        string className = "EntityAPI"
+    }
+    doc = "Stable logical identity for a CSD entity."
+    inherits = </APISchemaBase>
+)
+{
+    uniform string robosim:entity:assetId
+    uniform string robosim:entity:id
+    uniform token robosim:entity:role
+    uniform bool robosim:entity:static = 0
+}
+
+class "RobosimTaskAPI" (
+    customData = {
+        string className = "TaskAPI"
+    }
+    doc = "Task provenance attached to the CSD task prim."
+    inherits = </APISchemaBase>
+)
+{
+    uniform string robosim:task:objective
+}
+
+class "RobosimRandomizationAPI" (
+    customData = {
+        string className = "RandomizationAPI"
+    }
+    doc = "Concrete domain-randomization sample metadata."
+    inherits = </APISchemaBase>
+)
+{
+    uniform int64 robosim:randomization:seed = 0
+}
+
+class RobosimRelationship "RobosimRelationship" (
+    customData = {
+        string className = "Relationship"
+    }
+    doc = "Machine-readable semantic relationship between CSD entities."
+    inherits = </Typed>
+)
+{
+    uniform token robosim:relationship:type (
+        allowedTokens = [
+            "on_top_of",
+            "inside",
+            "near",
+            "avoid_contact",
+            "aligned_with",
+            "attached_to"
+        ]
+    )
+    rel robosim:relationship:subject
+    rel robosim:relationship:object
+    uniform double robosim:relationship:minDistanceM = 0
+    uniform double robosim:relationship:tolerance = 0
+}
+
+class RobosimSensorRequirement "RobosimSensorRequirement" (
+    customData = {
+        string className = "SensorRequirement"
+    }
+    doc = "Concrete runtime sensor requirement for a CSD."
+    inherits = </Typed>
+)
+{
+    uniform token robosim:sensor:type (
+        allowedTokens = [
+            "rgb",
+            "depth",
+            "joint_state",
+            "imu",
+            "lidar",
+            "odometry",
+            "force_torque"
+        ]
+    )
+    uniform token robosim:sensor:requirement = "required" (
+        allowedTokens = ["required", "optional"]
+    )
+    uniform int2 robosim:sensor:minResolution = (0, 0)
+    rel robosim:sensor:source
+}
+
+class RobosimEvaluatorRef "RobosimEvaluatorRef" (
+    customData = {
+        string className = "EvaluatorRef"
+    }
+    doc = "Reference to a project-owned evaluator artifact."
+    inherits = </Typed>
+)
+{
+    uniform string robosim:evaluator:artifactId
+    uniform token robosim:evaluator:kind
+    uniform asset robosim:evaluator:path
+}

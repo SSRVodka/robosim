@@ -25,6 +25,9 @@ dev = [
 where = ["."]
 include = ["robosim*", "control_stubs*", "drivers_sim*", "drivers_real*"]
 
+[tool.setuptools.package-data]
+robosim = ["usd_plugins/**/*.json", "usd_plugins/**/*.usda"]
+
 # -------------------
 # Ruff configuration
 # -------------------
