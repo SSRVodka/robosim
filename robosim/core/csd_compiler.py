@@ -2066,7 +2066,7 @@ def _write_gazebo_headless_load_check(
                         check=False,
                         capture_output=True,
                         text=True,
-                        timeout=1.0,
+                        timeout=2.0,
                     )
                     query_text = f"{query.stdout}\n{query.stderr}".strip()
                     query_outputs.append(f"{model_name}: {query_text}")
