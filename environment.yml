@@ -9,6 +9,9 @@ dependencies:
   - protobuf
   - grpcio-tools
 
+  # Canonical CSD / OpenUSD stack
+  - openusd=26.05
+
   # Gazebo-ROS stack
   - ros-dev-tools
   - ros-humble-desktop
