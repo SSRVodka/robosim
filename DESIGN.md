@@ -316,6 +316,16 @@ produce deterministic previews with entity-visibility checks; Gazebo Classic 11
 uses official SDF validation and isolated headless loading until image capture is
 implemented as a separate checkpoint.
 
+Implementation record (2026-07-17): realization version `csd-compiler-0.4`
+enforces this parity contract for the accepted matrix. MuJoCo no longer creates
+an implicit ground plane, and it patches the copied robot template root body with
+the authored CSD position and orientation. The shared tabletop adapters now use
+the authored `0.3 m` red-cube and `0.2 m` blue-cube dimensions. MuJoCo and
+PyBullet tests validate the realized dimensions and exact entity visibility from
+the authored camera using segmentation IDs. The four portable CSDs compile and
+pass native evidence checks in all twelve backend/case combinations; Gazebo uses
+SDF validation and bounded headless model queries as specified above.
+
 Implementation code must not convert the stage back into the legacy CSD JSON
 shape. Compiler-facing access uses `pxr.UsdStage` plus small typed semantic views
 for project schema values, entity refs, relationships, and validation results.
