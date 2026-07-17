@@ -5,11 +5,14 @@ from __future__ import annotations
 import json
 import math
 import os
+import socket
+import subprocess
+import time
 import xml.etree.ElementTree as ET
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from shutil import copy2
+from shutil import copy2, copytree, which
 from typing import Any, Mapping
 
 from robosim.core.csd import (
@@ -23,9 +26,7 @@ from robosim.core.csd import (
     CsdRelationship,
     CsdRelationshipType,
     CsdSurface,
-    asset_resource_hashes_for_csd,
     backend_resource_adapters_by_asset,
-    find_csd_realization_blockers,
     make_csd_realization_cache_key,
 )
 from robosim.core.openusd_csd import (
@@ -42,6 +43,7 @@ PYBULLET_MESH_EXTENSIONS = frozenset({".obj"})
 MUJOCO_PREVIEW_SIZE_PX = 512
 PYBULLET_PREVIEW_SIZE_PX = 512
 PYBULLET_FRANKA_ASSET_IDS = frozenset({"robot_franka_panda", "franka_panda"})
+GAZEBO_FRANKA_ASSET_IDS = PYBULLET_FRANKA_ASSET_IDS
 
 
 @dataclass(frozen=True, slots=True)
@@ -379,11 +381,10 @@ def compile_csd_to_pybullet(
 def compile_csd(
     *,
     backend: str,
+    csd_path: Path,
     asset_registry: Mapping[str, Any],
     output_root: Path,
     asset_root: Path,
-    csd_path: Path | None = None,
-    csd: Mapping[str, Any] | None = None,
     realization_config: Mapping[str, Any] | None = None,
     realization_version: str = DEFAULT_REALIZATION_VERSION,
     simulator_version: str | None = None,
@@ -391,8 +392,6 @@ def compile_csd(
     """Compile one CSD for a requested backend target."""
     backend_key = backend.strip().lower()
     if backend_key == MUJOCO_BACKEND:
-        if csd_path is None:
-            raise ValueError("MuJoCo compilation requires an OpenUSD csd_path")
         return compile_csd_to_mujoco(
             csd_path=csd_path,
             asset_registry=asset_registry,
@@ -403,8 +402,6 @@ def compile_csd(
             simulator_version=simulator_version,
         )
     if backend_key == PYBULLET_BACKEND:
-        if csd_path is None:
-            raise ValueError("PyBullet compilation requires an OpenUSD csd_path")
         return compile_csd_to_pybullet(
             csd_path=csd_path,
             asset_registry=asset_registry,
@@ -414,11 +411,9 @@ def compile_csd(
             realization_version=realization_version,
             simulator_version=simulator_version,
         )
-    if csd is None:
-        raise ValueError(f"{backend_key} compilation still requires a legacy CSD mapping")
     if backend_key == GAZEBO_BACKEND:
         return compile_csd_to_gazebo(
-            csd=csd,
+            csd_path=csd_path,
             asset_registry=asset_registry,
             output_root=output_root,
             asset_root=asset_root,
@@ -431,7 +426,7 @@ def compile_csd(
 
 def compile_csd_to_gazebo(
     *,
-    csd: Mapping[str, Any],
+    csd_path: Path,
     asset_registry: Mapping[str, Any],
     output_root: Path,
     asset_root: Path,
@@ -439,18 +434,37 @@ def compile_csd_to_gazebo(
     realization_version: str = DEFAULT_REALIZATION_VERSION,
     simulator_version: str | None = None,
 ) -> CsdCompilationResult:
-    """Compile a fixed CSD into a minimal Gazebo SDF world."""
-    blockers = find_csd_realization_blockers(
-        csd=csd,
-        asset_registry=asset_registry,
-        backend=GAZEBO_BACKEND,
-    )
+    """Compile a canonical OpenUSD CSD into a Gazebo Classic SDF package."""
+    try:
+        openusd_csd = read_openusd_csd(csd_path, backend=GAZEBO_BACKEND)
+        typed_csd = compiler_csd_from_openusd(openusd_csd)
+    except ValueError as error:
+        csd_id = Path(csd_path).parent.name
+        return CsdCompilationResult(
+            manifest=None,
+            blockers=(
+                _backend_csd_blocker(
+                    csd_id,
+                    "csd_stage",
+                    GAZEBO_BACKEND,
+                    f"invalid OpenUSD CSD: {error}",
+                ),
+            ),
+        )
+    resources = backend_resource_adapters_by_asset(asset_registry, backend=GAZEBO_BACKEND)
+    blockers = _resource_adapter_blockers(typed_csd, resources, GAZEBO_BACKEND)
     if blockers:
         return CsdCompilationResult(manifest=None, blockers=blockers)
 
-    resources = backend_resource_adapters_by_asset(asset_registry, backend=GAZEBO_BACKEND)
+    semantic_blockers = _gazebo_csd_semantic_blockers(typed_csd)
+    if semantic_blockers:
+        return CsdCompilationResult(manifest=None, blockers=semantic_blockers)
+    robot_blockers = _gazebo_robot_template_blockers(typed_csd)
+    if robot_blockers:
+        return CsdCompilationResult(manifest=None, blockers=robot_blockers)
+
     mesh_blockers = _mesh_path_blockers(
-        csd,
+        typed_csd,
         resources,
         Path(asset_root),
         backend=GAZEBO_BACKEND,
@@ -458,15 +472,14 @@ def compile_csd_to_gazebo(
     if mesh_blockers:
         return CsdCompilationResult(manifest=None, blockers=mesh_blockers)
 
-    csd_id = _required_str(csd, "csd_id")
+    csd_id = typed_csd.csd_id
     realization_config = dict(realization_config or {})
-    resource_hashes = asset_resource_hashes_for_csd(
-        csd=csd,
-        asset_registry=asset_registry,
-        backend=GAZEBO_BACKEND,
-    )
+    simulator_version = simulator_version or _gazebo_simulator_version()
+    resource_hashes = {
+        asset_id: resources[asset_id].resource_hash for asset_id in _compiler_asset_ids(typed_csd)
+    }
     cache_key = make_csd_realization_cache_key(
-        csd=csd,
+        csd_hash=openusd_csd.digest,
         asset_variant_hashes=resource_hashes,
         backend=GAZEBO_BACKEND,
         realization_config=realization_config,
@@ -474,19 +487,83 @@ def compile_csd_to_gazebo(
         simulator_version=simulator_version,
     )
     world_root = Path(output_root) / GAZEBO_BACKEND / csd_id
+    cached_manifest = _cached_manifest(world_root, cache_key.digest, backend=GAZEBO_BACKEND)
+    if cached_manifest is not None:
+        return CsdCompilationResult(manifest=cached_manifest)
+
     compiled_asset_root = world_root / "assets"
     diagnostics_root = world_root / "diagnostics"
     world_root.mkdir(parents=True, exist_ok=True)
     diagnostics_root.mkdir(exist_ok=True)
     generated_asset_files = _copy_resource_files(
-        csd=csd,
+        csd=typed_csd,
         resources=resources,
         source_asset_root=Path(asset_root),
         compiled_asset_root=compiled_asset_root,
     )
+    try:
+        robot_model, generated_robot_files = _gazebo_robot_model(
+            scene_root=world_root,
+            csd=typed_csd,
+        )
+    except (OSError, ValueError) as error:
+        return CsdCompilationResult(
+            manifest=None,
+            blockers=(
+                _backend_csd_blocker(
+                    csd_id,
+                    typed_csd.robot.asset_id if typed_csd.robot is not None else "robot",
+                    GAZEBO_BACKEND,
+                    f"Gazebo robot realization failed: {error}",
+                ),
+            ),
+        )
     world_path = world_root / "world.sdf"
-    _write_sdf(world_path, csd=csd, resources=resources)
-    generated_files = ("manifest.json", "world.sdf", *generated_asset_files)
+    _write_sdf(
+        world_path,
+        csd=typed_csd,
+        resources=resources,
+        robot_model=robot_model,
+        max_step_size=_gazebo_stage_float(openusd_csd.stage, "maxStepSize", 0.001),
+        real_time_update_rate=_gazebo_stage_float(
+            openusd_csd.stage,
+            "realTimeUpdateRate",
+            1000.0,
+        ),
+        sensor_resolutions={
+            sensor.source.name: sensor.min_resolution for sensor in openusd_csd.sensors
+        },
+    )
+    sdf_check_file, sdf_blockers = _write_gazebo_sdf_check(
+        world_path=world_path,
+        diagnostics_root=diagnostics_root,
+        csd_id=csd_id,
+    )
+    if sdf_blockers:
+        return CsdCompilationResult(manifest=None, blockers=sdf_blockers)
+    headless_load_file, load_blockers = _write_gazebo_headless_load_check(
+        world_path=world_path,
+        diagnostics_root=diagnostics_root,
+        csd_id=csd_id,
+        expected_models={
+            *(obj.name for obj in typed_csd.objects),
+            *(surface.surface_id for surface in typed_csd.environment.surfaces),
+            *(("panda",) if typed_csd.robot is not None else ()),
+            *(("csd_sensors",) if typed_csd.environment.cameras else ()),
+        },
+    )
+    if load_blockers:
+        return CsdCompilationResult(manifest=None, blockers=load_blockers)
+    validation_record_file = "diagnostics/validation_record.json"
+    generated_files = (
+        "manifest.json",
+        "world.sdf",
+        sdf_check_file,
+        headless_load_file,
+        validation_record_file,
+        *generated_asset_files,
+        *generated_robot_files,
+    )
     manifest = CsdRealizationManifest(
         manifest_id=f"manifest_{GAZEBO_BACKEND}_{csd_id}",
         csd_id=csd_id,
@@ -496,6 +573,19 @@ def compile_csd_to_gazebo(
         entry_file="world.sdf",
         generated_files=_unique_files(generated_files),
         preview_files=(),
+    )
+    _write_validation_record(
+        world_root / validation_record_file,
+        CsdRealizationValidationRecord(
+            validation_id=f"validation_{GAZEBO_BACKEND}_{csd_id}",
+            csd_id=csd_id,
+            backend=GAZEBO_BACKEND,
+            manifest_id=manifest.manifest_id,
+            cache_key=manifest.cache_key,
+            status="passed",
+            evidence_files=(sdf_check_file, headless_load_file),
+            preview_files=(),
+        ),
     )
     _write_manifest(world_root / "manifest.json", manifest)
     return CsdCompilationResult(manifest=manifest)
@@ -582,15 +672,30 @@ def _write_mjcf(
 def _write_sdf(
     world_path: Path,
     *,
-    csd: Mapping[str, Any],
+    csd: ConcreteScenarioDefinition,
     resources: Mapping[str, BackendResourceAdapter],
+    robot_model: ET.Element | None,
+    max_step_size: float,
+    real_time_update_rate: float,
+    sensor_resolutions: Mapping[str, tuple[int, int]],
 ) -> None:
-    root = ET.Element("sdf", {"version": "1.12"})
-    world = ET.SubElement(root, "world", {"name": _mjcf_name(_required_str(csd, "csd_id"))})
-    ET.SubElement(world, "gravity").text = "0 0 -9.81"
-    ET.SubElement(world, "light", {"name": "sun", "type": "directional"})
-    for obj in _csd_objects(csd):
+    root = ET.Element("sdf", {"version": "1.7"})
+    world = ET.SubElement(root, "world", {"name": _mjcf_name(csd.csd_id)})
+    physics = ET.SubElement(world, "physics", {"name": "default_physics", "type": "ode"})
+    ET.SubElement(physics, "max_step_size").text = _number_text(max_step_size)
+    ET.SubElement(physics, "real_time_update_rate").text = _number_text(real_time_update_rate)
+    ET.SubElement(world, "gravity").text = _vector3_text(csd.environment.gravity)
+    scene = ET.SubElement(world, "scene")
+    ET.SubElement(scene, "ambient").text = "0.4 0.4 0.4 1"
+    ET.SubElement(scene, "background").text = "0.7 0.7 0.7 1"
+    _append_sdf_lights(world, csd)
+    for surface in csd.environment.surfaces:
+        _append_sdf_surface(world, surface)
+    if robot_model is not None:
+        world.append(robot_model)
+    for obj in csd.objects:
         _append_sdf_model(world, obj, resources)
+    _append_sdf_camera_sensors(world, csd, sensor_resolutions)
 
     ET.indent(root, space="  ")
     ET.ElementTree(root).write(world_path, encoding="utf-8", xml_declaration=True)
@@ -598,34 +703,140 @@ def _write_sdf(
 
 def _append_sdf_model(
     parent: ET.Element,
-    obj: Mapping[str, Any],
+    obj: CsdObject,
     resources: Mapping[str, BackendResourceAdapter],
 ) -> None:
-    asset_id = _required_str(obj, "asset_id")
-    name = _mjcf_name(_required_str(obj, "name"))
-    mesh_uri = str(Path("assets") / resources[asset_id].mesh_path)
+    resource = resources[obj.asset_id]
+    name = _mjcf_name(obj.name)
+    visual_uri = str(Path("assets") / resource.mesh_path)
+    collision_uri = str(Path("assets") / (resource.collision_mesh_path or resource.mesh_path))
     model = ET.SubElement(parent, "model", {"name": name})
-    ET.SubElement(model, "pose").text = _sdf_pose_text(obj)
-    ET.SubElement(model, "static").text = "true" if bool(obj.get("static", False)) else "false"
+    ET.SubElement(model, "pose").text = _typed_sdf_pose_text(obj.pose)
+    ET.SubElement(model, "static").text = "true" if obj.static else "false"
     link = ET.SubElement(model, "link", {"name": f"{name}_link"})
     inertial = ET.SubElement(link, "inertial")
-    ET.SubElement(inertial, "mass").text = _object_scalar(obj, "mass_kg", 0.1)
+    ET.SubElement(inertial, "mass").text = _number_text(obj.initial_state.mass_kg)
+    if obj.initial_state.inertial is not None:
+        object_inertial = obj.initial_state.inertial
+        ET.SubElement(
+            inertial, "pose"
+        ).text = f"{_vector3_text(object_inertial.center_of_mass)} 0 0 0"
+        inertia = ET.SubElement(inertial, "inertia")
+        ixx, iyy, izz = object_inertial.diagonal_inertia_kg_m2
+        for key, value in (
+            ("ixx", ixx),
+            ("ixy", 0.0),
+            ("ixz", 0.0),
+            ("iyy", iyy),
+            ("iyz", 0.0),
+            ("izz", izz),
+        ):
+            ET.SubElement(inertia, key).text = _number_text(value)
     visual = ET.SubElement(link, "visual", {"name": f"{name}_visual"})
-    _append_sdf_mesh_geometry(visual, mesh_uri)
+    _append_sdf_mesh_geometry(visual, visual_uri, resource)
+    if obj.rgba is not None:
+        material = ET.SubElement(visual, "material")
+        ET.SubElement(material, "ambient").text = _numbers_text(obj.rgba)
+        ET.SubElement(material, "diffuse").text = _numbers_text(obj.rgba)
     collision = ET.SubElement(link, "collision", {"name": f"{name}_collision"})
-    _append_sdf_mesh_geometry(collision, mesh_uri)
+    _append_sdf_mesh_geometry(collision, collision_uri, resource)
     surface = ET.SubElement(collision, "surface")
     friction = ET.SubElement(surface, "friction")
     ode = ET.SubElement(friction, "ode")
-    friction_value = _object_scalar(obj, "friction", 0.7)
+    friction_value = _number_text(obj.initial_state.friction[0])
     ET.SubElement(ode, "mu").text = friction_value
     ET.SubElement(ode, "mu2").text = friction_value
 
 
-def _append_sdf_mesh_geometry(parent: ET.Element, mesh_uri: str) -> None:
+def _append_sdf_mesh_geometry(
+    parent: ET.Element,
+    mesh_uri: str,
+    resource: BackendResourceAdapter,
+) -> None:
     geometry = ET.SubElement(parent, "geometry")
     mesh = ET.SubElement(geometry, "mesh")
     ET.SubElement(mesh, "uri").text = mesh_uri
+    scale = _mesh_scale_text(resource)
+    if scale is not None:
+        ET.SubElement(mesh, "scale").text = scale
+
+
+def _append_sdf_surface(parent: ET.Element, surface: CsdSurface) -> None:
+    name = _mjcf_name(surface.surface_id)
+    model = ET.SubElement(parent, "model", {"name": name})
+    ET.SubElement(model, "pose").text = _typed_sdf_pose_text(surface.pose)
+    ET.SubElement(model, "static").text = "true"
+    link = ET.SubElement(model, "link", {"name": f"{name}_link"})
+    visual = ET.SubElement(link, "visual", {"name": f"{name}_visual"})
+    collision = ET.SubElement(link, "collision", {"name": f"{name}_collision"})
+    for element in (visual, collision):
+        geometry = ET.SubElement(element, "geometry")
+        if surface.surface_type == "cylinder":
+            cylinder = ET.SubElement(geometry, "cylinder")
+            ET.SubElement(cylinder, "radius").text = _number_text(surface.size.x)
+            ET.SubElement(cylinder, "length").text = _number_text(surface.size.z * 2.0)
+        else:
+            box = ET.SubElement(geometry, "box")
+            ET.SubElement(box, "size").text = _numbers_text(
+                (surface.size.x * 2.0, surface.size.y * 2.0, surface.size.z * 2.0)
+            )
+    material = ET.SubElement(visual, "material")
+    ET.SubElement(material, "ambient").text = _numbers_text(surface.rgba)
+    ET.SubElement(material, "diffuse").text = _numbers_text(surface.rgba)
+    sdf_surface = ET.SubElement(collision, "surface")
+    friction = ET.SubElement(ET.SubElement(sdf_surface, "friction"), "ode")
+    ET.SubElement(friction, "mu").text = _number_text(surface.friction[0])
+    ET.SubElement(friction, "mu2").text = _number_text(surface.friction[0])
+
+
+def _append_sdf_lights(parent: ET.Element, csd: ConcreteScenarioDefinition) -> None:
+    lights = csd.environment.lighting
+    if not lights:
+        lights = ()
+        light = ET.SubElement(parent, "light", {"name": "sun", "type": "directional"})
+        ET.SubElement(light, "direction").text = "0 0 -1"
+        return
+    for item in lights:
+        light = ET.SubElement(
+            parent,
+            "light",
+            {"name": _mjcf_name(item.light_id), "type": "directional"},
+        )
+        ET.SubElement(light, "pose").text = f"{_vector3_text(item.position)} 0 0 0"
+        ET.SubElement(light, "diffuse").text = "1 0.95 0.9 1"
+        ET.SubElement(light, "specular").text = "0.2 0.2 0.2 1"
+        ET.SubElement(light, "direction").text = _vector3_text(item.direction)
+
+
+def _append_sdf_camera_sensors(
+    parent: ET.Element,
+    csd: ConcreteScenarioDefinition,
+    sensor_resolutions: Mapping[str, tuple[int, int]],
+) -> None:
+    if not csd.environment.cameras:
+        return
+    model = ET.SubElement(parent, "model", {"name": "csd_sensors"})
+    ET.SubElement(model, "static").text = "true"
+    link = ET.SubElement(model, "link", {"name": "sensors_link"})
+    for item in csd.environment.cameras:
+        sensor = ET.SubElement(
+            link,
+            "sensor",
+            {"name": _mjcf_name(item.camera_id), "type": "camera"},
+        )
+        ET.SubElement(sensor, "pose").text = _sdf_camera_pose_text(item)
+        ET.SubElement(sensor, "always_on").text = "true"
+        ET.SubElement(sensor, "update_rate").text = "30"
+        camera = ET.SubElement(sensor, "camera")
+        ET.SubElement(camera, "horizontal_fov").text = "1.0471975512"
+        width, height = sensor_resolutions.get(item.camera_id, (64, 64))
+        image = ET.SubElement(camera, "image")
+        ET.SubElement(image, "width").text = str(width)
+        ET.SubElement(image, "height").text = str(height)
+        ET.SubElement(image, "format").text = "R8G8B8"
+        clip = ET.SubElement(camera, "clip")
+        ET.SubElement(clip, "near").text = "0.01"
+        ET.SubElement(clip, "far").text = "10"
 
 
 def _append_lights(parent: ET.Element, csd: ConcreteScenarioDefinition) -> None:
@@ -698,7 +909,7 @@ def _append_environment_surfaces(parent: ET.Element, csd: ConcreteScenarioDefini
 
 def _copy_resource_files(
     *,
-    csd: Mapping[str, Any] | ConcreteScenarioDefinition,
+    csd: ConcreteScenarioDefinition,
     resources: Mapping[str, BackendResourceAdapter],
     source_asset_root: Path,
     compiled_asset_root: Path,
@@ -1041,6 +1252,123 @@ def _pybullet_csd_semantic_blockers(
     return tuple(blockers)
 
 
+def _gazebo_csd_semantic_blockers(
+    csd: ConcreteScenarioDefinition,
+) -> tuple[CsdRealizationBlocker, ...]:
+    blockers: list[CsdRealizationBlocker] = []
+    if csd.units != "m":
+        blockers.append(
+            _backend_csd_blocker(
+                csd.csd_id,
+                "scenario_units",
+                GAZEBO_BACKEND,
+                f"Gazebo compiler supports only CSD units='m', got '{csd.units}'",
+            )
+        )
+    if csd.frame != "world":
+        blockers.append(
+            _backend_csd_blocker(
+                csd.csd_id,
+                "scenario_frame",
+                GAZEBO_BACKEND,
+                f"Gazebo compiler supports only frame='world', got '{csd.frame}'",
+            )
+        )
+    for surface in csd.environment.surfaces:
+        if surface.surface_type not in {"box", "cylinder"}:
+            blockers.append(
+                _backend_csd_blocker(
+                    csd.csd_id,
+                    surface.surface_id,
+                    GAZEBO_BACKEND,
+                    f"Gazebo compiler does not support surface type '{surface.surface_type}'",
+                )
+            )
+        if not _positive_finite_vector(surface.size):
+            blockers.append(
+                _backend_csd_blocker(
+                    csd.csd_id,
+                    surface.surface_id,
+                    GAZEBO_BACKEND,
+                    f"surface {surface.surface_id} size values must be positive and finite",
+                )
+            )
+    for obj in csd.objects:
+        if obj.initial_state.mass_kg <= 0.0:
+            blockers.append(
+                _backend_csd_blocker(
+                    csd.csd_id,
+                    obj.name,
+                    GAZEBO_BACKEND,
+                    f"object {obj.name} mass_kg must be positive",
+                )
+            )
+        if any(value < 0.0 for value in obj.initial_state.friction):
+            blockers.append(
+                _backend_csd_blocker(
+                    csd.csd_id,
+                    obj.name,
+                    GAZEBO_BACKEND,
+                    f"object {obj.name} friction values must be non-negative",
+                )
+            )
+        contact = obj.initial_state.contact
+        if contact is not None and any(
+            value is not None
+            for value in (contact.margin_m, contact.gap_m, contact.solref, contact.solimp)
+        ):
+            blockers.append(
+                _backend_csd_blocker(
+                    csd.csd_id,
+                    obj.name,
+                    GAZEBO_BACKEND,
+                    f"object {obj.name} MuJoCo contact extensions have no Gazebo mapping",
+                )
+            )
+    return tuple(blockers)
+
+
+def _gazebo_robot_template_blockers(
+    csd: ConcreteScenarioDefinition,
+) -> tuple[CsdRealizationBlocker, ...]:
+    if csd.robot is None:
+        return ()
+    if csd.robot.asset_id not in GAZEBO_FRANKA_ASSET_IDS:
+        return (
+            _backend_csd_blocker(
+                csd.csd_id,
+                csd.robot.asset_id,
+                GAZEBO_BACKEND,
+                f"no Gazebo robot template is configured for robot asset {csd.robot.asset_id}",
+            ),
+        )
+    if which("gz") is None:
+        return (
+            _backend_csd_blocker(
+                csd.csd_id,
+                csd.robot.asset_id,
+                GAZEBO_BACKEND,
+                "Gazebo Classic gz conversion tool is unavailable",
+            ),
+        )
+    source_dir = _pybullet_franka_source_dir()
+    collision_source = _gazebo_franka_collision_source_dir()
+    if (
+        source_dir is None
+        or not (source_dir / "panda.urdf").is_file()
+        or not collision_source.is_dir()
+    ):
+        return (
+            _backend_csd_blocker(
+                csd.csd_id,
+                csd.robot.asset_id,
+                GAZEBO_BACKEND,
+                "Franka Panda URDF template is unavailable",
+            ),
+        )
+    return ()
+
+
 def _csd_entity_refs(csd: ConcreteScenarioDefinition) -> set[str]:
     refs = {f"object:{obj.name}" for obj in csd.objects}
     refs.update(f"surface:{surface.surface_id}" for surface in csd.environment.surfaces)
@@ -1107,6 +1435,73 @@ def _pybullet_franka_source_dir() -> Path | None:
     except Exception:
         return None
     return Path(pybullet_data.getDataPath()) / "franka_panda"
+
+
+def _gazebo_robot_model(
+    *,
+    scene_root: Path,
+    csd: ConcreteScenarioDefinition,
+) -> tuple[ET.Element | None, tuple[str, ...]]:
+    if csd.robot is None:
+        return None, ()
+    source_dir = _pybullet_franka_source_dir()
+    if source_dir is None:
+        raise FileNotFoundError("Franka Panda URDF template is unavailable")
+    destination_dir = scene_root / "assets" / "robots" / "franka_panda"
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    copy2(source_dir / "panda.urdf", destination_dir / "panda.urdf")
+    copytree(
+        _gazebo_franka_collision_source_dir(),
+        destination_dir / "meshes" / "collision",
+        dirs_exist_ok=True,
+    )
+    conversion = subprocess.run(
+        ["gz", "sdf", "-p", str(source_dir / "panda.urdf")],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=15.0,
+    )
+    if conversion.returncode != 0:
+        raise ValueError(conversion.stderr.strip() or "gz sdf conversion failed")
+    converted = ET.fromstring(conversion.stdout)
+    model = converted.find("model")
+    if model is None:
+        raise ValueError("gz sdf conversion did not produce a robot model")
+    model.set("name", "panda")
+    model.insert(0, ET.Element("pose"))
+    model[0].text = _typed_sdf_pose_text(csd.robot.pose)
+    for uri in model.findall(".//mesh/uri"):
+        stem = Path(str(uri.text or "")).stem
+        collision_value = (
+            Path("assets") / "robots" / "franka_panda" / "meshes" / "collision" / f"{stem}.stl"
+        )
+        if not (scene_root / collision_value).is_file():
+            raise FileNotFoundError(f"Gazebo robot collision mesh is unavailable: {stem}.stl")
+        uri.text = collision_value.as_posix()
+    world_joint = ET.SubElement(model, "joint", {"name": "panda_world_joint", "type": "fixed"})
+    ET.SubElement(world_joint, "parent").text = "world"
+    ET.SubElement(world_joint, "child").text = "panda_link0"
+    generated_files = tuple(
+        str(path.relative_to(scene_root))
+        for path in sorted(destination_dir.rglob("*"))
+        if path.is_file()
+    )
+    return model, generated_files
+
+
+def _gazebo_franka_collision_source_dir() -> Path:
+    return (
+        Path(__file__).resolve().parents[2]
+        / "drivers_sim"
+        / "gazebo-11"
+        / "assets"
+        / "robots"
+        / "franka_panda"
+        / "panda_description"
+        / "meshes"
+        / "collision"
+    )
 
 
 def _patch_pybullet_urdf_mesh_paths(path: Path) -> None:
@@ -1593,6 +1988,170 @@ def _write_pybullet_ppm(path: Path, width: int, height: int, rgb: bytes) -> None
     path.write_bytes(f"P6\n{width} {height}\n255\n".encode() + rgb)
 
 
+def _write_gazebo_sdf_check(
+    *,
+    world_path: Path,
+    diagnostics_root: Path,
+    csd_id: str,
+) -> tuple[str, tuple[CsdRealizationBlocker, ...]]:
+    relative_path = "diagnostics/sdf_check.json"
+    try:
+        result = subprocess.run(
+            ["gz", "sdf", "-k", str(world_path)],
+            cwd=world_path.parent,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=15.0,
+        )
+        output = f"{result.stdout}\n{result.stderr}".strip()
+        passed = result.returncode == 0 and not _gazebo_output_has_error(output)
+        payload: dict[str, object] = {
+            "command": ["gz", "sdf", "-k", "world.sdf"],
+            "returncode": result.returncode,
+            "status": "passed" if passed else "failed",
+            "output": output,
+        }
+    except (OSError, subprocess.TimeoutExpired) as error:
+        passed = False
+        payload = {
+            "command": ["gz", "sdf", "-k", "world.sdf"],
+            "status": "failed",
+            "error": str(error),
+        }
+    (diagnostics_root / "sdf_check.json").write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    if passed:
+        return relative_path, ()
+    return (
+        relative_path,
+        (
+            _backend_csd_blocker(
+                csd_id,
+                "sdf_check",
+                GAZEBO_BACKEND,
+                "generated SDF failed Gazebo Classic validation",
+            ),
+        ),
+    )
+
+
+def _write_gazebo_headless_load_check(
+    *,
+    world_path: Path,
+    diagnostics_root: Path,
+    csd_id: str,
+    expected_models: set[str],
+) -> tuple[str, tuple[CsdRealizationBlocker, ...]]:
+    relative_path = "diagnostics/headless_load.json"
+    env = os.environ.copy()
+    env["GAZEBO_MASTER_URI"] = f"http://127.0.0.1:{_unused_tcp_port()}"
+    env["GAZEBO_MODEL_DATABASE_URI"] = ""
+    process: subprocess.Popen[str] | None = None
+    try:
+        process = subprocess.Popen(
+            ["gzserver", "--verbose", world_path.name],
+            cwd=world_path.parent,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        loaded_models: set[str] = set()
+        model_query_output = ""
+        for _ in range(8):
+            if process.poll() is not None:
+                break
+            query_outputs: list[str] = []
+            for model_name in sorted(expected_models):
+                try:
+                    query = subprocess.run(
+                        ["gz", "model", "-m", model_name, "-p"],
+                        env=env,
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                        timeout=1.0,
+                    )
+                    query_text = f"{query.stdout}\n{query.stderr}".strip()
+                    query_outputs.append(f"{model_name}: {query_text}")
+                    if query.returncode == 0 and query.stdout.strip():
+                        loaded_models.add(model_name)
+                except (OSError, subprocess.TimeoutExpired) as error:
+                    query_outputs.append(str(error))
+            model_query_output = "\n".join(query_outputs)
+            if expected_models <= loaded_models:
+                break
+            time.sleep(0.25)
+        server_alive = process.poll() is None
+        if server_alive:
+            process.terminate()
+        try:
+            output, _ = process.communicate(timeout=3.0)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            output, _ = process.communicate(timeout=3.0)
+        loaded = "Loading world file" in output
+        passed = (
+            server_alive
+            and loaded
+            and expected_models <= loaded_models
+            and not _gazebo_output_has_error(output)
+        )
+        payload: dict[str, object] = {
+            "command": ["gzserver", "--verbose", "world.sdf"],
+            "loaded_world": loaded,
+            "expected_models": sorted(expected_models),
+            "loaded_models": sorted(loaded_models),
+            "model_query_output": model_query_output,
+            "status": "passed" if passed else "failed",
+            "output": output,
+        }
+    except OSError as error:
+        passed = False
+        payload = {
+            "command": ["gzserver", "--verbose", "world.sdf"],
+            "status": "failed",
+            "error": str(error),
+        }
+        if process is not None and process.poll() is None:
+            process.kill()
+    (diagnostics_root / "headless_load.json").write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    if passed:
+        return relative_path, ()
+    return (
+        relative_path,
+        (
+            _backend_csd_blocker(
+                csd_id,
+                "headless_load",
+                GAZEBO_BACKEND,
+                "generated SDF failed Gazebo Classic headless load validation",
+            ),
+        ),
+    )
+
+
+def _unused_tcp_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _gazebo_output_has_error(output: str) -> bool:
+    return "Error [" in output or "[Err]" in output
+
+
+def _gazebo_stage_float(stage: Any, name: str, default: float) -> float:
+    value = stage.GetPrimAtPath("/World/PhysicsScene").GetAttribute(f"robosim:gazebo:{name}").Get()
+    return default if value is None else float(value)
+
+
 def _pybullet_quaternion_json(quaternion: Any) -> list[float]:
     values = _quaternion_json(quaternion)
     return [values[1], values[2], values[3], values[0]]
@@ -1646,6 +2205,23 @@ def _pybullet_simulator_version() -> str | None:
     except Exception:
         return None
     return str(p.getAPIVersion())
+
+
+def _gazebo_simulator_version() -> str | None:
+    try:
+        result = subprocess.run(
+            ["gazebo", "--version"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10.0,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    for line in result.stdout.splitlines():
+        if "version" in line.lower():
+            return line.rsplit("version", 1)[-1].strip() or None
+    return None
 
 
 def _cached_manifest(
@@ -2400,7 +2976,7 @@ def _unique_files(paths: Iterable[str]) -> tuple[str, ...]:
 
 
 def _resource_relative_paths(
-    csd: Mapping[str, Any] | ConcreteScenarioDefinition,
+    csd: ConcreteScenarioDefinition,
     resources: Mapping[str, BackendResourceAdapter],
 ) -> Iterable[Path]:
     for asset_id in _compiler_asset_ids(csd):
@@ -2586,7 +3162,7 @@ def _mujoco_contact_attrs(obj: CsdObject) -> dict[str, str]:
 
 
 def _mesh_path_blockers(
-    csd: Mapping[str, Any] | ConcreteScenarioDefinition,
+    csd: ConcreteScenarioDefinition,
     resources: Mapping[str, BackendResourceAdapter],
     asset_root: Path,
     *,
@@ -2850,18 +3426,12 @@ def _object_csd_blocker(
     )
 
 
-def _compiler_asset_ids(
-    csd: Mapping[str, Any] | ConcreteScenarioDefinition,
-) -> tuple[str, ...]:
-    if isinstance(csd, ConcreteScenarioDefinition):
-        return tuple(dict.fromkeys(obj.asset_id for obj in csd.objects))
-    return _csd_asset_ids(csd)
+def _compiler_asset_ids(csd: ConcreteScenarioDefinition) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(obj.asset_id for obj in csd.objects))
 
 
-def _compiler_csd_id(csd: Mapping[str, Any] | ConcreteScenarioDefinition) -> str:
-    if isinstance(csd, ConcreteScenarioDefinition):
-        return csd.csd_id
-    return _required_str(csd, "csd_id")
+def _compiler_csd_id(csd: ConcreteScenarioDefinition) -> str:
+    return csd.csd_id
 
 
 def _resource_adapter_blockers(
@@ -2881,27 +3451,6 @@ def _resource_adapter_blockers(
         for asset_id in _compiler_asset_ids(csd)
         if asset_id not in resources
     )
-
-
-def _csd_objects(csd: Mapping[str, Any]) -> tuple[Mapping[str, Any], ...]:
-    return tuple(obj for obj in _csd_scenario(csd).get("objects", ()) if isinstance(obj, Mapping))
-
-
-def _csd_asset_ids(csd: Mapping[str, Any]) -> tuple[str, ...]:
-    asset_ids = [str(obj["asset_id"]) for obj in _csd_objects(csd) if obj.get("asset_id")]
-    return tuple(dict.fromkeys(asset_ids))
-
-
-def _csd_scenario(csd: Mapping[str, Any]) -> Mapping[str, Any]:
-    scenario = csd.get("scenario")
-    return scenario if isinstance(scenario, Mapping) else csd
-
-
-def _robot_asset_id(csd: Mapping[str, Any]) -> str:
-    robot = _csd_scenario(csd).get("robot", {})
-    if isinstance(robot, Mapping):
-        return str(robot.get("asset_id", ""))
-    return str(csd.get("robot_asset_id", ""))
 
 
 def _vector3_text(vector: Any) -> str:
@@ -3054,16 +3603,31 @@ def _orientation_float(value: Any) -> float:
     return round(float(value), 6)
 
 
-def _sdf_pose_text(obj: Mapping[str, Any]) -> str:
-    position = _pose_part(obj, "position")
-    orientation = _pose_part(obj, "orientation")
+def _typed_sdf_pose_text(pose: Any) -> str:
     roll, pitch, yaw = _quaternion_to_rpy(
-        w=float(orientation["w"]),
-        x=float(orientation["x"]),
-        y=float(orientation["y"]),
-        z=float(orientation["z"]),
+        w=float(pose.orientation.w),
+        x=float(pose.orientation.x),
+        y=float(pose.orientation.y),
+        z=float(pose.orientation.z),
     )
-    return _numbers_text((position["x"], position["y"], position["z"], roll, pitch, yaw))
+    return _numbers_text((pose.position.x, pose.position.y, pose.position.z, roll, pitch, yaw))
+
+
+def _sdf_camera_pose_text(camera: Any) -> str:
+    quaternion = (
+        _camera_xyaxes_quaternion_json(camera.xyaxes)
+        if camera.xyaxes is not None
+        else [1.0, 0.0, 0.0, 0.0]
+    )
+    roll, pitch, yaw = _quaternion_to_rpy(
+        w=quaternion[0],
+        x=quaternion[1],
+        y=quaternion[2],
+        z=quaternion[3],
+    )
+    return _numbers_text(
+        (camera.position.x, camera.position.y, camera.position.z, roll, pitch, yaw)
+    )
 
 
 def _quaternion_to_rpy(*, w: float, x: float, y: float, z: float) -> tuple[float, float, float]:
@@ -3080,38 +3644,12 @@ def _quaternion_to_rpy(*, w: float, x: float, y: float, z: float) -> tuple[float
     return roll, pitch, yaw
 
 
-def _pose_part(obj: Mapping[str, Any], key: str) -> Mapping[str, Any]:
-    pose = obj.get("pose")
-    if not isinstance(pose, Mapping):
-        raise ValueError("CSD object pose is required for compilation")
-    part = pose.get(key)
-    if not isinstance(part, Mapping):
-        raise ValueError(f"CSD object pose.{key} is required for compilation")
-    return part
-
-
-def _object_scalar(obj: Mapping[str, Any] | CsdObject, key: str, default: float) -> str:
-    initial_state = (
-        obj.initial_state if isinstance(obj, CsdObject) else obj.get("initial_state", {})
-    )
-    if isinstance(initial_state, Mapping) and key in initial_state:
-        return _number_text(initial_state[key])
-    return _number_text(default)
-
-
 def _numbers_text(values: tuple[object, ...]) -> str:
     return " ".join(_number_text(value) for value in values)
 
 
 def _number_text(value: Any) -> str:
     return f"{float(value):g}"
-
-
-def _required_str(payload: Mapping[str, Any], key: str) -> str:
-    value = str(payload.get(key, ""))
-    if not value:
-        raise ValueError(f"{key} is required")
-    return value
 
 
 def _mjcf_name(value: str) -> str:

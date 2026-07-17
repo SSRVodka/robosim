@@ -298,15 +298,32 @@ hash, visual mesh path, optional mesh scale, optional material/texture, and
 optional collision mesh path. Compiler internals should use this model instead
 of anonymous registry dictionaries.
 
-实现记录（2026-07-09）：第一版 `compile_csd_to_gazebo()` 依据 SDFormat
-1.12 的 `sdf/world/model/link/visual/collision/geometry/mesh/uri` 结构与 Gazebo
-Sim resource lookup 文档实现。Gazebo 产物写入
+实现记录（2026-07-09，2026-07-17 修正）：第一版
+`compile_csd_to_gazebo()` 曾依据最新 SDFormat 1.12 specification 与 Gazebo Sim 8
+resource 文档实现，但项目 acceptance runtime 实际是 Gazebo Classic 11.15.1 与
+libsdformat 9.10.2；该组合只安装到 SDF 1.7 schema。把现代 Gazebo Sim 的最新
+protocol version 当作 Gazebo Classic target 是错误假设。因此 Gazebo Classic
+realization 固定输出 SDF 1.7，同时 canonical CSD 仍为当前 OpenUSD stage；backend
+artifact 的协议版本不反向限制 canonical CSD。Gazebo 产物写入
 `engine_manifests/gazebo/<csd_id>/world.sdf`，并复制 CSD 引用的 Gazebo backend
 resources 到 `engine_manifests/gazebo/<csd_id>/assets/...`。SDF 内 mesh URI
 使用相对路径 `assets/...`，使 `world.sdf` 可随 artifact root 移动；不要求生成
 ROS2 package、launch 目录或安装到 package share。后续 runtime 加载时可通过
 当前工作目录、绝对路径或 `GZ_SIM_RESOURCE_PATH` 暴露 artifact root，但编译器
 本身只负责生成可审计、可缓存、资产自包含的 backend-native 文件。
+
+实现记录（2026-07-17）：`compile_csd_to_gazebo()` 已改为只接受 canonical
+`csd.usda` 路径，选择 `physicsBackend=gazebo`，并与另外两个 backend 共享 strict
+stage validation、typed compiler view 与 composed-stage digest cache input。SDF 1.7
+realization 映射 world gravity/physics、box/cylinder surface、robot、rigid objects、
+mass/diagonal inertia、collision、friction、UsdPreviewSurface color、directional light
+和 camera sensor。Franka 临时模板通过官方 `gz sdf -p` 从 URDF 转为 SDF model，
+并把 Gazebo 可加载的 collision mesh dependency closure 复制到 realization package；
+world 中不存在 source-tree、download cache 或绝对资源引用。每次非缓存 realization
+必须通过 `gz sdf -k`，再在隔离的 Gazebo master 上由 `gzserver --verbose` headless
+加载，并通过 Gazebo transport 查询全部预期 model；任何 Gazebo `[Err]` 输出都会
+转成 blocker。证据写入 `diagnostics/sdf_check.json`、`headless_load.json` 与
+`validation_record.json`。
 
 ## 架构设计
 

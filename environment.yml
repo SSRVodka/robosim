@@ -13,6 +13,8 @@ dependencies:
   - openusd=26.05
 
   # Gazebo-ROS stack
+  - gazebo=11.15.1
+  - libsdformat=9.10.2
   - ros-dev-tools
   - ros-humble-desktop
   - ros-humble-ros2-control

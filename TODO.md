@@ -32,10 +32,10 @@ during an implementation checkpoint without user approval.
 
 ## Checkpoint 4: Gazebo
 
-- [ ] Complete OpenUSD-to-SDFormat realization for the shared fixture.
-- [ ] Validate generated SDFormat with the installed official tools and load it
+- [x] Complete OpenUSD-to-SDFormat realization for the shared fixture.
+- [x] Validate generated SDFormat with the installed official tools and load it
       in Gazebo 11 headlessly.
-- [ ] Add package-local asset, physics, camera/light/sensor, blocker, manifest,
+- [x] Add package-local asset, physics, camera/light/sensor, blocker, manifest,
       and runtime handoff evidence.
 
 ## Checkpoint 5: Three-backend acceptance

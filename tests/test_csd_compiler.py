@@ -15,10 +15,12 @@ import pytest
 
 from robosim.core import (
     CsdRealizationManifest,
-    compile_csd_to_gazebo,
 )
 from robosim.core import (
     compile_csd as compile_csd_stage,
+)
+from robosim.core import (
+    compile_csd_to_gazebo as compile_csd_to_gazebo_stage,
 )
 from robosim.core import (
     compile_csd_to_mujoco as compile_csd_to_mujoco_stage,
@@ -58,10 +60,22 @@ def compile_csd_to_mujoco(
     return compile_csd_to_mujoco_stage(csd_path=csd_path, **kwargs)
 
 
+def compile_csd_to_gazebo(
+    *,
+    csd: Mapping[str, object] | None = None,
+    csd_path: Path | None = None,
+    **kwargs: object,
+):
+    """Route legacy semantic inputs through test-only OpenUSD authoring."""
+    if csd_path is None:
+        assert csd is not None
+        csd_path = author_openusd_csd(csd, Path(kwargs["output_root"]).parent)
+    return compile_csd_to_gazebo_stage(csd_path=csd_path, **kwargs)
+
+
 def compile_csd(*, backend: str, csd: Mapping[str, object], **kwargs: object):
-    if backend == "mujoco":
-        return compile_csd_to_mujoco(csd=csd, **kwargs)
-    return compile_csd_stage(backend=backend, csd=csd, **kwargs)
+    csd_path = author_openusd_csd(csd, Path(kwargs["output_root"]).parent)
+    return compile_csd_stage(backend=backend, csd_path=csd_path, **kwargs)
 
 
 def _required_element(parent: ET.Element, path: str) -> ET.Element:
@@ -1719,69 +1733,92 @@ def test_compile_csd_to_mujoco_applies_template_nondefault_gravity(tmp_path: Pat
     assert tuple(round(float(value), 6) for value in model.opt.gravity) == (0.0, 0.0, -1.62)
 
 
-def test_compile_csd_to_gazebo_writes_self_contained_sdf_world(tmp_path: Path) -> None:
+def test_compile_csd_to_gazebo_consumes_composed_openusd_stage(tmp_path: Path) -> None:
+    registry = {
+        "objects": [
+            {
+                "asset_id": asset_id,
+                "backend_resources": [
+                    {
+                        "backend": "gazebo",
+                        "resource_id": f"gazebo_{asset_id}",
+                        "mesh_path": f"objects/{asset_id}.obj",
+                        "resource_hash": f"hash_{asset_id}",
+                    }
+                ],
+            }
+            for asset_id in ("object_box", "object_anchor")
+        ]
+    }
     asset_root = tmp_path / "assets"
-    csd = _load_json_fixture("franka_tabletop_single_object.json")
-    asset_registry = _load_json_fixture("asset_registry_gazebo.json")
-    _write_fixture_asset_files(asset_root, asset_registry)
+    _write_fixture_asset_files(asset_root, registry)
 
-    result = compile_csd(
+    result = compile_csd_stage(
         backend="gazebo",
-        csd=csd,
-        asset_registry=asset_registry,
-        output_root=tmp_path / "compiled",
+        csd_path=SHARED_OPENUSD_CSD,
+        asset_registry=registry,
+        output_root=tmp_path / "engine_manifests",
         asset_root=asset_root,
-        realization_version="test-0.1",
         simulator_version="test-gazebo",
     )
 
-    manifest = result.manifest
-    world_root = tmp_path / "compiled" / "gazebo" / "csd_tabletop_0001"
-    world_path = world_root / "world.sdf"
-    manifest_path = world_root / "manifest.json"
-    copied_mesh_path = world_root / "assets" / "objects" / "mug.obj"
-    root = ET.parse(world_path).getroot()
-    model = _required_element(root, "world/model")
-
-    assert isinstance(manifest, CsdRealizationManifest)
     assert result.blockers == ()
-    assert manifest.backend == "gazebo"
-    assert manifest.entry_file == "world.sdf"
-    assert manifest.generated_files == ("manifest.json", "world.sdf", "assets/objects/mug.obj")
-    assert json.loads(manifest_path.read_text(encoding="utf-8")) == manifest.to_json_dict()
-    assert copied_mesh_path.is_file()
-    assert root.attrib["version"] == "1.12"
-    assert model.attrib["name"] == "mug"
-    assert _required_element(model, "pose").text == "0.25 -0.1 0.82 0 0 0"
-    assert _required_element(model, "static").text == "false"
-    assert _required_element(model, "link/visual/geometry/mesh/uri").text == (
-        "assets/objects/mug.obj"
-    )
-    assert _required_element(model, "link/collision/geometry/mesh/uri").text == (
-        "assets/objects/mug.obj"
-    )
+    assert result.manifest is not None
+    world_root = Path(result.manifest.root_path)
+    root = ET.parse(world_root / "world.sdf").getroot()
+    world = _required_element(root, "world")
+    models = {model.attrib["name"]: model for model in world.findall("model")}
 
-    (asset_root / "objects" / "mug.obj").unlink()
-    assert copied_mesh_path.is_file()
+    assert root.attrib["version"] == "1.7"
+    assert _required_element(world, "gravity").text == "0 0 -9.81"
+    assert _required_element(world, "physics/max_step_size").text == "0.001"
+    assert {"dynamic_box", "anchor", "table", "panda"} <= set(models)
+    assert _required_element(models["dynamic_box"], "pose").text == "0 0 0.35 0 0 0"
+    assert _required_element(models["dynamic_box"], "link/inertial/mass").text == "1"
+    assert _required_element(models["dynamic_box"], "link/inertial/inertia/ixx").text == ("0.015")
+    assert (
+        _required_element(models["dynamic_box"], "link/collision/geometry/mesh/uri").text
+        == "assets/objects/object_box.obj"
+    )
+    assert (
+        _required_element(models["dynamic_box"], "link/visual/material/diffuse").text
+        == "0.8 0.25 0.15 1"
+    )
+    assert _required_element(models["table"], "link/collision/geometry/box/size").text == (
+        "1.2 0.8 0.1"
+    )
+    assert _required_element(world, "model[@name='csd_sensors']/link/sensor").attrib == {
+        "name": "Camera",
+        "type": "camera",
+    }
+    assert _required_element(world, "light").attrib["name"] == "KeyLight"
+    mesh_uris = [Path(str(uri.text)) for uri in world.findall(".//mesh/uri")]
+    assert mesh_uris
+    assert all(not uri.is_absolute() and (world_root / uri).is_file() for uri in mesh_uris)
+    assert "assets/objects/object_box.obj" in result.manifest.generated_files
+    assert any(
+        path.startswith("assets/robots/franka_panda/meshes/collision/")
+        for path in result.manifest.generated_files
+    )
+    assert (world_root / "diagnostics" / "sdf_check.json").is_file()
+    assert (world_root / "diagnostics" / "headless_load.json").is_file()
+    assert (world_root / "diagnostics" / "validation_record.json").is_file()
 
 
 def test_compile_csd_to_gazebo_reports_missing_resource_adapter(tmp_path: Path) -> None:
     result = compile_csd_to_gazebo(
-        csd={
-            "csd_id": "csd_missing",
-            "objects": [{"name": "mug", "asset_id": "object_mug"}],
-        },
-        asset_registry={"objects": [{"object_id": "object_mug", "variants": []}]},
+        csd_path=SHARED_OPENUSD_CSD,
+        asset_registry={"objects": []},
         output_root=tmp_path,
         asset_root=tmp_path,
     )
 
     assert result.manifest is None
     assert result.blockers[0].to_json_dict() == {
-        "blocker_id": "csd_missing_gazebo_object_mug_resource_missing",
-        "csd_id": "csd_missing",
+        "blocker_id": "csd_shared_tabletop_gazebo_object_box_resource_missing",
+        "csd_id": "csd_shared_tabletop",
         "backend": "gazebo",
-        "asset_id": "object_mug",
+        "asset_id": "object_box",
         "scope": "asset",
         "reason": "asset has no backend resource adapter for gazebo",
     }

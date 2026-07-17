@@ -24,8 +24,7 @@
 >
 > The approved CSD migration replaces the JSON CSD with a composed OpenUSD
 > stage rooted at `csd/<csd_id>/csd.usda`. MuJoCo now consumes that stage
-> directly; PyBullet uses the same path, and the legacy JSON compiler input
-> remains temporarily only for the Gazebo checkpoint. The native MuJoCo USD feasibility
+> directly; PyBullet and Gazebo use the same path. The native MuJoCo USD feasibility
 > gate selected the OpenUSD-to-MJCF path because the official decoder does not
 > preserve required cameras, lights, or sensors. See [`DESIGN.md`](./DESIGN.md)
 > and [`docs/mujoco-openusd-feasibility.md`](./docs/mujoco-openusd-feasibility.md) for the canonical
@@ -40,18 +39,17 @@ equivalent JSON CSD.
 
 `vsim` exposes the CSD compiler boundary through `robosim.core.compile_csd`.
 
-Pass `backend="mujoco"`, `backend="gazebo"`, or `backend="pybullet"`. MuJoCo
-and PyBullet accept `csd_path=Path("csd/<csd_id>/csd.usda")`; Gazebo will move
-to the same interface in its checkpoint. The compiler also consumes an
+Pass `backend="mujoco"`, `backend="gazebo"`, or `backend="pybullet"`. All three
+accept `csd_path=Path("csd/<csd_id>/csd.usda")`. The compiler also consumes an
 asset registry with passed backend variants, an output root, and an asset root.
 In benchmark packages, pass
 `output_root=Path("<package>/engine_manifests")`.
 
 The MuJoCo target writes `engine_manifests/mujoco/<csd_id>/scene.xml`; the Gazebo target writes `engine_manifests/gazebo/<csd_id>/world.sdf`; the PyBullet target writes `engine_manifests/pybullet/<csd_id>/scene.py` plus `scene_meta.json` and package-local URDF/assets. Backend targets copy referenced assets under the backend artifact's local `assets/` directory, then return a `CsdCompilationResult` containing either a `CsdRealizationManifest` or typed `CsdRealizationBlocker` records.
 
-The current compiler scope is intentionally narrow: rigid mesh objects with CSD poses, backend mesh variants addressed by relative paths under `asset_root`, optional MuJoCo `freejoint` for non-static objects, Gazebo SDF model/link/visual/collision elements, and scalar mass/friction hints from object `initial_state`. Runtime loading, render previews, and physics validation remain separate follow-up stages.
+The compiler scope covers the shared portable CSD contract: environment surfaces, a Franka robot template, rigid objects, transforms, gravity, mass/inertia, collision, standard physics friction and material color, cameras/lights, and explicit blockers for unsupported backend opinions. MuJoCo and PyBullet include load/physics/render diagnostics; Gazebo includes strict SDF validation and an isolated headless load that queries every expected model through Gazebo transport.
 
-Generated backend artifact directories are self-contained for the mesh variants they use. MuJoCo `scene.xml` points `compiler meshdir` at the copied local `assets/` directory. Gazebo `world.sdf` uses SDFormat 1.12 mesh URIs such as `assets/objects/mug.obj`; the compiler does not require a ROS2 package, launch directory, or package share layout. PyBullet realization treats the full package as the backend scene: URDF files represent bodies, `scene.py` deterministically assembles the physics world through PyBullet APIs, and `scene_meta.json` records sensors, cameras, and CSD entity mappings.
+Generated backend artifact directories are self-contained for the mesh variants they use. MuJoCo `scene.xml` points `compiler meshdir` at the copied local `assets/` directory. The Gazebo Classic 11 target uses SDFormat 1.7 and package-relative mesh URIs such as `assets/objects/mug.obj`; the compiler does not require a ROS2 package, launch directory, or package share layout. PyBullet realization treats the full package as the backend scene: URDF files represent bodies, `scene.py` deterministically assembles the physics world through PyBullet APIs, and `scene_meta.json` records sensors, cameras, and CSD entity mappings.
 
 The current MuJoCo compiler produces this complete realization package:
 
