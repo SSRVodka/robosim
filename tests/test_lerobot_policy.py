@@ -16,6 +16,11 @@ from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.policies.act.configuration_act import ACTConfig
 from lerobot.policies.act.modeling_act import ACTPolicy
 from lerobot.policies.act.processor_act import make_act_pre_post_processors
+from lerobot.policies.diffusion.configuration_diffusion import DiffusionConfig
+from lerobot.policies.diffusion.modeling_diffusion import DiffusionPolicy
+from lerobot.policies.diffusion.processor_diffusion import (
+    make_diffusion_pre_post_processors,
+)
 
 from control_stubs.common_pb2 import JointState, Pose, PoseStamped, Quaternion
 from control_stubs.mobility_ai_pb2 import NavGoal, TaskFeedback
@@ -100,50 +105,67 @@ def _create_dataset(
     return dataset_root
 
 
+def _feature_stats(shape: tuple[int, ...]) -> dict[str, torch.Tensor]:
+    return {
+        "mean": torch.zeros(shape),
+        "std": torch.ones(shape),
+        "min": torch.full(shape, -1.0),
+        "max": torch.ones(shape),
+    }
+
+
 def _create_policy_checkpoint(
     checkpoint_root: Path,
     *,
+    policy_type: str = "act",
     joint_count: int = 2,
     camera_name: str = "camera",
 ) -> Path:
     image_key = f"observation.images.{camera_name}"
-    config = ACTConfig(
-        device="cpu",
-        input_features={
-            "observation.state": PolicyFeature(type=FeatureType.STATE, shape=(joint_count,)),
-            image_key: PolicyFeature(
-                type=FeatureType.VISUAL,
-                shape=(3, 240, 320),
-            ),
-        },
-        output_features={
-            "action": PolicyFeature(type=FeatureType.ACTION, shape=(joint_count,)),
-        },
-        n_action_steps=2,
-        chunk_size=2,
-        pretrained_backbone_weights=None,
-        dim_model=64,
-        dim_feedforward=128,
-        n_heads=4,
-        latent_dim=8,
-        use_vae=False,
-    )
-    policy = ACTPolicy(config)
-    stats = {
-        "observation.state": {
-            "mean": torch.zeros(joint_count),
-            "std": torch.ones(joint_count),
-        },
-        image_key: {
-            "mean": torch.zeros((3, 1, 1)),
-            "std": torch.ones((3, 1, 1)),
-        },
-        "action": {
-            "mean": torch.zeros(joint_count),
-            "std": torch.ones(joint_count),
-        },
+    input_features = {
+        "observation.state": PolicyFeature(type=FeatureType.STATE, shape=(joint_count,)),
+        image_key: PolicyFeature(type=FeatureType.VISUAL, shape=(3, 240, 320)),
     }
-    preprocessor, postprocessor = make_act_pre_post_processors(config, dataset_stats=stats)
+    output_features = {
+        "action": PolicyFeature(type=FeatureType.ACTION, shape=(joint_count,)),
+    }
+    if policy_type == "act":
+        config = ACTConfig(
+            device="cpu",
+            input_features=input_features,
+            output_features=output_features,
+            n_action_steps=2,
+            chunk_size=2,
+            pretrained_backbone_weights=None,
+            dim_model=64,
+            dim_feedforward=128,
+            n_heads=4,
+            latent_dim=8,
+            use_vae=False,
+        )
+        policy: torch.nn.Module = ACTPolicy(config)
+        make_processors = make_act_pre_post_processors
+    elif policy_type == "diffusion":
+        config = DiffusionConfig(
+            device="cpu",
+            input_features=input_features,
+            output_features=output_features,
+            crop_shape=None,
+            num_inference_steps=2,
+            down_dims=(64, 128),
+            diffusion_step_embed_dim=64,
+        )
+        policy = DiffusionPolicy(config)
+        make_processors = make_diffusion_pre_post_processors
+    else:
+        raise ValueError(f"unsupported test policy type '{policy_type}'")
+
+    stats = {
+        "observation.state": _feature_stats((joint_count,)),
+        image_key: _feature_stats((3, 1, 1)),
+        "action": _feature_stats((joint_count,)),
+    }
+    preprocessor, postprocessor = make_processors(config, dataset_stats=stats)
     policy.save_pretrained(checkpoint_root)
     preprocessor.save_pretrained(checkpoint_root)
     postprocessor.save_pretrained(checkpoint_root)
@@ -282,9 +304,14 @@ def test_lerobot_observation_adapter_builds_minimal_observation(tmp_path: Path) 
     assert adapter.runtime_spec.group_name == "arm"
 
 
-def test_lerobot_policy_runner_executes_control_loop(tmp_path: Path) -> None:
+@pytest.mark.parametrize("policy_type", ["act", "diffusion"])
+def test_lerobot_policy_runner_executes_control_loop(
+    tmp_path: Path, policy_type: str
+) -> None:
     _create_dataset(tmp_path, "policy_dataset")
-    checkpoint_root = _create_policy_checkpoint(tmp_path / "checkpoint")
+    checkpoint_root = _create_policy_checkpoint(
+        tmp_path / "checkpoint", policy_type=policy_type
+    )
     backend = PolicySpyBackend()
     runner = LerobotPolicyRunner(tmp_path, backend, activity_coordinator=ActivityCoordinator())
 
@@ -329,6 +356,7 @@ def test_lerobot_policy_runner_defaults_control_fps_to_dataset_fps(
     assert runner.get_status().control_fps == 12
 
 
+@pytest.mark.parametrize("policy_type", ["act", "diffusion"])
 @pytest.mark.parametrize(
     ("backend_name", "backend_factory"),
     [
@@ -339,10 +367,11 @@ def test_lerobot_policy_runner_defaults_control_fps_to_dataset_fps(
         ("pybullet", lambda: PyBulletBackend(headless=True)),
     ],
 )
-def test_lerobot_act_policy_runs_on_franka_backend(
+def test_lerobot_policy_runs_on_franka_backend(
     tmp_path: Path,
     backend_name: str,
     backend_factory: Callable[[], SimulatorBackend],
+    policy_type: str,
 ) -> None:
     repo_name = f"{backend_name}_panda_policy_dataset"
     _create_dataset(
@@ -354,6 +383,7 @@ def test_lerobot_act_policy_runs_on_franka_backend(
     )
     checkpoint_root = _create_policy_checkpoint(
         tmp_path / f"{backend_name}_checkpoint",
+        policy_type=policy_type,
         joint_count=len(PANDA_ARM_JOINTS),
         camera_name=PANDA_CAMERA_NAME,
     )
