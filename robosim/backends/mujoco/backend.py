@@ -738,6 +738,34 @@ class MuJoCoBackend(SimulatorBackend):
             yield self.get_sensors(names)
             time.sleep(STREAM_INTERVAL_SEC)
 
+    def set_object_pose(self, object_name: str, pose: common_pb2.Pose) -> None:
+        with self._state_lock:
+            body_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_BODY, object_name)
+            if body_id < 0:
+                raise ValueError(f"Unknown MuJoCo body '{object_name}'")
+            joint_adr = int(self._model.body_jntadr[body_id])
+            if (
+                int(self._model.body_jntnum[body_id]) != 1
+                or int(self._model.jnt_type[joint_adr]) != int(mujoco.mjtJoint.mjJNT_FREE)
+            ):
+                raise ValueError(f"Body '{object_name}' has no free joint")
+            qpos_adr = int(self._model.jnt_qposadr[joint_adr])
+            dof_adr = int(self._model.jnt_dofadr[joint_adr])
+            self._data.qpos[qpos_adr : qpos_adr + 3] = [
+                pose.position.x,
+                pose.position.y,
+                pose.position.z,
+            ]
+            self._data.qpos[qpos_adr + 3 : qpos_adr + 7] = [
+                pose.orientation.w,
+                pose.orientation.x,
+                pose.orientation.y,
+                pose.orientation.z,
+            ]
+            self._data.qvel[dof_adr : dof_adr + 6] = 0.0
+            mujoco.mj_forward(self._model, self._data)
+            self._sync_viewer_locked()
+
     def reset_world(self, seed: int, randomization_params: dict[str, float]) -> None:
         del seed, randomization_params
         with self._state_lock:
