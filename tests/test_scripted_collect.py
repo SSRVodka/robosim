@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from control_stubs.tools.scripted_collect import (
-    BOX_HOME,
+    CUP_HOME,
     GRASP_QUAT_WXYZ,
     GRIPPER_CLOSED,
     GRIPPER_OPEN,
@@ -43,9 +43,9 @@ def test_ik_raises_for_unreachable_target(kinematics: PandaKinematics) -> None:
 
 
 def test_episode_targets_are_finite_and_bounded(kinematics: PandaKinematics) -> None:
-    targets = build_episode_targets(kinematics, BOX_HOME.copy())
+    targets = build_episode_targets(kinematics, CUP_HOME.copy(), control_fps=50)
 
-    assert 50 <= len(targets) <= 500
+    assert 300 <= len(targets) <= 2000
     grippers = {gripper for _, gripper in targets}
     assert grippers == {GRIPPER_OPEN, GRIPPER_CLOSED}
     for arm_q, _ in targets:
@@ -56,7 +56,7 @@ def test_episode_targets_are_finite_and_bounded(kinematics: PandaKinematics) -> 
 
 
 def test_episode_targets_end_open_above_container(kinematics: PandaKinematics) -> None:
-    targets = build_episode_targets(kinematics, BOX_HOME.copy())
+    targets = build_episode_targets(kinematics, CUP_HOME.copy(), control_fps=50)
     final_q, final_gripper = targets[-1]
 
     assert final_gripper == GRIPPER_OPEN

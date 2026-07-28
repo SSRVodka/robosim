@@ -1,10 +1,13 @@
 """Scripted pick-and-place expert data collection over gRPC.
 
 Drives a Franka Panda in the MuJoCo scene
-``drivers_sim/mujoco/assets/robots/franka_panda/scene.xml`` (red box on the
-table, green container) through reach -> grasp -> lift -> place waypoints and
-records each episode as a LeRobotDataset. All control goes through the vsim
-gRPC surface; MuJoCo bindings are used client-side for kinematics only.
+``drivers_sim/mujoco/assets/robots/franka_panda/scene.xml`` (porcelain cup on
+the table, green container) through reach -> grasp -> lift -> place waypoints
+and records each episode as a LeRobotDataset. gRPC is only a trigger surface:
+the whole joint trajectory is uploaded once per episode via
+ExecuteJointTrajectory and runs inside the simulator loop, so the rollout does
+not depend on client wall-clock pacing. MuJoCo bindings are used client-side
+for kinematics only.
 """
 
 from __future__ import annotations
@@ -19,26 +22,24 @@ import mujoco
 import numpy as np
 
 from control_stubs import common_pb2
-from control_stubs.robot_core_pb2 import JointCommand
 from control_stubs.tools.client import RobosimClient
 
 ARM_JOINTS = [f"panda_joint{index}" for index in range(1, 8)]
 FINGER_JOINTS = ["panda_finger_joint1", "panda_finger_joint2"]
-ARM_GROUP = "panda_arm"
-HAND_GROUP = "panda_hand"
+ARM_HAND_GROUP = "panda_arm_hand"
 HOME_Q = np.array([0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785])
 GRASP_QUAT_WXYZ = np.array([0.0, 1.0, 0.0, 0.0])
 GRIPPER_OPEN = 0.04
 GRIPPER_CLOSED = 0.0
-BOX_HOME = np.array([0.6, -0.2, 0.179])
+CUP_HOME = np.array([0.6, -0.2, 0.151])
 CONTAINER_XY = np.array([0.4, 0.3])
 LIFT_HAND_Z = 0.45
-GRASP_HAND_Z = 0.33
+GRASP_HAND_Z = 0.28
 PLACE_HAND_Z = 0.50
-CARTESIAN_STEP = 0.01
-SETTLE_FRAMES = 20
-GRIPPER_DWELL_FRAMES = 15
-BOX_RANDOM_RANGE = 0.05
+CARTESIAN_STEP = 0.002
+SETTLE_SEC = 1.0
+GRIPPER_DWELL_SEC = 1.0
+OBJECT_RANDOM_RANGE = 0.05
 
 
 class PandaKinematics:
@@ -100,12 +101,13 @@ class PandaKinematics:
 
 def build_episode_targets(
     kinematics: PandaKinematics,
-    box_pos: np.ndarray,
+    cup_pos: np.ndarray,
+    control_fps: int,
 ) -> list[tuple[np.ndarray, float]]:
     """Return the (arm_q, gripper) target stream for one pick-and-place episode."""
-    above_box = np.array([box_pos[0], box_pos[1], LIFT_HAND_Z])
-    grasp = np.array([box_pos[0], box_pos[1], GRASP_HAND_Z])
-    lift = above_box
+    above_cup = np.array([cup_pos[0], cup_pos[1], LIFT_HAND_Z])
+    grasp = np.array([cup_pos[0], cup_pos[1], GRASP_HAND_Z])
+    lift = above_cup
     place = np.array([CONTAINER_XY[0], CONTAINER_XY[1], PLACE_HAND_Z])
 
     targets: list[tuple[np.ndarray, float]] = []
@@ -121,18 +123,18 @@ def build_episode_targets(
             current_q = kinematics.solve(waypoint, GRASP_QUAT_WXYZ, current_q)
             targets.append((current_q.copy(), gripper))
 
-    def dwell(gripper: float, frames: int) -> None:
-        for _ in range(frames):
+    def dwell(gripper: float, seconds: float) -> None:
+        for _ in range(int(round(seconds * control_fps))):
             targets.append((current_q.copy(), gripper))
 
-    move_to(above_box, GRIPPER_OPEN)
+    move_to(above_cup, GRIPPER_OPEN)
     move_to(grasp, GRIPPER_OPEN)
-    dwell(GRIPPER_OPEN, SETTLE_FRAMES)
-    dwell(GRIPPER_CLOSED, GRIPPER_DWELL_FRAMES)
+    dwell(GRIPPER_OPEN, SETTLE_SEC)
+    dwell(GRIPPER_CLOSED, GRIPPER_DWELL_SEC)
     move_to(lift, GRIPPER_CLOSED)
     move_to(place, GRIPPER_CLOSED)
-    dwell(GRIPPER_CLOSED, SETTLE_FRAMES)
-    dwell(GRIPPER_OPEN, GRIPPER_DWELL_FRAMES)
+    dwell(GRIPPER_CLOSED, SETTLE_SEC)
+    dwell(GRIPPER_OPEN, GRIPPER_DWELL_SEC)
     return targets
 
 
@@ -145,25 +147,33 @@ def collect_episode(
     task_text: str,
     control_fps: int,
     record_fps: int,
-    randomize_box: bool,
+    randomize_object: bool,
     exclude_sensors: list[str],
 ) -> float:
     """Run one episode and return its wall-clock duration in seconds."""
     client.simulation.reset_world(seed=seed)
     time.sleep(0.5)
 
-    box_pos = BOX_HOME.copy()
-    if randomize_box:
+    cup_pos = CUP_HOME.copy()
+    if randomize_object:
         rng = np.random.default_rng(seed)
-        box_pos[:2] += rng.uniform(-BOX_RANDOM_RANGE, BOX_RANDOM_RANGE, size=2)
+        cup_pos[:2] += rng.uniform(-OBJECT_RANDOM_RANGE, OBJECT_RANDOM_RANGE, size=2)
         status = client.simulation.set_object_pose(
-            "box", tuple(box_pos), (0.0, 0.0, 0.0, 1.0)
+            "cup", tuple(cup_pos), (0.0, 0.0, 0.0, 1.0)
         )
         if status.code != common_pb2.STATUS_SUCCESS:
             raise RuntimeError(f"set_object_pose failed: {status.message}")
         time.sleep(0.3)
 
-    targets = build_episode_targets(kinematics, box_pos)
+    targets = build_episode_targets(kinematics, cup_pos, control_fps)
+    joint_names = ARM_JOINTS + FINGER_JOINTS
+    points = [
+        (
+            (index + 1) / control_fps,
+            [float(value) for value in arm_q] + [gripper, gripper],
+        )
+        for index, (arm_q, gripper) in enumerate(targets)
+    ]
 
     start_time = time.monotonic()
     job = client.robot_data.episode_start(
@@ -176,22 +186,13 @@ def collect_episode(
         raise RuntimeError(f"episode_start failed: {job.status.message}")
 
     try:
-        deadline = time.monotonic()
-        for arm_q, gripper in targets:
-            client.robot_core.set_joint_target(
-                ARM_JOINTS,
-                [float(v) for v in arm_q],
-                JointCommand.ControlMode.POSITION,
-                ARM_GROUP,
-            )
-            client.robot_core.set_joint_target(
-                FINGER_JOINTS,
-                [gripper, gripper],
-                JointCommand.ControlMode.POSITION,
-                HAND_GROUP,
-            )
-            deadline += 1.0 / control_fps
-            time.sleep(max(0.0, deadline - time.monotonic()))
+        # Single trigger call: the trajectory runs entirely inside the
+        # simulator loop, paced by simulated time.
+        status = client.robot_core.execute_joint_trajectory(
+            joint_names, points, ARM_HAND_GROUP
+        )
+        if status.code != common_pb2.STATUS_SUCCESS:
+            raise RuntimeError(f"execute_joint_trajectory failed: {status.message}")
         status = client.robot_data.episode_end()
     except BaseException:
         client.robot_data.episode_cancel()
@@ -207,12 +208,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=50051)
     parser.add_argument("--scene", type=Path, required=True, help="Panda scene.xml for kinematics")
     parser.add_argument("--repo-name", required=True)
-    parser.add_argument("--task-text", default="pick the red box and place it into the container")
+    parser.add_argument("--task-text", default="pick the cup and place it into the container")
     parser.add_argument("--episodes", type=int, default=1)
-    parser.add_argument("--control-fps", type=int, default=20)
-    parser.add_argument("--record-fps", type=int, default=5)
+    parser.add_argument("--control-fps", type=int, default=50)
+    parser.add_argument("--record-fps", type=int, default=30)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--randomize-box", action="store_true")
+    parser.add_argument("--randomize-object", action="store_true")
     parser.add_argument(
         "--exclude-sensors",
         nargs="*",
@@ -234,7 +235,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 task_text=args.task_text,
                 control_fps=args.control_fps,
                 record_fps=args.record_fps,
-                randomize_box=args.randomize_box,
+                randomize_object=args.randomize_object,
                 exclude_sensors=list(args.exclude_sensors),
             )
             durations.append(duration)
