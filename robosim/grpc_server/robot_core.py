@@ -117,6 +117,34 @@ class RobotCoreServicer(core_pb2_grpc.RobotCoreServiceServicer):
             context.set_details(f"Internal servo error: {str(e)}")
             return
 
+    def ExecuteJointTrajectory(
+        self, request: core_pb2.JointTrajectory, context: grpc.ServicerContext
+    ) -> common_pb2.Status:
+        _logger.info(
+            "ExecuteJointTrajectory called: %s joints, %s points",
+            len(request.joint_names),
+            len(request.points),
+        )
+        execute = getattr(self._backend, "execute_joint_trajectory", None)
+        if not callable(execute):
+            _logger.warning("ExecuteJointTrajectory not implemented")
+            context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+            return common_pb2.Status(
+                code=common_pb2.STATUS_FAILURE, message="Not supported"
+            )
+        try:
+            execute(
+                list(request.joint_names),
+                [(point.time_from_start, list(point.positions)) for point in request.points],
+                request.group.jmg_name if request.HasField("group") else None,
+            )
+            _logger.info("ExecuteJointTrajectory succeeded")
+            return common_pb2.Status(code=common_pb2.STATUS_SUCCESS)
+        except Exception as e:
+            _logger.error("ExecuteJointTrajectory failed: %s", e, exc_info=True)
+            context.set_code(grpc.StatusCode.INTERNAL)
+            return common_pb2.Status(code=common_pb2.STATUS_FAILURE, message=str(e))
+
     def EmergencyStop(
         self, request: common_pb2.Empty, context: grpc.ServicerContext
     ) -> common_pb2.Status:
