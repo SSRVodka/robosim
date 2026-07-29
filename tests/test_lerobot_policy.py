@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -36,6 +37,7 @@ from robosim.core.backend import SimulatorBackend
 from robosim.core.capabilities import Capability
 from robosim.core.impl.lerobot_io import LerobotObservationAdapter
 from robosim.core.impl.policy_lerobot import LerobotPolicyRunner
+from robosim.core.recorder import CaptureSnapshot
 
 PANDA_ARM_JOINTS = [f"panda_joint{index}" for index in range(1, 8)]
 PANDA_CAMERA_NAME = "world_camera"
@@ -265,6 +267,40 @@ class PolicySpyBackend(SimulatorBackend):
         return None
 
 
+class SimCapturePolicyBackend(PolicySpyBackend):
+    """Spy backend exposing the sim-capture hooks used by the MuJoCo backend."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.capture_fps: float | None = None
+        self.samples_served = 0
+        self._capture_stop = threading.Event()
+
+    def start_sim_capture(self, fps: float) -> None:
+        self.capture_fps = fps
+        self._capture_stop.clear()
+
+    def next_sim_capture(
+        self,
+        end_effector_groups: list[str],
+        sensor_names: list[str],
+    ) -> CaptureSnapshot | None:
+        del end_effector_groups
+        if self._capture_stop.is_set():
+            return None
+        time.sleep(0.01)
+        self.samples_served += 1
+        return CaptureSnapshot(
+            robot_state=self.get_robot_state(),
+            joint_command_state=self.get_joint_command_state(),
+            end_effector_states={},
+            sensor_data=self.get_sensors(list(sensor_names)),
+        )
+
+    def stop_sim_capture(self) -> None:
+        self._capture_stop.set()
+
+
 def test_lerobot_observation_adapter_builds_minimal_observation(tmp_path: Path) -> None:
     dataset_root = _create_dataset(tmp_path, "policy_dataset")
     checkpoint_root = _create_policy_checkpoint(tmp_path / "checkpoint")
@@ -327,6 +363,35 @@ def test_lerobot_policy_runner_defaults_control_fps_to_dataset_fps(
 
     assert load_status.code == 1
     assert runner.get_status().control_fps == 12
+
+
+def test_lerobot_policy_runner_prefers_sim_capture_loop(tmp_path: Path) -> None:
+    _create_dataset(tmp_path, "policy_dataset")
+    checkpoint_root = _create_policy_checkpoint(tmp_path / "checkpoint")
+    backend = SimCapturePolicyBackend()
+    runner = LerobotPolicyRunner(tmp_path, backend, activity_coordinator=ActivityCoordinator())
+
+    load_status = runner.load_policy(
+        PolicyLoadRequest(
+            policy_path=str(checkpoint_root),
+            dataset_repo_name="policy_dataset",
+            control_fps=20,
+        )
+    )
+    assert load_status.code == 1
+
+    start_status = runner.start_policy(PolicyStartRequest())
+    assert start_status.code == 1
+    assert _wait_until(lambda: len(backend.calls) >= 3)
+    stop_status = runner.stop_policy()
+
+    assert stop_status.code == 1
+    assert runner.get_status().status.message == ""
+    assert runner.get_status().running is False
+    # Observations were paced by the capture stream, not the wall clock.
+    assert backend.capture_fps == 20.0
+    assert backend.samples_served >= len(backend.calls) >= 3
+    assert backend.calls[0][0] == ["joint_a", "joint_b"]
 
 
 @pytest.mark.parametrize(
@@ -441,15 +506,8 @@ def test_lerobot_act_policy_runs_multistep_headless_on_franka_backend(
         camera_name=PANDA_CAMERA_NAME,
     )
     backend = backend_factory()
-    observations: list[list[float]] = []
     commands: list[tuple[list[str], list[float], int, str | None]] = []
-    original_get_robot_state = backend.get_robot_state
     original_set_joint_target = backend.set_joint_target
-
-    def get_robot_state_spy() -> JointState:
-        state = original_get_robot_state()
-        observations.append(list(state.position))
-        return state
 
     def set_joint_target_spy(
         names: list[str],
@@ -460,7 +518,6 @@ def test_lerobot_act_policy_runs_multistep_headless_on_franka_backend(
         commands.append((list(names), list(data), int(mode), group))
         original_set_joint_target(names, data, mode, group)
 
-    backend.get_robot_state = get_robot_state_spy  # type: ignore[method-assign]
     backend.set_joint_target = set_joint_target_spy  # type: ignore[method-assign]
     runner = LerobotPolicyRunner(
         tmp_path,
@@ -491,7 +548,6 @@ def test_lerobot_act_policy_runs_multistep_headless_on_franka_backend(
 
         assert stop_status.code == 1
         assert runner.get_status().status.message == ""
-        assert len(observations) >= min_steps
         assert len(commands) >= min_steps
         for names, data, mode, group in commands[:min_steps]:
             assert names == PANDA_ARM_JOINTS
