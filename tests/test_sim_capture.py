@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import itertools
+import threading
 import time
 from collections.abc import Generator
 from pathlib import Path
@@ -75,3 +76,38 @@ def test_capture_stop_unblocks_consumer(backend: MuJoCoBackend) -> None:
     resume_time = backend.get_robot_state().header.timestamp
     time.sleep(0.2)
     assert backend.get_robot_state().header.timestamp > resume_time
+
+
+def test_render_survives_sequential_consumer_threads(backend: MuJoCoBackend) -> None:
+    """Regression: renders must not bind GL contexts to short-lived threads.
+
+    The recorder spawns a fresh consumer thread per episode and glibc reuses
+    thread idents, which previously resurrected a dead thread's GL context and
+    corrupted the heap after enough episodes.
+    """
+    errors: list[Exception] = []
+
+    def episode() -> None:
+        try:
+            backend.start_sim_capture(CAPTURE_FPS)
+            for _ in range(2):
+                snapshot = backend.next_sim_capture([], ["world_camera"])
+                assert snapshot is not None
+                image = snapshot.sensor_data.images[0]
+                assert image.name == "world_camera"
+                assert len(image.data) == image.width * image.height * 3
+        except Exception as error:  # pragma: no cover - surfaced via errors list
+            errors.append(error)
+        finally:
+            backend.stop_sim_capture()
+
+    for _ in range(3):
+        worker = threading.Thread(target=episode)
+        worker.start()
+        worker.join(timeout=30.0)
+        assert not worker.is_alive()
+    assert not errors
+
+    # The gRPC sensor path renders through the same owning thread.
+    sensor_data = backend.get_sensors(["world_camera"])
+    assert sensor_data.images[0].name == "world_camera"

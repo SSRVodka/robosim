@@ -45,6 +45,7 @@ EE_JOINT_VELOCITY_LIMIT = 0.5
 FREE_BASE_JOINT_VELOCITY_LIMIT = 1.0
 SIM_CAPTURE_BUFFER_COUNT = 4
 SIM_CAPTURE_WAIT_SEC = 0.05
+RENDER_WAIT_SEC = 0.05
 
 
 @dataclass(slots=True)
@@ -75,6 +76,25 @@ class _SimCapture:
         tuple[mujoco.MjData, dict[str, tuple[core_pb2.JointCommand.ControlMode, float]]]
     ]
     stop_event: threading.Event
+
+
+@dataclass(slots=True)
+class _RenderRequest:
+    """One offscreen render dispatched to the backend's render thread.
+
+    MuJoCo renderers own a GL context that is bound to the thread that created
+    it, so every renderer must be created, used, and freed on one thread. The
+    requesting thread fills in the inputs, waits on ``done``, then reads
+    ``pixels`` or ``error``.
+    """
+
+    data: mujoco.MjData
+    camera_name: str
+    width: int
+    height: int
+    done: threading.Event
+    pixels: np.ndarray | None = None
+    error: Exception | None = None
 
 
 @dataclass(slots=True)
@@ -159,8 +179,13 @@ class MuJoCoBackend(SimulatorBackend):
         self._capabilities = self._detect_capabilities()
 
         self._viewer: mujoco.viewer.Handle | None = None
-        self._renderers: dict[tuple[int, int, int], mujoco.Renderer] = {}
-        self._capture_renderers: dict[tuple[int, int, int], mujoco.Renderer] = {}
+        self._render_queue: queue.Queue[_RenderRequest | None] = queue.Queue()
+        self._render_thread = threading.Thread(
+            target=self._render_loop,
+            name="mujoco_backend_render",
+            daemon=True,
+        )
+        self._render_thread.start()
         self._sim_capture: _SimCapture | None = None
         self._trajectory: _TrajectoryExecution | None = None
         if not self._headless_mode:
@@ -811,13 +836,12 @@ class MuJoCoBackend(SimulatorBackend):
 
     def get_sensors(self, names: list[str]) -> sensing_pb2.SensorData:
         with self._state_lock:
-            return self._read_sensor_data(self._data, names, self._renderers)
+            return self._read_sensor_data(self._data, names)
 
     def _read_sensor_data(
         self,
         data: mujoco.MjData,
         names: list[str],
-        renderers: dict[tuple[int, int, int], mujoco.Renderer],
     ) -> sensing_pb2.SensorData:
         requested = set(names) if names else set(self._sensors)
         images: list[sensing_pb2.CameraImage] = []
@@ -835,7 +859,7 @@ class MuJoCoBackend(SimulatorBackend):
                 )
                 continue
             if sensor.source == "camera":
-                images.append(self._render_camera(data, sensor, renderers))
+                images.append(self._render_camera(data, sensor))
                 continue
             if sensor.source == "sensor" and sensor.source_id is not None:
                 sensor_slice = self._sensor_values(data, sensor.source_id)
@@ -918,7 +942,7 @@ class MuJoCoBackend(SimulatorBackend):
                 for group_name in end_effector_groups
             },
             sensor_data=(
-                self._read_sensor_data(data, sensor_names, self._capture_renderers)
+                self._read_sensor_data(data, sensor_names)
                 if sensor_names
                 else sensing_pb2.SensorData()
             ),
@@ -1022,16 +1046,13 @@ class MuJoCoBackend(SimulatorBackend):
         self.stop_sim_capture()
         if self._step_thread.is_alive():
             self._step_thread.join(timeout=2.0)
+        self._render_queue.put(None)
+        if self._render_thread.is_alive():
+            self._render_thread.join(timeout=2.0)
         with self._state_lock:
             if self._viewer is not None:
                 self._viewer.close()
                 self._viewer = None
-            for renderer in self._renderers.values():
-                renderer.close()
-            self._renderers.clear()
-            for renderer in self._capture_renderers.values():
-                renderer.close()
-            self._capture_renderers.clear()
 
     def get_robot_pose_in_map(self) -> common_pb2.PoseStamped:
         raise NotImplementedError("Navigation not supported for MuJoCo")
@@ -1320,17 +1341,23 @@ class MuJoCoBackend(SimulatorBackend):
         self,
         data: mujoco.MjData,
         sensor: SensorInfo,
-        renderers: dict[tuple[int, int, int], mujoco.Renderer],
     ) -> sensing_pb2.CameraImage:
         assert sensor.source_id is not None
         width, height = self._camera_resolution(sensor.source_id)
-        renderer_key = (threading.get_ident(), width, height)
-        renderer = renderers.get(renderer_key)
-        if renderer is None:
-            renderer = mujoco.Renderer(self._model, height=height, width=width)
-            renderers[renderer_key] = renderer
-        renderer.update_scene(data, camera=sensor.name)
-        pixels = renderer.render()
+        request = _RenderRequest(
+            data=data,
+            camera_name=sensor.name,
+            width=width,
+            height=height,
+            done=threading.Event(),
+        )
+        self._render_queue.put(request)
+        while not request.done.wait(RENDER_WAIT_SEC):
+            if self._stop_event.is_set():
+                raise RuntimeError("backend is shutting down")
+        if request.error is not None:
+            raise request.error
+        assert request.pixels is not None
         return sensing_pb2.CameraImage(
             header=self._build_header(data, frame_id=sensor.name),
             name=sensor.name,
@@ -1339,8 +1366,39 @@ class MuJoCoBackend(SimulatorBackend):
             encoding="rgb8",
             is_bigendian=False,
             step=width * 3,
-            data=pixels.tobytes(),
+            data=request.pixels.tobytes(),
         )
+
+    def _render_loop(self) -> None:
+        """Serve every offscreen render on this single long-lived thread.
+
+        Renderers are keyed by resolution only and are created, reused, and
+        freed here, satisfying GL context thread affinity no matter which
+        thread (gRPC handler, capture consumer) requests the render.
+        """
+        renderers: dict[tuple[int, int], mujoco.Renderer] = {}
+        try:
+            while True:
+                request = self._render_queue.get()
+                if request is None:
+                    return
+                try:
+                    key = (request.width, request.height)
+                    renderer = renderers.get(key)
+                    if renderer is None:
+                        renderer = mujoco.Renderer(
+                            self._model, height=request.height, width=request.width
+                        )
+                        renderers[key] = renderer
+                    renderer.update_scene(request.data, camera=request.camera_name)
+                    request.pixels = renderer.render()
+                except Exception as error:
+                    request.error = error
+                finally:
+                    request.done.set()
+        finally:
+            for renderer in renderers.values():
+                renderer.close()
 
     def _camera_resolution(self, camera_id: int) -> tuple[int, int]:
         raw_width = int(self._model.cam_resolution[camera_id][0])
