@@ -1,5 +1,28 @@
 # RoboSim 框架设计
 
+## MuJoCo v9 OpenUSD package realization（2026-08-03，进行中）
+
+MuJoCo 的输入收敛为 `scene-export/v9-vsim-articulated-resources` package 中的
+`scene.usda`；同级 `manifest.json`、`checksums.sha256` 与被引用 `asset.usda` 是
+唯一资源来源。`compile_csd_to_mujoco()` 不再接收 asset registry 或 asset root。
+reader 验证 package 边界、声明 checksum、米制/Z-up 与单位 instance scale，并以
+composed prim path 作为 instance identity、composed `assetserver:asset:id` 作为
+asset identity。它只向 MuJoCo writer 提供精简的 package/asset/rigid/articulation
+typed views，不把资源细节塞入通用 CSD。
+
+每个唯一 `(asset_id, resource_digest)` 写入一次 `models/<asset-key>/asset.xml` 和
+其相对 `support/` dependency closure；scene 使用 `<frame><attach>` 实例化这些
+submodel。rigid/static 与 articulated tree 分别保留其 USD inertial、collision 和
+joint frame 语义。输出 package 在写 manifest 前依次验证 asset load、scene load、
+有限步进/finite 状态与 preview；不可表达的 topology、identity、inertia、path、
+checksum、scale 或 nonzero initial joint state 返回 typed blocker。
+
+本轮 visual/articulation 修复以 composed `Usd.Stage` 为唯一 USD 读取路径：visual
+prim 的 material binding、texture dependency closure 与标准 light/camera 必须保留到
+package-local MJCF。articulated child body 的 zero pose 固定为
+`localFrame0 × inverse(localFrame1)`，joint `pos` 为 `localPos1`、axis 为
+`localRot1` 旋转后的 USD axis；不得把 joint frame 直接当 body pose。
+
 ## 目标
 为多种模拟器后端（Gazebo/MuJoCo/PyBullet/Habitat-Sim）提供统一的控制和状态读取抽象，通过 gRPC 接口向上层暴露。
 

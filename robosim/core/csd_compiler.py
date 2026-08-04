@@ -30,6 +30,7 @@ from robosim.core.csd import (
     backend_resource_adapters_by_asset,
     make_csd_realization_cache_key,
 )
+from robosim.core.mujoco_openusd_package import PackageError, compile_openusd_scene_package
 from robosim.core.openusd_csd import (
     compiler_csd_from_openusd,
     read_openusd_csd,
@@ -38,7 +39,7 @@ from robosim.core.openusd_csd import (
 MUJOCO_BACKEND = "mujoco"
 GAZEBO_BACKEND = "gazebo"
 PYBULLET_BACKEND = "pybullet"
-DEFAULT_REALIZATION_VERSION = "csd-compiler-0.4"
+DEFAULT_REALIZATION_VERSION = "csd-compiler-0.6"
 MUJOCO_MESH_EXTENSIONS = frozenset({".obj", ".stl", ".msh"})
 PYBULLET_MESH_EXTENSIONS = frozenset({".obj"})
 MUJOCO_PREVIEW_SIZE_PX = 512
@@ -61,20 +62,29 @@ class CsdCompilationResult:
 def compile_csd_to_mujoco(
     *,
     csd_path: Path,
-    asset_registry: Mapping[str, Any],
     output_root: Path,
-    asset_root: Path,
     realization_config: Mapping[str, Any] | None = None,
     realization_version: str = DEFAULT_REALIZATION_VERSION,
     simulator_version: str | None = None,
 ) -> CsdCompilationResult:
-    """Compile a fixed CSD into a minimal MuJoCo MJCF scene.
-
-    This first compiler supports rigid mesh objects with explicit CSD poses. It
-    uses MJCF `compiler meshdir`, `asset/mesh file`, and mesh geoms as described
-    in the MuJoCo XML Reference. Backend load/render validation remains a later
-    runtime step.
-    """
+    """Compile a self-contained v9 OpenUSD scene package into MJCF."""
+    try:
+        return CsdCompilationResult(
+            manifest=compile_openusd_scene_package(
+                csd_path=csd_path,
+                output_root=output_root,
+                realization_config=realization_config,
+                realization_version=realization_version,
+                simulator_version=simulator_version or _mujoco_simulator_version(),
+            )
+        )
+    except (ImportError, PackageError, OSError, ValueError) as error:
+        return CsdCompilationResult(
+            manifest=None,
+            blockers=(_csd_blocker(Path(csd_path).parent.name, "openusd_package", str(error)),),
+        )
+    asset_registry: Mapping[str, Any] = {}
+    asset_root = Path()
     try:
         openusd_csd = read_openusd_csd(csd_path, backend=MUJOCO_BACKEND)
         typed_csd = compiler_csd_from_openusd(openusd_csd)
@@ -383,9 +393,9 @@ def compile_csd(
     *,
     backend: str,
     csd_path: Path,
-    asset_registry: Mapping[str, Any],
     output_root: Path,
-    asset_root: Path,
+    asset_registry: Mapping[str, Any] | None = None,
+    asset_root: Path | None = None,
     realization_config: Mapping[str, Any] | None = None,
     realization_version: str = DEFAULT_REALIZATION_VERSION,
     simulator_version: str | None = None,
@@ -395,14 +405,14 @@ def compile_csd(
     if backend_key == MUJOCO_BACKEND:
         return compile_csd_to_mujoco(
             csd_path=csd_path,
-            asset_registry=asset_registry,
             output_root=output_root,
-            asset_root=asset_root,
             realization_config=realization_config,
             realization_version=realization_version,
             simulator_version=simulator_version,
         )
     if backend_key == PYBULLET_BACKEND:
+        if asset_registry is None or asset_root is None:
+            raise ValueError("pybullet compilation requires asset_registry and asset_root")
         return compile_csd_to_pybullet(
             csd_path=csd_path,
             asset_registry=asset_registry,
@@ -413,6 +423,8 @@ def compile_csd(
             simulator_version=simulator_version,
         )
     if backend_key == GAZEBO_BACKEND:
+        if asset_registry is None or asset_root is None:
+            raise ValueError("gazebo compilation requires asset_registry and asset_root")
         return compile_csd_to_gazebo(
             csd_path=csd_path,
             asset_registry=asset_registry,

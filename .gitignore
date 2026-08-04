@@ -226,3 +226,7 @@ refs
 .codex
 *.TXT
 *.session
+
+example/
+.vscode/
+uv.lock
