@@ -18,6 +18,9 @@ service SimulationService {
 
   // Manipulate objects in the sim (cheat)
   rpc SetObjectPose (ObjectState) returns (robot_sim.common.Status);
+
+  // Read back an object pose (for task evaluators)
+  rpc GetObjectPose (ObjectPoseRequest) returns (ObjectPoseReply);
 }
 
 message ResetRequest {
@@ -35,5 +38,14 @@ message StepResponse {
 
 message ObjectState {
   string object_name = 1;
+  robot_sim.common.Pose pose = 2;
+}
+
+message ObjectPoseRequest {
+  string object_name = 1;
+}
+
+message ObjectPoseReply {
+  robot_sim.common.Status status = 1;
   robot_sim.common.Pose pose = 2;
 }

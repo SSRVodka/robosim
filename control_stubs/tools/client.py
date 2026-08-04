@@ -72,6 +72,10 @@ class SimulationStub:
         req = simulation_pb2.ObjectState(object_name=object_name, pose=pose)
         return self._stub.SetObjectPose(req)
 
+    def get_object_pose(self, object_name: str) -> simulation_pb2.ObjectPoseReply:
+        req = simulation_pb2.ObjectPoseRequest(object_name=object_name)
+        return self._stub.GetObjectPose(req)
+
 
 class SensingStub:
     """SensingService client stub."""

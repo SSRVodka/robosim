@@ -1019,6 +1019,25 @@ class MuJoCoBackend(SimulatorBackend):
             mujoco.mj_forward(self._model, self._data)
             self._sync_viewer_locked()
 
+    def get_object_pose(self, object_name: str) -> common_pb2.Pose:
+        with self._state_lock:
+            body_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_BODY, object_name)
+            if body_id < 0:
+                raise ValueError(f"Unknown MuJoCo body '{object_name}'")
+            position = self._data.xpos[body_id]
+            quat_wxyz = self._data.xquat[body_id]
+            return common_pb2.Pose(
+                position=common_pb2.Point(
+                    x=float(position[0]), y=float(position[1]), z=float(position[2])
+                ),
+                orientation=common_pb2.Quaternion(
+                    x=float(quat_wxyz[1]),
+                    y=float(quat_wxyz[2]),
+                    z=float(quat_wxyz[3]),
+                    w=float(quat_wxyz[0]),
+                ),
+            )
+
     def reset_world(self, seed: int, randomization_params: dict[str, float]) -> None:
         del seed, randomization_params
         with self._state_lock:
