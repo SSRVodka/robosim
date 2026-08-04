@@ -228,5 +228,6 @@ refs
 *.session
 
 example/
+outputs/
 .vscode/
 uv.lock
