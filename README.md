@@ -42,9 +42,11 @@ equivalent JSON CSD.
 For a v9 MuJoCo resource package, the equivalent command-line entry point is:
 
 ```bash
+# take mujoco for example
 MUJOCO_GL=egl python -m robosim.compile \
-  --csd example/art_6b18395c757141bb9fa08cbcb7e6bc87/scene.usda \
-  --output-root /tmp/robosim-engine-manifests
+  --csd csd/example/scene.usda \
+  --backend mujoco \
+  --output-root csd/example/engine_manifests
 ```
 
 It prints the realization manifest as JSON, writes `scene.xml`, `models/` and
@@ -54,7 +56,7 @@ after printing typed blockers when compilation is rejected.
 Inspect a generated backend entry without starting the RoboSim gRPC server:
 
 ```bash
-python -m robosim.view --backend mujoco --entry /tmp/robosim-engine-manifests/mujoco/<scene_id>/scene.xml
+python -m robosim.view --backend mujoco --entry /path/to/scene.xml
 python -m robosim.view --backend pybullet --entry /path/to/scene.py
 python -m robosim.view --backend gazebo --entry /path/to/world.sdf
 ```

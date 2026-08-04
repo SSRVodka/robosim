@@ -30,6 +30,9 @@ from robosim.core.csd import (
     backend_resource_adapters_by_asset,
     make_csd_realization_cache_key,
 )
+from robosim.core.gazebo_openusd_package import (
+    compile_openusd_scene_package as compile_openusd_gazebo_scene_package,
+)
 from robosim.core.mujoco_openusd_package import PackageError, compile_openusd_scene_package
 from robosim.core.openusd_csd import (
     compiler_csd_from_openusd,
@@ -456,6 +459,29 @@ def compile_csd(
             simulator_version=simulator_version,
         )
     if backend_key == GAZEBO_BACKEND:
+        if _is_v9_resource_package(csd_path):
+            try:
+                return CsdCompilationResult(
+                    manifest=compile_openusd_gazebo_scene_package(
+                        csd_path=csd_path,
+                        output_root=output_root,
+                        realization_config=realization_config,
+                        realization_version=realization_version,
+                        simulator_version=simulator_version or _gazebo_simulator_version(),
+                    )
+                )
+            except (ImportError, PackageError, OSError, ValueError) as error:
+                return CsdCompilationResult(
+                    manifest=None,
+                    blockers=(
+                        _backend_csd_blocker(
+                            Path(csd_path).parent.name,
+                            "openusd_package",
+                            GAZEBO_BACKEND,
+                            str(error),
+                        ),
+                    ),
+                )
         if asset_registry is None or asset_root is None:
             raise ValueError("gazebo compilation requires asset_registry and asset_root")
         return compile_csd_to_gazebo(

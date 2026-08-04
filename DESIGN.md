@@ -423,6 +423,28 @@ world 中不存在 source-tree、download cache 或绝对资源引用。每次�
 转成 blocker。证据写入 `diagnostics/sdf_check.json`、`headless_load.json` 与
 `validation_record.json`。
 
+实现记录（2026-08-04）：Gazebo 也接入 v9
+`scene-export/v9-vsim-articulated-resources` package 路径。它直接消费
+`scene.usda` 及包内 dependency closure，不再要求 asset registry；输出固定为
+`engine_manifests/gazebo/<scene_id>/world.sdf`，并将每个唯一 asset 的 OBJ support
+closure 复制至本地 `assets/`。SDF 1.7 model/link/joint 映射保留资产惯性、碰撞 part
+顺序、ODE friction、场景 pose、camera 和 directional light；Franka URDF 与 mesh
+closure 被复制并映射为本地 SDF model。实现依据
+https://sdformat.org/spec/1.7/；生成后检查 XML version 和每一个 mesh URI 都在
+realization root 内，证据写入 `diagnostics/sdf_check.json`。
+每个 OBJ object/material group 拆为独立 SDF visual，并使用对应的
+UsdPreviewSurface RGBA；纹理和 MTL 也随 asset support closure 写入本地。articulated
+link 的 pose 由 USD joint 的 `localPos0/localRot0` 与 `localPos1/localRot1` 无损推导，
+joint pose 显式相对 parent link，实例 initial joint target 同时写入 SDF world state
+和 `runtime/initial_joint_positions.json`。v9 procedural shell 依约作为 static model
+展开为 Floor/Walls links，不生成 inertial 或 free joint。
+
+当前 Gazebo v9 compile **仍不可靠，不能作为可运行 runtime 的验收结论**：该路径仅有
+SDF/XML 与 package-local URI 级别的验证，尚未在 Gazebo Classic 11 中完成稳定的
+`gz sdf -k`、headless world load、articulation dynamics、camera rendering 和材质纹理
+回归。调用方应把它视为实验性 artifact generator；任何 Gazebo runtime failure 都必须
+作为 realization blocker 处理，不能静默降级。
+
 ## 架构设计
 
 ```
