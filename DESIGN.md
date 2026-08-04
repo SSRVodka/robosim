@@ -2,10 +2,31 @@
 
 ## MuJoCo v9 OpenUSD package realization（2026-08-03，进行中）
 
+v9 scene 可选地在 `/World/Robot` 声明一个固定基座机器人，而不引用 USD
+robot asset。该 prim 使用 `robosim:robot:id` 和
+`robosim:robot:instanceId` 描述 compiler-owned robot template 与稳定实例名，位姿
+使用标准 `xformOp:translate`/`xformOp:orient`。MuJoCo compiler 依 `robot:id`
+选择受支持模板，复制 XML、SRDF 和 mesh dependency closure 到 realization
+package 的 `robots/<robot_id>/`，再 patch 复制后的根 body 位姿并从顶层 MJCF
+include。机器人模板 closure hash 必须进入 cache key；产物不得在运行时依赖
+`drivers_sim`。这一分支保留模板的 actuator 与 SRDF control metadata，不能用通用
+articulated asset writer 替代。
+
+v9 scene 的 `/World/Cameras` 与 `/World/Lights` 分别接受直接的标准
+`UsdGeomCamera` 与 `UsdLuxDistantLight` prim。它们的名称和 Xform 位姿必须保留到
+MJCF camera/light；camera 的 focalLength/verticalAperture 转换为 MuJoCo `fovy`，
+distant light 的 orientation 转换为其照射方向。没有 author camera 时 compiler
+才生成 `world_camera` 作为 diagnostics preview fallback。
+
+实现记录（2026-08-04）：v9 compiler `csd-compiler-0.9` 增加上述 robot、camera
+与 distant-light realization；复制的 robot template 中的 scene light 会移除，避免
+引入未在 CSD 声明的 light 或 camera。
+
 MuJoCo 的输入收敛为 `scene-export/v9-vsim-articulated-resources` package 中的
 `scene.usda`；同级 `manifest.json`、`checksums.sha256` 与被引用 `asset.usda` 是
 唯一资源来源。`compile_csd_to_mujoco()` 不再接收 asset registry 或 asset root。
-reader 验证 package 边界、声明 checksum、米制/Z-up 与单位 instance scale，并以
+reader 通过 `Usd.Stage.Open(..., LoadAll)` 读取 composed stage，验证 package
+边界、声明 checksum、米制/Z-up 与单位 instance scale，并以
 composed prim path 作为 instance identity、composed `assetserver:asset:id` 作为
 asset identity。它只向 MuJoCo writer 提供精简的 package/asset/rigid/articulation
 typed views，不把资源细节塞入通用 CSD。
@@ -15,7 +36,11 @@ typed views，不把资源细节塞入通用 CSD。
 submodel。rigid/static 与 articulated tree 分别保留其 USD inertial、collision 和
 joint frame 语义。输出 package 在写 manifest 前依次验证 asset load、scene load、
 有限步进/finite 状态与 preview；不可表达的 topology、identity、inertia、path、
-checksum、scale 或 nonzero initial joint state 返回 typed blocker。
+checksum、scale 或 transform 返回 typed blocker。articulated instance 的 qpos 只由
+composed `PhysicsDriveAPI:*:physics:targetPosition` 决定（revolute 转弧度，
+prismatic 保持米；缺失为零）；`assetserver.initialJoint` 不覆盖它。映射写入
+package-local `runtime/initial_joint_positions.json`，backend、诊断与 preview 都在
+首次 forward 前应用它。
 
 本轮 visual/articulation 修复以 composed `Usd.Stage` 为唯一 USD 读取路径：visual
 prim 的 material binding、texture dependency closure 与标准 light/camera 必须保留到

@@ -1,13 +1,26 @@
+import hashlib
+import shutil
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
 
+from robosim.backends.mujoco import MuJoCoBackend
 from robosim.core.mujoco_openusd_package import (
     OpenUsdArticulationJoint,
     _parent_to_child,
     _read_shell_materials,
     _split_visual_obj,
+    compile_openusd_scene_package,
+    read_openusd_scene_package,
 )
+
+V9_PACKAGE = (
+    Path(__file__).resolve().parents[1]
+    / "example"
+    / "art_6b18395c757141bb9fa08cbcb7e6bc87"
+)
+V9D_SCENE = Path(__file__).resolve().parents[1] / "example" / "experiment-9d" / "scene.usda"
 
 
 def test_shell_materials_read_composed_color_textures(tmp_path: Path) -> None:
@@ -95,3 +108,146 @@ f 3 2 1
         "support/obj/visual_001.obj",
     ]
     assert all((tmp_path / item).is_file() for item in meshes)
+
+
+def test_v9_robot_descriptor_copies_and_patches_control_template(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    package = tmp_path / "package"
+    shutil.copytree(V9_PACKAGE, package)
+    scene = package / "scene.usda"
+    scene.write_text(
+        scene.read_text().replace(
+            'def Xform "World"\n{',
+            '''def Xform "World"
+{
+    def Xform "Robot"
+    {
+        custom string robosim:robot:id = "franka_panda"
+        custom string robosim:robot:instanceId = "robot"
+        quatd xformOp:orient = (1, 0, 0, 0)
+        double3 xformOp:translate = (1, 2, 3)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+    }
+    def Scope "Cameras"
+    {
+        def Camera "agent_view"
+        {
+            float focalLength = 24
+            float verticalAperture = 20.25
+            quatd xformOp:orient = (1, 0, 0, 0)
+            double3 xformOp:translate = (4, -4, 3)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+        }
+    }
+    def Scope "Lights"
+    {
+        def DistantLight "key_light"
+        {
+            float intensity = 1
+            quatd xformOp:orient = (1, 0, 0, 0)
+            double3 xformOp:translate = (0, 0, 3)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+        }
+    }''',
+        )
+    )
+    checksum = hashlib.sha256(scene.read_bytes()).hexdigest()
+    checksums = package / "checksums.sha256"
+    checksums.write_text(
+        "\n".join(
+            f"{checksum} scene.usda" if line.endswith(" scene.usda") else line
+            for line in checksums.read_text().splitlines()
+        )
+        + "\n"
+    )
+    parsed = read_openusd_scene_package(scene)
+    assert parsed.robot is not None
+    assert parsed.robot.robot_id == "franka_panda"
+    assert parsed.robot.pose[:3] == (1.0, 2.0, 3.0)
+    assert [camera.name for camera in parsed.cameras] == ["agent_view"]
+    assert [light.name for light in parsed.lights] == ["key_light"]
+
+    def preview(
+        scene_path: Path, diagnostics: Path, initial_positions: dict[str, float]
+    ) -> str:
+        assert isinstance(initial_positions, dict)
+        path = diagnostics / "preview.png"
+        path.write_bytes(b"preview")
+        return "diagnostics/preview.png"
+
+    monkeypatch.setattr("robosim.core.mujoco_openusd_package._write_preview", preview)
+    monkeypatch.chdir(tmp_path)
+    manifest = compile_openusd_scene_package(
+        csd_path=scene,
+        output_root=Path("engine_manifests"),
+        realization_config=None,
+        realization_version="test",
+        simulator_version="test",
+    )
+    robot_xml = Path(manifest.root_path) / "robots/franka_panda/panda.xml"
+    assert robot_xml.is_file()
+    root = ET.parse(robot_xml).getroot()
+    assert root.find("worldbody/body").attrib["pos"] == "1.0 2.0 3.0"
+    assert "robots/franka_panda/panda.srdf" in manifest.generated_files
+    backend = MuJoCoBackend.from_csd_realization_manifest(manifest, headless=True)
+    try:
+        groups = {group.name for group in backend.get_robot_spec().joint_model_groups}
+        sensors = {sensor.name for sensor in backend.list_sensors().entries}
+        assert backend.robot_name == "panda"
+        assert "panda_arm" in groups
+        assert "agent_view" in sensors
+        assert backend._model.camera("agent_view").name == "agent_view"
+        assert backend._model.light("key_light").name == "key_light"
+        assert backend._model.ncam == 1
+        assert backend._model.nlight == 1
+    finally:
+        backend.shutdown()
+
+
+def test_v9d_shell_realizes_separate_floor_and_walls(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def preview(_scene: Path, diagnostics: Path, _positions: dict[str, float]) -> str:
+        (diagnostics / "preview.png").write_bytes(b"preview")
+        return "diagnostics/preview.png"
+
+    monkeypatch.setattr(
+        "robosim.core.mujoco_openusd_package._write_preview",
+        preview,
+    )
+    manifest = compile_openusd_scene_package(
+        csd_path=V9D_SCENE,
+        output_root=tmp_path / "engine_manifests",
+        realization_config=None,
+        realization_version="test",
+        simulator_version="test",
+    )
+
+    root = Path(manifest.root_path)
+    shell = next(
+        path
+        for path in (root / "models").glob("*/asset.xml")
+        if {body.attrib["name"] for body in ET.parse(path).findall("worldbody/body/body")}
+        >= {"Floor", "Walls"}
+    )
+    assets = ET.parse(shell).find("asset")
+    assert assets is not None
+    assert {item.attrib["name"] for item in assets.findall("material")} >= {
+        "floor_material",
+        "walls_material",
+    }
+    wall_visuals = [
+        item for item in assets.findall("mesh") if "walls/visual_" in item.attrib["file"]
+    ]
+    assert len(wall_visuals) == 4
+    stool = next(
+        path
+        for path in (root / "models").glob("*/asset.xml")
+        if any(
+            item.attrib.get("file") == "Image_0.png"
+            for item in ET.parse(path).findall("asset/texture")
+        )
+    )
+    assert any("material" in item.attrib for item in ET.parse(stool).findall("worldbody/body/geom"))
+    assert manifest.preview_files == ("diagnostics/preview.png",)

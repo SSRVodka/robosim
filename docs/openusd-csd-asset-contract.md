@@ -75,6 +75,67 @@ contact material、link 和 joint 必须由 `asset.usda` 定义。首轮 MuJoCo 
 不接受 scene 对资产固有物理属性的覆盖；场景中的初始 joint target 属于实例状态，
 不改变资产定义。
 
+### 3.1 Robot descriptor
+
+一个 v9 scene 至多包含一个直接位于 `/World/Robot` 的固定基座 robot descriptor。
+它是场景声明，不是 `assets/` 中的 USD reference：MuJoCo compiler 根据
+`robosim:robot:id` 选择 compiler-owned control template，复制其 MJCF、SRDF 与
+mesh dependency closure，并把本 prim 的 pose patch 到复制后模板的 root body。
+
+```usda
+def Xform "Robot"
+{
+    custom string robosim:robot:id = "franka_panda"
+    custom string robosim:robot:instanceId = "robot"
+    quatd xformOp:orient = (1, 0, 0, 0)
+    double3 xformOp:translate = (0, 0, 0)
+    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+}
+```
+
+`robot:id` 是 target backend 支持的 template identity，不是普通 asset ID；当前
+MuJoCo target 支持 `franka_panda`。`robot:instanceId` 是稳定场景实例名。robot
+不得有非单位 scale。模板 closure hash 由 compiler 加入 realization cache key；输出
+不得在运行时依赖 template source。模板中的未声明 camera/light 不得泄漏到 scene。
+
+### 3.2 Cameras and lights
+
+scene 可以在 `/World/Cameras` 下直接声明 `Camera`，在 `/World/Lights` 下直接声明
+`DistantLight`。prim name 是 runtime sensor/light name；位姿使用标准 translate 与
+orientation（或 `rotateXYZ`）。
+
+```usda
+def Scope "Cameras"
+{
+    def Camera "agent_view"
+    {
+        float focalLength = 24
+        float verticalAperture = 20.25
+        quatd xformOp:orient = (0.82, 0.425, 0.176, 0.34)
+        double3 xformOp:translate = (1.4, -1.4, 1.4)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+    }
+}
+
+def Scope "Lights"
+{
+    def DistantLight "key_light"
+    {
+        float intensity = 1
+        quatd xformOp:orient = (1, 0, 0, 0)
+        double3 xformOp:translate = (0, 0, 3)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+    }
+}
+```
+
+MuJoCo realization 将 camera pose 转为 MJCF `pos`/`xyaxes`，并由
+`focalLength`/`verticalAperture` 计算 `fovy`。DistantLight 生成 directional MJCF
+light，orientation 决定照射方向，`intensity` 映射为 RGB diffuse intensity。没有
+authored camera 时，compiler 才生成仅用于 preview 的 `world_camera` fallback。
+已 authored camera 在 runtime 以同名 `CAMERA` sensor 出现在 `ListSensors`，并可由
+`GetSensors([name])` 返回 `rgb8` 图像；当前 CameraImage contract 不传回 intrinsics。
+
 ## 4. 公共资产字段
 
 每个资产 default prim 必须声明：

@@ -12,6 +12,12 @@ during an implementation checkpoint without user approval.
       package loads, steps, renders, and remains relocatable.
 - [ ] Preserve composed USD material/texture/light semantics and correct the
       articulated joint-frame kinematics before closing this checkpoint.
+- [x] Read the optional v9 `/World/Robot` descriptor and realize supported
+      compiler-owned robots as package-local MJCF/SRDF control templates.
+- [x] Preserve v9 authored camera and distant-light prims in MuJoCo output and
+      validate them with `example/experiment`.
+- [ ] Add composed-layer and drive-initial-state coverage, then delete the
+      unreachable registry compiler body.
 
 ## Checkpoint 1: OpenUSD handoff contract
 

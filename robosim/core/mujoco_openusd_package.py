@@ -10,7 +10,7 @@ import shutil
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, cast
 
 from robosim.core.csd import (
     CsdRealizationManifest,
@@ -23,6 +23,8 @@ _ASSET_ID = re.compile(r'assetserver:asset:id\s*=\s*"([^"]+)"')
 _MODE = re.compile(r'assetserver:simulationSupport:physicsMode\s*=\s*"([^"]+)"')
 _DIGEST = re.compile(r'assetserver:simulationSupport:resourceDigest\s*=\s*"sha256:([0-9a-f]{64})"')
 _OBJ = re.compile(r"@([^@]+\.obj)@")
+_ROBOT_ID = re.compile(r'robosim:robot:id\s*=\s*"([^"]+)"')
+_ROBOT_INSTANCE_ID = re.compile(r'robosim:robot:instanceId\s*=\s*"([^"]+)"')
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,7 +58,8 @@ class OpenUsdArticulationJoint:
 @dataclass(frozen=True, slots=True)
 class OpenUsdVisualMaterial:
     name: str
-    texture: Path
+    texture: Path | None
+    rgba: tuple[float, float, float, float]
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +71,9 @@ class OpenUsdAsset:
     bodies: tuple[OpenUsdRigidBody, ...]
     joints: tuple[OpenUsdArticulationJoint, ...]
     visual_materials: tuple[OpenUsdVisualMaterial, ...]
+    dynamic_friction: float
+    static_friction: float
+    restitution: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,6 +81,34 @@ class OpenUsdSceneInstance:
     prim_path: str
     asset: OpenUsdAsset
     pose: tuple[float, float, float, float, float, float, float]
+    joint_targets: tuple[tuple[str, float], ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class OpenUsdRobot:
+    """A fixed-base robot described by a v9 scene prim."""
+
+    robot_id: str
+    instance_id: str
+    pose: tuple[float, float, float, float, float, float, float]
+
+
+@dataclass(frozen=True, slots=True)
+class OpenUsdCamera:
+    """A scene-authored perspective camera."""
+
+    name: str
+    pose: tuple[float, float, float, float, float, float, float]
+    fovy: float
+
+
+@dataclass(frozen=True, slots=True)
+class OpenUsdDistantLight:
+    """A scene-authored directional light."""
+
+    name: str
+    pose: tuple[float, float, float, float, float, float, float]
+    intensity: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +117,9 @@ class OpenUsdScenePackage:
     scene_id: str
     scene: Path
     instances: tuple[OpenUsdSceneInstance, ...]
+    robot: OpenUsdRobot | None
+    cameras: tuple[OpenUsdCamera, ...]
+    lights: tuple[OpenUsdDistantLight, ...]
 
 
 class PackageError(ValueError):
@@ -90,7 +127,9 @@ class PackageError(ValueError):
 
 
 def read_openusd_scene_package(scene_path: Path) -> OpenUsdScenePackage:
-    """Read the deliberately small v9 resource view without a registry."""
+    """Read the v9 resource view from the composed OpenUSD stage."""
+    from pxr import Usd, UsdGeom
+
     scene = scene_path.resolve()
     root = scene.parent
     manifest = _json(root / "manifest.json")
@@ -99,32 +138,50 @@ def read_openusd_scene_package(scene_path: Path) -> OpenUsdScenePackage:
     if manifest.get("entrypoint") != scene.name:
         raise PackageError("manifest entrypoint does not name the supplied scene")
     _verify_checksums(root)
-    text = scene.read_text()
-    if not re.search(r"metersPerUnit\s*=\s*1(?:\D|$)", text) or 'upAxis = "Z"' not in text:
+    stage = Usd.Stage.Open(str(scene), Usd.Stage.LoadAll)
+    if stage is None:
+        raise PackageError(f"cannot compose scene USD: {scene}")
+    if stage.GetMetadata("metersPerUnit") != 1 or stage.GetMetadata("upAxis") != "Z":
         raise PackageError("scene must use metersPerUnit=1 and upAxis=Z")
     instances: list[OpenUsdSceneInstance] = []
     seen: dict[str, tuple[Path, str]] = {}
-    for category, name, source, block in _scene_references(text):
-        if not _unit_scale(block):
-            raise PackageError(f"{category}/{name} has non-unit instance scale")
-        asset_path = _inside(root, root / source)
-        asset = _read_asset(asset_path)
-        if category == "Rooms" and asset.mode != "static":
-            raise PackageError(f"room {name} is not static")
-        if category == "Objects" and asset.mode not in {"rigid", "articulated"}:
-            raise PackageError(f"object {name} has unsupported physics mode {asset.mode}")
-        previous = seen.get(asset.asset_id)
-        identity = (asset.source, asset.resource_digest)
-        if previous is not None and previous != identity:
-            raise PackageError(f"asset identity {asset.asset_id} resolves inconsistently")
-        seen[asset.asset_id] = identity
-        instances.append(OpenUsdSceneInstance(f"/World/{category}/{name}", asset, _pose(block)))
+    for category in ("Rooms", "Objects"):
+        category_prim = stage.GetPrimAtPath(f"/World/{category}")
+        for prim in category_prim.GetChildren():
+            if not prim.IsA(UsdGeom.Xform):
+                raise PackageError(f"{prim.GetPath()} is not an Xform instance")
+            pose = _stage_pose(prim)
+            asset_path = _asset_source(root, prim)
+            asset = _read_asset(asset_path)
+            name = prim.GetName()
+            if category == "Rooms" and asset.mode != "static":
+                raise PackageError(f"room {name} is not static")
+            if category == "Objects" and asset.mode not in {"rigid", "articulated"}:
+                raise PackageError(f"object {name} has unsupported physics mode {asset.mode}")
+            previous = seen.get(asset.asset_id)
+            identity = (asset.source, asset.resource_digest)
+            if previous is not None and previous != identity:
+                raise PackageError(f"asset identity {asset.asset_id} resolves inconsistently")
+            seen[asset.asset_id] = identity
+            instances.append(
+                OpenUsdSceneInstance(
+                    str(prim.GetPath()), asset, pose, _instance_joint_targets(prim, asset)
+                )
+            )
     if not instances:
         raise PackageError("scene has no direct room/object references")
     scene_id = str(manifest.get("scene_id", ""))
     if not scene_id:
         raise PackageError("manifest has no scene_id")
-    return OpenUsdScenePackage(root, scene_id, scene, tuple(instances))
+    return OpenUsdScenePackage(
+        root,
+        scene_id,
+        scene,
+        tuple(instances),
+        _read_stage_robot(stage),
+        _read_stage_cameras(stage),
+        _read_stage_lights(stage),
+    )
 
 
 def compile_openusd_scene_package(
@@ -139,15 +196,18 @@ def compile_openusd_scene_package(
     config = dict(realization_config or {})
     closure = _dependency_hash(package.root)
     resources = {asset.asset_id: asset.resource_digest for asset in _unique_assets(package)}
+    robot_template = _robot_template(package.robot) if package.robot is not None else None
+    if package.robot is not None and robot_template is not None:
+        resources[f"robot:{package.robot.robot_id}"] = _directory_hash(robot_template)
     cache = make_csd_realization_cache_key(
         csd_hash=closure,
         asset_variant_hashes=resources,
         backend="mujoco",
         realization_config=config,
-        realization_version=realization_version,
+        realization_version=f"{realization_version}-mujoco-openusd-0.4",
         simulator_version=simulator_version,
     )
-    root = Path(output_root) / "mujoco" / package.scene_id
+    root = (Path(output_root) / "mujoco" / package.scene_id).resolve()
     manifest_path = root / "manifest.json"
     if manifest_path.is_file():
         cached = CsdRealizationManifest.from_json_dict(_json(manifest_path))
@@ -175,14 +235,26 @@ def compile_openusd_scene_package(
             json.dumps({"asset_id": asset.asset_id, "status": "passed"}, indent=2)
         )
         generated.extend((f"models/{key}/asset.xml", report))
-    _write_scene(root / "scene.xml", package, model_names, mappings)
-    _validate_scene(root / "scene.xml", diagnostics)
-    preview_file = _write_preview(root / "scene.xml", diagnostics)
+    robot_include, robot_files = _copy_robot(
+        root=root,
+        robot=package.robot,
+        template=robot_template,
+    )
+    generated.extend(robot_files)
+    _write_scene(root / "scene.xml", package, model_names, mappings, robot_include)
+    initial_state_file = "runtime/initial_joint_positions.json"
+    initial_positions = _initial_joint_positions(package)
+    runtime = root / initial_state_file
+    runtime.parent.mkdir(exist_ok=True)
+    runtime.write_text(json.dumps(initial_positions, indent=2, sort_keys=True))
+    _validate_scene(root / "scene.xml", diagnostics, initial_positions)
+    preview_file = _write_preview(root / "scene.xml", diagnostics, initial_positions)
     generated.extend(
         (
             "diagnostics/scene-load.json",
             "diagnostics/physics.json",
             "diagnostics/entity_mapping.json",
+            initial_state_file,
             preview_file,
         )
     )
@@ -195,6 +267,7 @@ def compile_openusd_scene_package(
         entry_file="scene.xml",
         generated_files=tuple(generated),
         preview_files=(preview_file,),
+        initial_state_file=initial_state_file,
     )
     (diagnostics / "entity_mapping.json").write_text(json.dumps(mappings, indent=2, sort_keys=True))
     (root / "manifest.json").write_text(
@@ -215,31 +288,144 @@ def _scene_references(text: str) -> list[tuple[str, str, str, str]]:
     return result
 
 
-def _read_asset(path: Path) -> OpenUsdAsset:
-    text = path.read_text()
-    asset_id = _one(_ASSET_ID, text, "asset id")
-    digest = _one(_DIGEST, text, "resourceDigest")
-    mode = _one(_MODE, text, "physics mode")
-    bodies: list[OpenUsdRigidBody] = []
-    links = _named_block(text, 'def Scope "Links"') if mode == "articulated" else text
-    body_names = re.findall(
-        r'(?:def|over) "([^"]+)"\s*\(\s*prepend apiSchemas = \["PhysicsRigidBodyAPI"', links
+def _read_robot(text: str) -> OpenUsdRobot | None:
+    scope = _named_block(text, 'def Xform "Robot"')
+    if not scope:
+        return None
+    robot_id = _one(_ROBOT_ID, scope, "robot id")
+    instance_id = _one(_ROBOT_INSTANCE_ID, scope, "robot instance id")
+    if not _unit_scale(scope):
+        raise PackageError("robot has non-unit instance scale")
+    return OpenUsdRobot(robot_id, instance_id, _pose(scope))
+
+
+def _read_cameras(text: str) -> tuple[OpenUsdCamera, ...]:
+    scope = _named_block(text, 'def Scope "Cameras"')
+    result: list[OpenUsdCamera] = []
+    for match in re.finditer(r'def Camera "([^"]+)"', scope):
+        block = _balanced(scope, match.start())
+        focal_length = _number(block, "focalLength", default=50.0)
+        aperture = _number(block, "verticalAperture", default=15.0)
+        result.append(
+            OpenUsdCamera(
+                match.group(1),
+                _pose(block),
+                math.degrees(2 * math.atan(aperture / (2 * focal_length))),
+            )
+        )
+    return tuple(result)
+
+
+def _read_lights(text: str) -> tuple[OpenUsdDistantLight, ...]:
+    scope = _named_block(text, 'def Scope "Lights"')
+    result: list[OpenUsdDistantLight] = []
+    for match in re.finditer(r'def DistantLight "([^"]+)"', scope):
+        block = _balanced(scope, match.start())
+        result.append(
+            OpenUsdDistantLight(
+                match.group(1),
+                _pose(block),
+                _number(block, "intensity", default=1.0),
+            )
+        )
+    return tuple(result)
+
+
+def _robot_template(robot: OpenUsdRobot) -> Path:
+    if robot.robot_id != "franka_panda":
+        raise PackageError(f"unsupported MuJoCo robot: {robot.robot_id}")
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "drivers_sim"
+        / "mujoco"
+        / "assets"
+        / "robots"
+        / "franka_panda"
     )
-    if not body_names and mode in {"rigid", "static"}:
-        body_names = ["asset_root"]
-    for name in body_names:
-        body = _balanced(links, links.find('"' + name + '"')) if name != "asset_root" else text
-        objs = tuple(Path(item) for item in _OBJ.findall(body))
-        visual = next((path for path in objs if path.name == "visual.obj"), None)
-        collision = tuple(path for path in objs if path.name != "visual.obj")
-        if visual is None or not collision:
+    if not (path / "panda.xml").is_file() or not (path / "panda.srdf").is_file():
+        raise PackageError(f"MuJoCo robot template is incomplete: {path}")
+    return path
+
+
+def _copy_robot(
+    *,
+    root: Path,
+    robot: OpenUsdRobot | None,
+    template: Path | None,
+) -> tuple[str | None, tuple[str, ...]]:
+    if robot is None or template is None:
+        return None, ()
+    destination = root / "robots" / robot.robot_id
+    shutil.copytree(template, destination, dirs_exist_ok=True)
+    entry = destination / "panda.xml"
+    xml = ET.parse(entry)
+    body = xml.getroot().find("worldbody/body")
+    if body is None:
+        raise PackageError(f"robot template has no root body: {entry}")
+    body.set("pos", _values(robot.pose[:3]))
+    body.set("quat", _values(robot.pose[3:]))
+    world = xml.getroot().find("worldbody")
+    if world is not None:
+        for light in world.findall("light"):
+            world.remove(light)
+    for parent in xml.getroot().iter():
+        for camera in parent.findall("camera"):
+            parent.remove(camera)
+    compiler = xml.getroot().find("compiler")
+    if compiler is not None:
+        compiler.set("meshdir", ".")
+    for mesh in xml.getroot().findall("asset/mesh"):
+        file = mesh.get("file")
+        if file is not None and "/" not in file:
+            mesh.set("file", f"assets/{file}")
+    ET.indent(xml)
+    xml.write(entry, encoding="unicode", xml_declaration=False)
+    files = tuple(str(path.relative_to(root)) for path in destination.rglob("*") if path.is_file())
+    return str(Path("robots") / robot.robot_id / "panda.xml"), files
+
+
+def _read_asset(path: Path) -> OpenUsdAsset:
+    from pxr import Usd
+
+    stage = Usd.Stage.Open(str(path), Usd.Stage.LoadAll)
+    if stage is None:
+        raise PackageError(f"cannot compose asset USD: {path}")
+    root = stage.GetDefaultPrim()
+    if not root:
+        raise PackageError(f"asset has no default prim: {path}")
+    if "shells" in path.parts and root.GetAttribute("assetserver:asset:id").Get() is None:
+        return _read_shell_asset(path)
+    asset_id = _attribute(root, "assetserver:asset:id", str)
+    digest = _attribute(root, "assetserver:simulationSupport:resourceDigest", str)
+    mode = _attribute(root, "assetserver:simulationSupport:physicsMode", str)
+    if not digest.startswith("sha256:") or not _SHA256.fullmatch(digest[7:]):
+        raise PackageError(f"{asset_id} has invalid resourceDigest")
+    bodies: list[OpenUsdRigidBody] = []
+    body_prims = (
+        tuple(
+            prim
+            for prim in stage.GetPrimAtPath("/Asset/Links").GetChildren()
+            if "PhysicsRigidBodyAPI" in prim.GetAppliedSchemas()
+        )
+        if mode == "articulated"
+        else (root,)
+    )
+    for body in body_prims:
+        name = body.GetName() if mode == "articulated" else "asset_root"
+        visual_path = _asset_path(body, "assetserver:simulationSupport:visualObj")
+        collision = _asset_paths(body, "assetserver:simulationSupport:collisionObjs")
+        if visual_path is None or not collision:
             raise PackageError(f"{asset_id}:{name} lacks visual or collision OBJ")
+        visual = Path(visual_path)
+        collision_paths = tuple(Path(item) for item in collision)
+        if visual.suffix != ".obj" or any(item.suffix != ".obj" for item in collision_paths):
+            raise PackageError(f"{asset_id}:{name} has unsupported mesh format")
         if mode == "static":
             bodies.append(
                 OpenUsdRigidBody(
                     name,
                     visual,
-                    collision,
+                    collision_paths,
                     0.0,
                     (0.0, 0.0, 0.0),
                     (1.0, 1.0, 1.0),
@@ -251,20 +437,124 @@ def _read_asset(path: Path) -> OpenUsdAsset:
                 OpenUsdRigidBody(
                     name,
                     visual,
-                    collision,
-                    _number(body, "physics:mass"),
-                    _triple(body, "physics:centerOfMass"),
-                    _triple(body, "physics:diagonalInertia"),
-                    _quat(body, "physics:principalAxes"),
+                    collision_paths,
+                    _attribute(body, "physics:mass", float),
+                    cast(
+                        tuple[float, float, float],
+                        _vector_attribute(body, "physics:centerOfMass", 3),
+                    ),
+                    cast(
+                        tuple[float, float, float],
+                        _vector_attribute(body, "physics:diagonalInertia", 3),
+                    ),
+                    cast(
+                        tuple[float, float, float, float],
+                        _vector_attribute(body, "physics:principalAxes", 4),
+                    ),
                 )
             )
-    joints = _read_joints(text) if mode == "articulated" else ()
+    joints = _read_stage_joints(stage) if mode == "articulated" else ()
     if mode == "articulated":
         _validate_tree(bodies, joints)
-    materials = _read_shell_materials(path) if mode == "static" else ()
+    materials = _read_visual_materials(path, tuple(body.visual_obj for body in bodies))
+    dynamic_friction, static_friction, restitution = _physics_material(stage, root)
     return OpenUsdAsset(
-        asset_id, digest, path.resolve(), mode, tuple(bodies), tuple(joints), materials
+        asset_id,
+        digest[7:],
+        path.resolve(),
+        mode,
+        tuple(bodies),
+        tuple(joints),
+        materials,
+        dynamic_friction,
+        static_friction,
+        restitution,
     )
+
+
+def _read_shell_asset(path: Path) -> OpenUsdAsset:
+    """Read the v9d procedural shell export with separate floor/wall resources."""
+    digest = _directory_hash(path.parent)
+    support = path.parent / "support" / "obj"
+    bodies = (
+        OpenUsdRigidBody(
+            "Floor",
+            Path("support/obj/floor/visual.obj"),
+            (Path("support/obj/floor/collision_000.obj"),),
+            0.0,
+            (0.0, 0.0, 0.0),
+            (1.0, 1.0, 1.0),
+            (1.0, 0.0, 0.0, 0.0),
+        ),
+        OpenUsdRigidBody(
+            "Walls",
+            Path("support/obj/walls/visual.obj"),
+            tuple(Path(f"support/obj/walls/collision_{index:03d}.obj") for index in range(4)),
+            0.0,
+            (0.0, 0.0, 0.0),
+            (1.0, 1.0, 1.0),
+            (1.0, 0.0, 0.0, 0.0),
+        ),
+    )
+    if any(
+        not (path.parent / item).is_file()
+        for body in bodies
+        for item in (body.visual_obj, *body.collision_objs)
+    ):
+        raise PackageError(f"shell support closure is incomplete: {support}")
+    materials = _read_shell_materials(path)
+    return OpenUsdAsset(
+        f"shell://sha256/{digest}",
+        digest,
+        path.resolve(),
+        "static",
+        bodies,
+        (),
+        materials,
+        0.5,
+        0.5,
+        0.0,
+    )
+
+
+def _attribute(prim: Any, name: str, expected: type[str] | type[float]) -> Any:
+    value = prim.GetAttribute(name).Get()
+    if value is None or not isinstance(value, expected):
+        raise PackageError(f"{prim.GetPath()} missing {name}")
+    return value
+
+
+def _vector_attribute(prim: Any, name: str, size: int) -> tuple[float, ...]:
+    value = prim.GetAttribute(name).Get()
+    if size == 4 and value is not None and hasattr(value, "GetReal"):
+        imaginary = value.GetImaginary()
+        return (float(value.GetReal()), *(float(item) for item in imaginary))
+    if value is None or len(value) != size:
+        raise PackageError(f"{prim.GetPath()} missing {name}")
+    return tuple(float(item) for item in value)
+
+
+def _asset_path(prim: Any, name: str) -> str | None:
+    value = prim.GetAttribute(name).Get()
+    return value.path if value is not None else None
+
+
+def _asset_paths(prim: Any, name: str) -> tuple[str, ...]:
+    value = prim.GetAttribute(name).Get()
+    return tuple(item.path for item in value) if value is not None else ()
+
+
+def _physics_material(stage: Any, root: Any) -> tuple[float, float, float]:
+    """Read the required asset-level PhysicsMaterialAPI values."""
+    material = stage.GetPrimAtPath(root.GetPath().AppendChild("PhysicsMaterial"))
+    if not material or "PhysicsMaterialAPI" not in material.GetAppliedSchemas():
+        raise PackageError(f"{root.GetPath()} has no PhysicsMaterialAPI")
+    dynamic = _attribute(material, "physics:dynamicFriction", float)
+    static = _attribute(material, "physics:staticFriction", float)
+    restitution = _attribute(material, "physics:restitution", float)
+    if dynamic < 0 or static < 0 or not 0 <= restitution <= 1:
+        raise PackageError(f"{material.GetPath()} has invalid contact material")
+    return dynamic, static, restitution
 
 
 def _read_shell_materials(path: Path) -> tuple[OpenUsdVisualMaterial, ...]:
@@ -275,7 +565,9 @@ def _read_shell_materials(path: Path) -> tuple[OpenUsdVisualMaterial, ...]:
         raise PackageError(f"cannot compose shell USD: {path}")
     materials: list[OpenUsdVisualMaterial] = []
     for name in ("Floor", "Walls"):
-        prim = stage.GetPrimAtPath(f"/Asset/Visual/{name}")
+        prim = stage.GetPrimAtPath(f"/Asset/{name}")
+        if not prim:
+            prim = stage.GetPrimAtPath(f"/Asset/Visual/{name}")
         material, _ = UsdShade.MaterialBindingAPI(prim).ComputeBoundMaterial()
         if not material:
             raise PackageError(f"shell visual {name} has no bound material")
@@ -294,8 +586,59 @@ def _read_shell_materials(path: Path) -> tuple[OpenUsdVisualMaterial, ...]:
         texture_path = Path(texture).resolve()
         if not texture_path.is_file():
             raise PackageError(f"shell visual {name} texture is missing: {texture}")
-        materials.append(OpenUsdVisualMaterial(name.lower(), texture_path))
+        materials.append(OpenUsdVisualMaterial(name.lower(), texture_path, (1.0, 1.0, 1.0, 1.0)))
     return tuple(materials)
+
+
+def _read_visual_materials(
+    path: Path, visuals: tuple[Path, ...]
+) -> tuple[OpenUsdVisualMaterial, ...]:
+    from pxr import Usd, UsdShade
+
+    stage = Usd.Stage.Open(str(path), Usd.Stage.LoadAll)
+    if stage is None:
+        raise PackageError(f"cannot compose asset USD: {path}")
+    requested = {
+        name
+        for visual in visuals
+        for name in _obj_material_names(path.parent / visual)
+        if name is not None
+    }
+    if not requested:
+        return ()
+    available: dict[str, tuple[Path | None, tuple[float, float, float, float]]] = {}
+    for prim in stage.Traverse():
+        if prim.GetTypeName() != "Material" or "PhysicsMaterialAPI" in prim.GetAppliedSchemas():
+            continue
+        surface = UsdShade.Material(prim).ComputeSurfaceSource()[0]
+        if not surface:
+            continue
+        shader = UsdShade.Shader(surface)
+        if shader.GetIdAttr().Get() != "UsdPreviewSurface":
+            continue
+        diffuse = shader.GetInput("diffuseColor").Get() or (0.8, 0.8, 0.8)
+        opacity = float(shader.GetInput("opacity").Get() or 1.0)
+        texture = next(
+            (
+                Path(input_.Get().resolvedPath)
+                for child in prim.GetChildren()
+                if (candidate := UsdShade.Shader(child)).GetIdAttr().Get() == "UsdUVTexture"
+                for input_ in (candidate.GetInput("file"),)
+                if input_.Get() and input_.Get().resolvedPath
+            ),
+            None,
+        )
+        value = (texture, (float(diffuse[0]), float(diffuse[1]), float(diffuse[2]), opacity))
+        key = str(prim.GetPath()).lstrip("/").replace("/", "_")
+        available[key] = value
+        if key.startswith("Asset_"):
+            available[key.removeprefix("Asset_")] = value
+    missing = requested - available.keys()
+    if missing:
+        raise PackageError(
+            f"{path} has OBJ materials without USD PreviewSurface: {sorted(missing)}"
+        )
+    return tuple(OpenUsdVisualMaterial(name, *available[name]) for name in sorted(requested))
 
 
 def _read_joints(text: str) -> tuple[OpenUsdArticulationJoint, ...]:
@@ -328,6 +671,162 @@ def _read_joints(text: str) -> tuple[OpenUsdArticulationJoint, ...]:
     return tuple(result)
 
 
+def _read_stage_joints(stage: Any) -> tuple[OpenUsdArticulationJoint, ...]:
+    result: list[OpenUsdArticulationJoint] = []
+    for prim in stage.GetPrimAtPath("/Asset/Joints").GetChildren():
+        kind = {"PhysicsRevoluteJoint": "revolute", "PhysicsPrismaticJoint": "prismatic"}.get(
+            prim.GetTypeName()
+        )
+        if kind is None:
+            raise PackageError(f"unsupported articulation joint: {prim.GetPath()}")
+        body0 = prim.GetRelationship("physics:body0").GetTargets()
+        body1 = prim.GetRelationship("physics:body1").GetTargets()
+        if len(body0) != 1 or len(body1) != 1:
+            raise PackageError(f"{prim.GetPath()} must have one body0 and body1")
+        limit = (
+            float(_attribute(prim, "physics:lowerLimit", float)),
+            float(_attribute(prim, "physics:upperLimit", float)),
+        )
+        if kind == "revolute":
+            limit = (math.radians(limit[0]), math.radians(limit[1]))
+        result.append(
+            OpenUsdArticulationJoint(
+                prim.GetName(),
+                kind,
+                body0[0].name,
+                body1[0].name,
+                _attribute(prim, "physics:axis", str),
+                cast(tuple[float, float, float], _vector_attribute(prim, "physics:localPos0", 3)),
+                cast(
+                    tuple[float, float, float, float],
+                    _vector_attribute(prim, "physics:localRot0", 4),
+                ),
+                cast(tuple[float, float, float], _vector_attribute(prim, "physics:localPos1", 3)),
+                cast(
+                    tuple[float, float, float, float],
+                    _vector_attribute(prim, "physics:localRot1", 4),
+                ),
+                limit,
+                float(
+                    prim.GetAttribute("drive:angular:physics:stiffness").Get()
+                    or prim.GetAttribute("drive:linear:physics:stiffness").Get()
+                    or 0
+                ),
+                float(
+                    prim.GetAttribute("drive:angular:physics:damping").Get()
+                    or prim.GetAttribute("drive:linear:physics:damping").Get()
+                    or 0
+                ),
+                0.0,
+            )
+        )
+    return tuple(result)
+
+
+def _asset_source(root: Path, prim: Any) -> Path:
+    stack = prim.GetPrimStack()
+    if len(stack) < 2:
+        raise PackageError(f"{prim.GetPath()} has no asset reference")
+    source = _inside(root, Path(stack[1].layer.realPath))
+    if source.name != "asset.usda":
+        raise PackageError(f"{prim.GetPath()} reference is not asset.usda")
+    return source
+
+
+def _stage_pose(prim: Any) -> tuple[float, float, float, float, float, float, float]:
+    from pxr import UsdGeom
+
+    matrix = UsdGeom.Xformable(prim).GetLocalTransformation()
+    rows = [matrix.GetRow3(index) for index in range(3)]
+    if any(abs(float(row.GetLength()) - 1.0) > 1e-6 for row in rows):
+        raise PackageError(f"{prim.GetPath()} has non-unit instance scale")
+    if any(
+        abs(float(rows[left] * rows[right])) > 1e-6 for left in range(3) for right in range(left)
+    ):
+        raise PackageError(f"{prim.GetPath()} has shear or an unsupported transform")
+    translation = matrix.ExtractTranslation()
+    rotation = matrix.ExtractRotation()
+    quat = rotation.GetQuat()
+    imaginary = quat.GetImaginary()
+    return (
+        float(translation[0]),
+        float(translation[1]),
+        float(translation[2]),
+        float(quat.GetReal()),
+        float(imaginary[0]),
+        float(imaginary[1]),
+        float(imaginary[2]),
+    )
+
+
+def _instance_joint_targets(instance: Any, asset: OpenUsdAsset) -> tuple[tuple[str, float], ...]:
+    targets: list[tuple[str, float]] = []
+    for joint in asset.joints:
+        prim = instance.GetStage().GetPrimAtPath(
+            instance.GetPath().AppendPath("Joints").AppendChild(joint.name)
+        )
+        drive = "angular" if joint.kind == "revolute" else "linear"
+        value = prim.GetAttribute(f"drive:{drive}:physics:targetPosition").Get()
+        if value is None:
+            value = 0.0
+        if not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+            raise PackageError(f"{prim.GetPath()} has invalid targetPosition")
+        target = math.radians(float(value)) if joint.kind == "revolute" else float(value)
+        if target < joint.limit[0] or target > joint.limit[1]:
+            raise PackageError(f"{prim.GetPath()} targetPosition is outside joint limits")
+        targets.append((joint.name, target))
+    return tuple(targets)
+
+
+def _read_stage_robot(stage: Any) -> OpenUsdRobot | None:
+    prim = stage.GetPrimAtPath("/World/Robot")
+    if not prim:
+        return None
+    return OpenUsdRobot(
+        _attribute(prim, "robosim:robot:id", str),
+        _attribute(prim, "robosim:robot:instanceId", str),
+        _stage_pose(prim),
+    )
+
+
+def _read_stage_cameras(stage: Any) -> tuple[OpenUsdCamera, ...]:
+    cameras = stage.GetPrimAtPath("/World/Cameras")
+    if not cameras:
+        return ()
+    result: list[OpenUsdCamera] = []
+    for prim in cameras.GetChildren():
+        if prim.GetTypeName() != "Camera":
+            raise PackageError(f"unsupported camera schema: {prim.GetPath()}")
+        focal = float(prim.GetAttribute("focalLength").Get() or 50.0)
+        aperture = float(prim.GetAttribute("verticalAperture").Get() or 15.0)
+        result.append(
+            OpenUsdCamera(
+                prim.GetName(),
+                _stage_pose(prim),
+                math.degrees(2 * math.atan(aperture / (2 * focal))),
+            )
+        )
+    return tuple(result)
+
+
+def _read_stage_lights(stage: Any) -> tuple[OpenUsdDistantLight, ...]:
+    lights = stage.GetPrimAtPath("/World/Lights")
+    if not lights:
+        return ()
+    result: list[OpenUsdDistantLight] = []
+    for prim in lights.GetChildren():
+        if prim.GetTypeName() != "DistantLight":
+            raise PackageError(f"unsupported light schema: {prim.GetPath()}")
+        result.append(
+            OpenUsdDistantLight(
+                prim.GetName(),
+                _stage_pose(prim),
+                float(prim.GetAttribute("intensity").Get() or 1.0),
+            )
+        )
+    return tuple(result)
+
+
 def _write_asset(path: Path, asset: OpenUsdAsset) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     root = ET.Element("mujoco", {"model": _asset_key(asset)})
@@ -337,28 +836,37 @@ def _write_asset(path: Path, asset: OpenUsdAsset) -> None:
         {"angle": "radian", "meshdir": "support/obj", "texturedir": "textures"},
     )
     assets = ET.SubElement(root, "asset")
-    materials = {
-        item.name: f"{item.name}_material" for item in asset.visual_materials
-    }
+    materials = {item.name: f"{item.name}_material" for item in asset.visual_materials}
     for item in asset.visual_materials:
-        texture = f"{item.name}_texture"
-        ET.SubElement(
-            assets,
-            "texture",
-            {"name": texture, "type": "2d", "file": item.texture.with_suffix(".png").name},
-        )
-        ET.SubElement(assets, "material", {"name": materials[item.name], "texture": texture})
+        attrs = {"name": materials[item.name], "rgba": _values(item.rgba)}
+        if item.texture is not None:
+            texture = f"{item.name}_texture"
+            ET.SubElement(
+                assets,
+                "texture",
+                {"name": texture, "type": "2d", "file": item.texture.with_suffix(".png").name},
+            )
+            attrs["texture"] = texture
+        ET.SubElement(assets, "material", attrs)
     world = ET.SubElement(root, "worldbody")
     bodies = {body.path: body for body in asset.bodies}
     children = {joint.child: joint for joint in asset.joints}
     roots = [body for body in asset.bodies if body.path not in children]
-    if len(roots) != 1:
+    if asset.mode != "static" and len(roots) != 1:
         raise PackageError(f"{asset.asset_id} does not have one articulation root")
 
     def emit(
         parent: ET.Element, body: OpenUsdRigidBody, joint: OpenUsdArticulationJoint | None
     ) -> None:
-        attrs = {"name": "asset_root" if parent is world else body.path}
+        attrs = {
+            "name": (
+                "asset_root"
+                if parent is world
+                else "static_root"
+                if asset.mode == "static" and body.path == "asset_root"
+                else body.path
+            )
+        }
         if joint is not None:
             pos, quat = _parent_to_child(joint)
             attrs.update({"pos": _values(pos), "quat": _values(quat)})
@@ -379,7 +887,7 @@ def _write_asset(path: Path, asset: OpenUsdAsset) -> None:
         visual_objs = (
             _shell_visual_objs(path, body.visual_obj, asset.visual_materials)
             if asset.mode == "static"
-            else tuple((item, None) for item in _split_visual_obj(path, body.visual_obj))
+            else _visual_obj_parts(path, body.visual_obj)
         )
         parts = [(item, name, True) for item, name in visual_objs]
         parts.extend((item, None, False) for item in body.collision_objs)
@@ -427,7 +935,12 @@ def _write_asset(path: Path, asset: OpenUsdAsset) -> None:
             }
             ET.SubElement(node, "joint", attrs)
 
-    emit(world, roots[0], None)
+    if asset.mode == "static":
+        container = ET.SubElement(world, "body", {"name": "asset_root"})
+        for body in roots:
+            emit(container, body, None)
+    else:
+        emit(world, roots[0], None)
     ET.indent(root)
     ET.ElementTree(root).write(path, encoding="unicode", xml_declaration=False)
 
@@ -437,8 +950,17 @@ def _write_scene(
     package: OpenUsdScenePackage,
     models: Mapping[tuple[str, str], str],
     mappings: dict[str, Any],
+    robot_include: str | None,
 ) -> None:
     root = ET.Element("mujoco", {"model": package.scene_id})
+    if robot_include is not None:
+        ET.SubElement(root, "include", {"file": robot_include})
+        robot = package.robot
+        if robot is not None:
+            mappings["/World/Robot"] = {
+                "robot_id": robot.robot_id,
+                "instance_id": robot.instance_id,
+            }
     ET.SubElement(root, "option", {"gravity": "0 0 -9.81"})
     visual = ET.SubElement(root, "visual")
     ET.SubElement(visual, "global", {"offwidth": "512", "offheight": "512"})
@@ -458,11 +980,44 @@ def _write_scene(
             frame, "attach", {"model": model, "body": "asset_root", "prefix": prefix + "/"}
         )
         mappings[instance.prim_path] = {"frame": prefix, "prefix": prefix + "/"}
-    ET.SubElement(
-        world,
-        "camera",
-        {"name": "world_camera", "pos": "4 -4 3", "xyaxes": "0.707 0.707 0 -0.408 0.408 0.816"},
-    )
+    if not package.cameras:
+        ET.SubElement(
+            world,
+            "camera",
+            {
+                "name": "world_camera",
+                "pos": "4 -4 3",
+                "xyaxes": "0.707 0.707 0 -0.408 0.408 0.816",
+            },
+        )
+    for camera in package.cameras:
+        orientation = _normalize(camera.pose[3:])
+        ET.SubElement(
+            world,
+            "camera",
+            {
+                "name": camera.name,
+                "pos": _values(camera.pose[:3]),
+                "xyaxes": _values(
+                    (*_rotate(orientation, (1.0, 0.0, 0.0)), *_rotate(orientation, (0.0, 1.0, 0.0)))
+                ),
+                "fovy": str(camera.fovy),
+            },
+        )
+        mappings[f"/World/Cameras/{camera.name}"] = {"camera": camera.name}
+    for light in package.lights:
+        ET.SubElement(
+            world,
+            "light",
+            {
+                "name": light.name,
+                "directional": "true",
+                "pos": _values(light.pose[:3]),
+                "dir": _values(_rotate(_normalize(light.pose[3:]), (0.0, 0.0, -1.0))),
+                "diffuse": _values((light.intensity, light.intensity, light.intensity)),
+            },
+        )
+        mappings[f"/World/Lights/{light.name}"] = {"light": light.name}
     ET.indent(root)
     ET.ElementTree(root).write(path, encoding="unicode", xml_declaration=False)
 
@@ -473,11 +1028,36 @@ def _load_asset(path: Path) -> None:
     mujoco.MjModel.from_xml_path(str(path))
 
 
-def _validate_scene(path: Path, diagnostics: Path) -> None:
+def _initial_joint_positions(package: OpenUsdScenePackage) -> dict[str, float]:
+    return {
+        f"{_prefix(instance.prim_path)}/{joint}": target
+        for instance in package.instances
+        for joint, target in instance.joint_targets
+    }
+
+
+def _apply_initial_positions(model: Any, data: Any, positions: Mapping[str, float]) -> None:
+    import mujoco
+
+    for name, value in positions.items():
+        joint_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, name)
+        if joint_id < 0 or int(model.jnt_type[joint_id]) not in {
+            int(mujoco.mjtJoint.mjJNT_HINGE),
+            int(mujoco.mjtJoint.mjJNT_SLIDE),
+        }:
+            raise PackageError(f"initial state names unsupported joint: {name}")
+        if not math.isfinite(value):
+            raise PackageError(f"initial state is non-finite: {name}")
+        data.qpos[model.jnt_qposadr[joint_id]] = value
+
+
+def _validate_scene(path: Path, diagnostics: Path, initial_positions: Mapping[str, float]) -> None:
     import mujoco
 
     model = mujoco.MjModel.from_xml_path(str(path))
     data = mujoco.MjData(model)
+    _apply_initial_positions(model, data, initial_positions)
+    mujoco.mj_forward(model, data)
     for _ in range(100):
         mujoco.mj_step(model, data)
     finite = bool(all(math.isfinite(float(v)) for v in (*data.qpos, *data.qvel)))
@@ -491,15 +1071,18 @@ def _validate_scene(path: Path, diagnostics: Path) -> None:
     )
 
 
-def _write_preview(scene_path: Path, diagnostics: Path) -> str:
+def _write_preview(
+    scene_path: Path, diagnostics: Path, initial_positions: Mapping[str, float]
+) -> str:
     import mujoco
     from PIL import Image
 
     model = mujoco.MjModel.from_xml_path(str(scene_path))
     data = mujoco.MjData(model)
+    _apply_initial_positions(model, data, initial_positions)
     mujoco.mj_forward(model, data)
     with mujoco.Renderer(model, height=512, width=512) as renderer:
-        renderer.update_scene(data, camera="world_camera")
+        renderer.update_scene(data, camera=0)
         image = renderer.render()
     filename = "diagnostics/preview.png"
     Image.fromarray(image).save(diagnostics.parent / filename)
@@ -535,6 +1118,8 @@ def _copy_materials(asset: OpenUsdAsset, destination: Path) -> list[str]:
     textures = destination / "textures"
     textures.mkdir(exist_ok=True)
     for material in asset.visual_materials:
+        if material.texture is None:
+            continue
         target = textures / material.texture.with_suffix(".png").name
         with Image.open(material.texture) as image:
             image.convert("RGB").save(target)
@@ -546,9 +1131,12 @@ def _shell_visual_objs(
     asset_xml: Path,
     visual: Path,
     materials: tuple[OpenUsdVisualMaterial, ...],
-) -> tuple[tuple[Path, str], ...]:
+) -> tuple[tuple[Path, str | None], ...]:
     if not materials:
-        return ((visual, ""),)
+        return ((visual, None),)
+    for material in materials:
+        if visual == Path("support/obj") / material.name / "visual.obj":
+            return tuple((item, material.name) for item in _split_visual_obj(asset_xml, visual))
     source = asset_xml.parent / visual
     lines = source.read_text().splitlines()
     prefix = [line for line in lines if not line.startswith(("o ", "usemtl ", "f "))]
@@ -596,6 +1184,30 @@ def _split_visual_obj(asset_xml: Path, visual: Path) -> tuple[Path, ...]:
     if not result:
         raise PackageError(f"visual OBJ has no faces: {visual}")
     return tuple(result)
+
+
+def _visual_obj_parts(asset_xml: Path, visual: Path) -> tuple[tuple[Path, str | None], ...]:
+    parts = _split_visual_obj(asset_xml, visual)
+    materials = _obj_material_names(asset_xml.parent / visual)
+    if len(parts) != len(materials):
+        raise PackageError(f"visual OBJ has inconsistent object/material groups: {visual}")
+    return tuple(zip(parts, materials, strict=True))
+
+
+def _obj_material_names(path: Path) -> tuple[str | None, ...]:
+    names: list[str | None] = []
+    current: str | None = None
+    grouped = False
+    for line in path.read_text().splitlines():
+        if line.startswith("o "):
+            if grouped:
+                names.append(current)
+            grouped = True
+            current = None
+        elif line.startswith("usemtl "):
+            current = line.split(maxsplit=1)[1]
+    names.append(current)
+    return tuple(names)
 
 
 def _flat_obj(path: Path) -> tuple[tuple[float, float, float], tuple[float, float, float]] | None:
@@ -662,6 +1274,14 @@ def _dependency_hash(root: Path) -> str:
     digest = hashlib.sha256()
     for line in sorted((root / "checksums.sha256").read_text().splitlines()):
         digest.update(line.encode())
+    return digest.hexdigest()
+
+
+def _directory_hash(root: Path) -> str:
+    digest = hashlib.sha256()
+    for path in sorted(item for item in root.rglob("*") if item.is_file()):
+        digest.update(path.relative_to(root).as_posix().encode())
+        digest.update(path.read_bytes())
     return digest.hexdigest()
 
 

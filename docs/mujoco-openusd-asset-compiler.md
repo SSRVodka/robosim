@@ -24,7 +24,12 @@ axis 为 `localRot1` 旋转后的 USD axis。
 旋转 `localPos1`；不能只用 `localRot0`。该错误会让 `localFrame0 == localFrame1`
 的关节仍产生错误 child offset。visual OBJ 的每个 `o` block 也必须单独注册为
 MuJoCo mesh，因为 MuJoCo 只导入单一 OBJ 中的第一个 object。realization version
-升至 `csd-compiler-0.6`。
+升至 `csd-compiler-0.6`。实现记录（2026-08-04）：`csd-compiler-0.9` 支持
+`/World/Robot` 的 Franka control-template copy/pose patch、authored Camera 和
+DistantLight；relative output root 在写入 MJCF 前必须解析为绝对 package root。
+同日，v9d procedural shell 改为 `Asset/Floor`、`Asset/Walls` 两个独立 resource
+prim 后，compiler 将它们放在同一个可 attach 的静态 `asset_root` 下，分别保留
+collision、visual OBJ 与 composed `UsdUVTexture` color material。
 
 CSD 与 AssetServer 输入契约见
 [`openusd-csd-asset-contract.md`](./openusd-csd-asset-contract.md)。
@@ -59,6 +64,8 @@ subtree 复制到父模型并用 prefix 解决命名冲突。传统 `include` �
 - asset 固有物理属性在 `asset.xml` 中完整 realization；
 - 输出 package 自包含、可移动、可缓存、可独立验证；
 - 删除外部 JSON asset registry 与 `asset_root` compiler 参数。
+- 保留 compiler-owned robot template 的 actuator 与 SRDF control metadata；
+- 把 scene-authored Camera/DistantLight 作为 vsim runtime sensor/light 输出。
 
 非目标：
 
@@ -66,10 +73,9 @@ subtree 复制到父模型并用 prefix 解决命名冲突。传统 `include` �
 - 使用 MuJoCo native OpenUSD decoder；
 - 静默转换 unsupported USD geometry/material/physics；
 - 本迭代支持非单位 scene instance scale；
-- 通用 OBJ UV/MTL material translation；但 procedural shell 的 composed
-  `UsdUVTexture` color channel 是例外：compiler 从 binding 读取 color texture，转为
-  package-local PNG，并为 floor/walls 分别生成带材质的 visual geometry。normal、
-  roughness、displacement channel 仍不映射到 MuJoCo。
+- 通用 OBJ MTL 文件的直接翻译。compiler 只将 OBJ `usemtl` 对齐到 composed USD
+  `UsdPreviewSurface`，并映射 diffuse color、opacity 与 color texture；texture 转为
+  package-local PNG。normal、roughness、displacement channel 仍不映射到 MuJoCo。
 
 ## 4. Compiler 边界
 
@@ -181,6 +187,19 @@ engine_manifests/
             └── validation_record.json
 ```
 
+如果 scene 声明 robot，package 还包含：
+
+```text
+robots/
+└── franka_panda/
+    ├── panda.xml
+    ├── panda.srdf
+    └── assets/
+```
+
+该目录是复制后的 dependency closure。`scene.xml` 只 include 这里的 `panda.xml`；
+source tree 不参与 runtime asset resolution。
+
 OBJ 在 realization 中属于对应 `asset.xml` 目录，不进入全局 `assets/objects/`
 registry。`asset.xml` 只使用本目录相对路径。
 
@@ -254,6 +273,18 @@ registry。`asset.xml` 只使用本目录相对路径。
 - prefix 从稳定 entity ID 经 MJCF name normalization 得到；
 - 重复实例 attach 同一个 model asset；
 - scene body 负责 world pose，asset subtree 保持资产局部空间。
+
+`/World/Robot` 不走通用 attach 路径。compiler 复制受支持的 control template，patch
+其 root body pose 后将其 include 到顶层 scene，从而保留 actuator、SRDF joint group
+和现有 MuJoCoBackend 的 robot-control 发现逻辑。复制模板中的 camera/light 会删除；
+scene 中唯一可见的 camera/light 是 CSD authored prim，或无 authored camera 时的
+`world_camera` diagnostics fallback。
+
+`/World/Cameras/<name>` 的 Camera 输出为同名 MJCF camera；`focalLength` 与
+`verticalAperture` 转为 `fovy`，USD local X/Y axes 转为 MuJoCo `xyaxes`。
+`/World/Lights/<name>` 的 DistantLight 输出为同名 directional MJCF light，且其
+orientation 旋转的 `-Z` 为照射方向。MuJoCoBackend 将每个 generated camera 注册为
+`CAMERA` sensor，`GetSensors([name])` 返回 `rgb8` image。
 
 ## 10. 物理属性与首轮实例边界
 
