@@ -1,9 +1,14 @@
 import hashlib
+import json
+import os
 import shutil
+import subprocess
+import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
+import mujoco
 
 from robosim.backends.mujoco import MuJoCoBackend
 from robosim.core.mujoco_openusd_package import (
@@ -251,3 +256,104 @@ def test_v9d_shell_realizes_separate_floor_and_walls(
     )
     assert any("material" in item.attrib for item in ET.parse(stool).findall("worldbody/body/geom"))
     assert manifest.preview_files == ("diagnostics/preview.png",)
+
+
+def test_composed_drive_target_initializes_mujoco_runtime(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    package = tmp_path / "package"
+    shutil.copytree(V9_PACKAGE, package)
+    scene = package / "scene.usda"
+    scene.write_text(
+        scene.read_text()
+        .replace("    defaultPrim", "    subLayers = [@override.usda@]\n    defaultPrim")
+        .replace("float drive:angular:physics:targetPosition = 0\n", "")
+    )
+    override = package / "override.usda"
+    override.write_text(
+        '''#usda 1.0
+over "World" {
+    over "Objects" {
+        over "cabinet_double_door_01" {
+            over "Joints" {
+                over "RevoluteJoint_double_door_4_down_joint" (
+                    prepend apiSchemas = ["PhysicsDriveAPI:angular"]
+                ) {
+                    float drive:angular:physics:targetPosition = 30
+                }
+            }
+        }
+    }
+}
+'''
+    )
+    checksums = package / "checksums.sha256"
+    checksums.write_text(
+        "\n".join(
+            (
+                *(line for line in checksums.read_text().splitlines() if not line.endswith(" scene.usda")),
+                f"{hashlib.sha256(scene.read_bytes()).hexdigest()} scene.usda",
+                f"{hashlib.sha256(override.read_bytes()).hexdigest()} override.usda",
+            )
+        )
+        + "\n"
+    )
+    monkeypatch.setattr(
+        "robosim.core.mujoco_openusd_package._write_preview",
+        lambda _scene, diagnostics, _positions: _preview_stub(diagnostics),
+    )
+    manifest = compile_openusd_scene_package(
+        csd_path=scene,
+        output_root=tmp_path / "engine_manifests",
+        realization_config=None,
+        realization_version="test",
+        simulator_version="test",
+    )
+    state = json.loads(
+        (Path(manifest.root_path) / "runtime/initial_joint_positions.json").read_text()
+    )
+    name = next(key for key in state if key.endswith("/RevoluteJoint_double_door_4_down_joint"))
+    assert state[name] == pytest.approx(0.5235987755982988)
+    backend = MuJoCoBackend.from_csd_realization_manifest(manifest, headless=True)
+    try:
+        joint_id = mujoco.mj_name2id(backend._model, mujoco.mjtObj.mjOBJ_JOINT, name)
+        assert backend._data.qpos[backend._model.jnt_qposadr[joint_id]] == pytest.approx(state[name])
+    finally:
+        backend.shutdown()
+
+
+def test_mujoco_realization_loads_after_relocation_in_fresh_process(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "robosim.core.mujoco_openusd_package._write_preview",
+        lambda _scene, diagnostics, _positions: _preview_stub(diagnostics),
+    )
+    manifest = compile_openusd_scene_package(
+        csd_path=V9_PACKAGE / "scene.usda",
+        output_root=tmp_path / "engine_manifests",
+        realization_config=None,
+        realization_version="test",
+        simulator_version="test",
+    )
+    relocated = tmp_path / "relocated"
+    shutil.move(manifest.root_path, relocated)
+    program = (
+        "from robosim.backends.mujoco import MuJoCoBackend; "
+        "import sys; "
+        "backend = MuJoCoBackend.from_csd_realization_manifest_file(sys.argv[1], headless=True); "
+        "backend.shutdown()"
+    )
+    completed = subprocess.run(
+        (sys.executable, "-c", program, str(relocated / "manifest.json")),
+        check=False,
+        capture_output=True,
+        env=os.environ.copy(),
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
+def _preview_stub(diagnostics: Path) -> str:
+    (diagnostics / "preview.png").write_bytes(b"preview")
+    return "diagnostics/preview.png"

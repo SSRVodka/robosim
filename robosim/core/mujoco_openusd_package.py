@@ -724,13 +724,14 @@ def _read_stage_joints(stage: Any) -> tuple[OpenUsdArticulationJoint, ...]:
 
 
 def _asset_source(root: Path, prim: Any) -> Path:
-    stack = prim.GetPrimStack()
-    if len(stack) < 2:
-        raise PackageError(f"{prim.GetPath()} has no asset reference")
-    source = _inside(root, Path(stack[1].layer.realPath))
-    if source.name != "asset.usda":
-        raise PackageError(f"{prim.GetPath()} reference is not asset.usda")
-    return source
+    sources = {
+        _inside(root, Path(spec.layer.realPath))
+        for spec in prim.GetPrimStack()
+        if Path(spec.layer.realPath).name == "asset.usda"
+    }
+    if len(sources) != 1:
+        raise PackageError(f"{prim.GetPath()} must resolve one asset.usda reference")
+    return sources.pop()
 
 
 def _stage_pose(prim: Any) -> tuple[float, float, float, float, float, float, float]:
