@@ -42,6 +42,21 @@ EE_JOINT_VELOCITY_LIMIT = 0.5
 FREE_BASE_JOINT_VELOCITY_LIMIT = 1.0
 
 
+def _manifest_initial_positions(manifest: CsdRealizationManifest, root: Path) -> dict[str, float]:
+    if manifest.initial_state_file is None:
+        return {}
+    path = (root / manifest.initial_state_file).resolve()
+    if not path.is_file():
+        raise FileNotFoundError(f"MuJoCo realization initial-state file is missing: {path}")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict) or not all(
+        isinstance(name, str) and isinstance(value, (int, float)) and np.isfinite(value)
+        for name, value in payload.items()
+    ):
+        raise ValueError("MuJoCo realization initial-state file is invalid")
+    return {name: float(value) for name, value in payload.items()}
+
+
 @dataclass(slots=True)
 class JointInfo:
     name: str
@@ -91,7 +106,12 @@ class SensorInfo:
 class MuJoCoBackend(SimulatorBackend):
     """MuJoCo backend for robot simulation."""
 
-    def __init__(self, scene_path: str, headless: bool = True) -> None:
+    def __init__(
+        self,
+        scene_path: str,
+        headless: bool = True,
+        initial_joint_positions: dict[str, float] | None = None,
+    ) -> None:
         self._scene_path = Path(scene_path).resolve()
         self._state_lock = threading.RLock()
         self._stop_event = threading.Event()
@@ -129,6 +149,7 @@ class MuJoCoBackend(SimulatorBackend):
             self._viewer = self._launch_viewer()
 
         self._apply_default_configuration_locked()
+        self._apply_initial_joint_positions_locked(initial_joint_positions or {})
         mujoco.mj_forward(self._model, self._data)
         self._set_root_hold_target_locked()
         self._set_idle_hold_targets_locked()
@@ -152,7 +173,11 @@ class MuJoCoBackend(SimulatorBackend):
         scene_path = (Path(manifest.root_path) / manifest.entry_file).resolve()
         if not scene_path.is_file():
             raise FileNotFoundError(f"MuJoCo realization entry file is missing: {scene_path}")
-        return cls(scene_path=str(scene_path), headless=headless)
+        return cls(
+            scene_path=str(scene_path),
+            headless=headless,
+            initial_joint_positions=_manifest_initial_positions(manifest, Path(manifest.root_path)),
+        )
 
     @classmethod
     def from_csd_realization_manifest_file(
@@ -170,7 +195,13 @@ class MuJoCoBackend(SimulatorBackend):
         scene_path = (Path(manifest_path).resolve().parent / manifest.entry_file).resolve()
         if not scene_path.is_file():
             raise FileNotFoundError(f"MuJoCo realization entry file is missing: {scene_path}")
-        return cls(scene_path=str(scene_path), headless=headless)
+        return cls(
+            scene_path=str(scene_path),
+            headless=headless,
+            initial_joint_positions=_manifest_initial_positions(
+                manifest, Path(manifest_path).resolve().parent
+            ),
+        )
 
     @property
     def capabilities(self) -> Capability:
@@ -210,6 +241,19 @@ class MuJoCoBackend(SimulatorBackend):
             delay = self._model.opt.timestep - (time.time() - step_start)
             if delay > 0:
                 time.sleep(delay)
+
+    def _apply_initial_joint_positions_locked(self, positions: dict[str, float]) -> None:
+        for name, value in positions.items():
+            joint_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_JOINT, name)
+            if joint_id < 0:
+                raise ValueError(f"initial state names unknown joint: {name}")
+            joint_type = int(self._model.jnt_type[joint_id])
+            if joint_type not in {
+                int(mujoco.mjtJoint.mjJNT_HINGE),
+                int(mujoco.mjtJoint.mjJNT_SLIDE),
+            }:
+                raise ValueError(f"initial state names unsupported joint: {name}")
+            self._data.qpos[self._model.jnt_qposadr[joint_id]] = value
 
     def _sync_viewer_locked(self) -> None:
         if self._viewer is None:
@@ -316,9 +360,7 @@ class MuJoCoBackend(SimulatorBackend):
         return result
 
     def _build_body_children(self) -> dict[int, list[int]]:
-        children: dict[int, list[int]] = {
-            body_id: [] for body_id in range(self._model.nbody)
-        }
+        children: dict[int, list[int]] = {body_id: [] for body_id in range(self._model.nbody)}
         for body_id in range(1, self._model.nbody):
             parent_id = int(self._model.body_parentid[body_id])
             children[parent_id].append(body_id)
@@ -332,9 +374,8 @@ class MuJoCoBackend(SimulatorBackend):
 
     def _find_root_hold_joint(self) -> JointInfo | None:
         for info in self._joint_infos:
-            if (
-                info.body_id == self._robot_root_body_id
-                and info.joint_type == int(mujoco.mjtJoint.mjJNT_FREE)
+            if info.body_id == self._robot_root_body_id and info.joint_type == int(
+                mujoco.mjtJoint.mjJNT_FREE
             ):
                 return info
         return None
@@ -663,7 +704,6 @@ class MuJoCoBackend(SimulatorBackend):
                     ),
                 )
 
-
                 self.set_joint_target(
                     joint_names,
                     joint_velocities,
@@ -868,8 +908,7 @@ class MuJoCoBackend(SimulatorBackend):
                     )
                     self._data.qpos[info.qpos_adr] = float(
                         np.clip(
-                            self._data.qpos[info.qpos_adr]
-                            + velocity * self._model.opt.timestep,
+                            self._data.qpos[info.qpos_adr] + velocity * self._model.opt.timestep,
                             info.lower_limit,
                             info.upper_limit,
                         )
@@ -1143,9 +1182,7 @@ class MuJoCoBackend(SimulatorBackend):
             resolve(name)
         return resolved
 
-    def _parse_srdf_group_states(
-        self, root: ET.Element
-    ) -> dict[str, dict[str, dict[str, float]]]:
+    def _parse_srdf_group_states(self, root: ET.Element) -> dict[str, dict[str, dict[str, float]]]:
         result: dict[str, dict[str, dict[str, float]]] = {}
         for state in root.findall("group_state"):
             group_name = state.attrib.get("group")

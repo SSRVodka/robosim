@@ -577,7 +577,7 @@ class PyBulletBackend(SimulatorBackend):
 
     def _build_joint_groups(self) -> dict[str, JointModelGroup]:
         joint_names = [info.name for info in self._joint_infos]
-        if self._robot_name == "panda" and {"panda_joint1", "panda_joint7"} <= set(joint_names):
+        if {"panda_joint1", "panda_joint7"} <= set(joint_names):
             arm = [f"panda_joint{index}" for index in range(1, 8)]
             hand = ["panda_finger_joint1", "panda_finger_joint2"]
             ee = EndEffectorInfo(
@@ -690,17 +690,22 @@ class PyBulletBackend(SimulatorBackend):
             cameraUpVector=camera.get("up", [0.0, 0.0, 1.0]),
         )
         projection = p.computeProjectionMatrixFOV(
-            fov=60.0,
+            fov=float(cast(int | float | str, camera.get("fovy", 60.0))),
             aspect=float(width) / float(height),
             nearVal=0.01,
             farVal=10.0,
         )
+        light = self._scene_metadata.get("light", {})
+        if not isinstance(light, dict):
+            light = {}
         _w, _h, rgba, _depth, _seg = p.getCameraImage(
             width,
             height,
             viewMatrix=view,
             projectionMatrix=projection,
             renderer=p.ER_TINY_RENDERER,
+            lightDirection=light.get("direction", [1.0, 1.0, -1.0]),
+            lightDiffuseCoeff=float(cast(int | float | str, light.get("intensity", 1.0))),
             physicsClientId=self._client_id,
         )
         raw = bytes(rgba)

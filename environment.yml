@@ -53,8 +53,8 @@ dependencies:
   # Data collector
   - lerobot>=0.5
   - pip
-  - pip:
-      - evdev>=1.9,<2
+  # - pip:
+  #     - evdev>=1.9,<2
 
   # Dev tools
   - ruff

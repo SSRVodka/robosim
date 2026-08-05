@@ -256,6 +256,7 @@ class CsdRealizationManifest:
     entry_file: str
     generated_files: tuple[str, ...]
     preview_files: tuple[str, ...]
+    initial_state_file: str | None = None
 
     def __post_init__(self) -> None:
         if not self.manifest_id:
@@ -291,6 +292,7 @@ class CsdRealizationManifest:
             "entry_file": self.entry_file,
             "generated_files": list(self.generated_files),
             "preview_files": list(self.preview_files),
+            "initial_state_file": self.initial_state_file,
         }
 
     @classmethod
@@ -304,6 +306,11 @@ class CsdRealizationManifest:
             entry_file=str(payload["entry_file"]),
             generated_files=tuple(str(path) for path in payload.get("generated_files", [])),
             preview_files=tuple(str(path) for path in payload.get("preview_files", [])),
+            initial_state_file=(
+                str(payload["initial_state_file"])
+                if payload.get("initial_state_file") is not None
+                else None
+            ),
         )
 
 
