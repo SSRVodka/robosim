@@ -357,21 +357,51 @@ class MuJoCoBackend(SimulatorBackend):
         return best_body_id
 
     def _collect_robot_body_ids(self) -> set[int]:
+        # 机器人边界以 SRDF 声明的关节为准：场景里的铰接家具（抽屉、柜门）同样
+        # 带 hinge/slide 关节，若按"含铰接关节即算机器人"归类，会污染状态向量
+        # 并被保持力矩焊死。SRDF 缺失时退回机器人根子树。
+        srdf_bodies = self._srdf_declared_body_ids()
+        if srdf_bodies:
+            return srdf_bodies
+        return self._collect_subtree_body_ids(self._robot_root_body_id)
+
+    def _srdf_declared_body_ids(self) -> set[int]:
+        """Bodies whose subtree chain is reachable from SRDF-declared joints."""
+        if self._srdf_path is None:
+            return set()
+        srdf_root = ET.parse(self._srdf_path).getroot()
+        joint_names = {
+            element.attrib["name"]
+            for tag in ("joint", "passive_joint")
+            for element in srdf_root.iter(tag)
+            if "name" in element.attrib
+        }
+        link_names = {
+            element.attrib[key]
+            for tag, keys in (("link", ("name",)), ("chain", ("base_link", "tip_link")))
+            for element in srdf_root.iter(tag)
+            for key in keys
+            if key in element.attrib
+        }
         body_ids: set[int] = set()
-        for body_id in range(1, self._model.nbody):
-            if int(self._model.body_parentid[body_id]) != 0:
-                continue
-            subtree_ids = self._collect_subtree_body_ids(body_id)
-            has_robot_joint = any(
-                int(self._model.jnt_bodyid[joint_id]) in subtree_ids
-                and self._is_robot_joint_type(int(self._model.jnt_type[joint_id]))
-                for joint_id in range(self._model.njnt)
-            )
-            if has_robot_joint:
-                body_ids.update(subtree_ids)
+        for joint_id in range(self._model.njnt):
+            if self._model.joint(joint_id).name in joint_names:
+                body_ids.add(int(self._model.jnt_bodyid[joint_id]))
+        for link_name in link_names:
+            if self._has_body(link_name):
+                body_ids.add(self._model.body(link_name).id)
         if not body_ids:
-            raise RuntimeError("Unable to identify robot bodies in MuJoCo scene")
-        return body_ids
+            return set()
+        # 补齐到根的父链，使运动学链完整（末端 link 常不带关节）。
+        closure = set(body_ids)
+        for body_id in body_ids:
+            current = body_id
+            while current > 0:
+                closure.add(current)
+                current = int(self._model.body_parentid[current])
+        for body_id in list(closure):
+            closure.update(self._collect_subtree_body_ids(body_id))
+        return closure
 
     def _collect_subtree_body_ids(self, body_id: int) -> set[int]:
         result = {body_id}
