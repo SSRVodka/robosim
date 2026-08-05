@@ -1,0 +1,8 @@
+{
+  "robot_name": "panda",
+  "cameras": [],
+  "lossy_conversions": [
+    "cup handle box omitted: single cylinder with combined mass 0.14",
+    "contact parameters tuned per-backend (finger/cup lateralFriction), not converted from MJCF solref/solimp"
+  ]
+}

@@ -475,6 +475,21 @@ class PyBulletBackend(SimulatorBackend):
                 physicsClientId=self._client_id,
             )
 
+    def get_object_pose(self, object_name: str) -> common_pb2.Pose:
+        body_id = self._body_names.get(object_name)
+        if body_id is None:
+            raise ValueError(f"Unknown PyBullet body '{object_name}'")
+        with self._state_lock:
+            position, orientation = p.getBasePositionAndOrientation(
+                body_id, physicsClientId=self._client_id
+            )
+        return common_pb2.Pose(
+            position=common_pb2.Point(x=position[0], y=position[1], z=position[2]),
+            orientation=common_pb2.Quaternion(
+                x=orientation[0], y=orientation[1], z=orientation[2], w=orientation[3]
+            ),
+        )
+
     def shutdown(self) -> None:
         self._stop_event.set()
         if hasattr(self, "_step_thread") and self._step_thread.is_alive():
