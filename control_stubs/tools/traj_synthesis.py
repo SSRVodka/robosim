@@ -28,6 +28,20 @@ from ruckig import InputParameter, Result, Ruckig, Trajectory
 
 HOME_Q = np.array([0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785])
 GRASP_QUAT_WXYZ = np.array([0.0, 1.0, 0.0, 0.0])
+# At GRASP_QUAT_WXYZ the gripper closes along world Y; add this to a desired
+# closing-axis angle (measured from world X) to get the hand yaw about Z.
+CLOSING_AXIS_YAW_OFFSET = -np.pi / 2.0
+
+
+def grasp_quat_for_closing_yaw(yaw_rad: float) -> np.ndarray:
+    """Hand quaternion (wxyz) closing along ``yaw_rad`` measured from world X."""
+    half = (yaw_rad + CLOSING_AXIS_YAW_OFFSET) / 2.0
+    spin = np.array([np.cos(half), 0.0, 0.0, np.sin(half)])  # rotation about Z
+    result = np.zeros(4)
+    mujoco.mju_mulQuat(result, spin, GRASP_QUAT_WXYZ)
+    return result
+
+
 GRIPPER_OPEN = 0.04
 GRIPPER_CLOSED = 0.0
 ARM_JOINTS = [f"panda_joint{index}" for index in range(1, 8)]
@@ -250,6 +264,7 @@ def synthesize(
     config: SynthesisConfig = DEFAULT_CONFIG,
     keyposes: list[Keypose] = PICK_PLACE_KEYPOSES,
     seed: int | None = None,
+    grasp_quat_wxyz: np.ndarray = GRASP_QUAT_WXYZ,
 ) -> InstructionStream:
     """Synthesize one episode; raises SynthesisError with a typed payload."""
     samples: list[Sample] = []
@@ -274,7 +289,7 @@ def synthesize(
                 at = min(frame * step, trajectory.duration)
                 waypoint = np.asarray(trajectory.at_time(at)[0])
                 current_q, pos_err, ori_err = ik.solve(
-                    waypoint, GRASP_QUAT_WXYZ, current_q
+                    waypoint, grasp_quat_wxyz, current_q
                 )
                 ik_worst["pos"] = max(ik_worst["pos"], pos_err)
                 ik_worst["ori"] = max(ik_worst["ori"], ori_err)
@@ -337,6 +352,8 @@ def validate(
     *,
     config: SynthesisConfig = DEFAULT_CONFIG,
     cup_pose: np.ndarray | None = None,
+    subject_body: str = "cup",
+    obstacle_bodies: tuple[str, ...] = ("table", "container"),
 ) -> None:
     """Gate the stream; raises SynthesisError on the first violated check."""
     q_matrix = np.stack([sample.q for sample in stream.samples])
@@ -364,7 +381,7 @@ def validate(
     data = mujoco.MjData(model)
     if cup_pose is not None:
         cup_joint = model.body_jntadr[
-            mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "cup")
+            mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, subject_body)
         ]
         adr = model.jnt_qposadr[cup_joint]
         data.qpos[adr : adr + 3] = cup_pose
@@ -382,8 +399,8 @@ def validate(
         model.jnt_qposadr[mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, name)]
         for name in ("panda_finger_joint1", "panda_finger_joint2")
     ]
-    pre_close_forbidden = _object_geoms(model, ["cup", "table", "container"])
-    post_close_forbidden = _object_geoms(model, ["table", "container"])
+    pre_close_forbidden = _object_geoms(model, [subject_body, *obstacle_bodies])
+    post_close_forbidden = _object_geoms(model, list(obstacle_bodies))
     for index, sample in enumerate(stream.samples):
         data.qpos[ik.qpos_adr] = sample.q
         for adr in finger_qpos:
