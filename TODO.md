@@ -3,6 +3,22 @@
 The canonical design is fixed in `DESIGN.md`. Do not change these milestones
 during an implementation checkpoint without user approval.
 
+## Checkpoint 6: MuJoCo v9 articulated resource packages（进行中）
+
+- [ ] Replace the MuJoCo registry compiler input with the v9 package reader.
+- [ ] Realize static, rigid, and articulated resource assets as shared MJCF
+      submodels and assemble them through frame/attach instances.
+- [ ] Add focused v9 fixtures and blockers, then verify the production art_6b
+      package loads, steps, renders, and remains relocatable.
+- [ ] Preserve composed USD material/texture/light semantics and correct the
+      articulated joint-frame kinematics before closing this checkpoint.
+- [x] Read the optional v9 `/World/Robot` descriptor and realize supported
+      compiler-owned robots as package-local MJCF/SRDF control templates.
+- [x] Preserve v9 authored camera and distant-light prims in MuJoCo output and
+      validate them with `example/experiment`.
+- [ ] Add composed-layer and drive-initial-state coverage, then delete the
+      unreachable registry compiler body.
+
 ## Checkpoint 1: OpenUSD handoff contract
 
 - [x] Package the project codeless CSD schemas and registration helper.

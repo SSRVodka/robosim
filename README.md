@@ -39,6 +39,28 @@ equivalent JSON CSD.
 
 `vsim` exposes the CSD compiler boundary through `robosim.core.compile_csd`.
 
+For a v9 MuJoCo resource package, the equivalent command-line entry point is:
+
+```bash
+# take mujoco for example
+MUJOCO_GL=egl python -m robosim.compile \
+  --csd csd/example/scene.usda \
+  --backend mujoco \
+  --output-root csd/example/engine_manifests
+```
+
+It prints the realization manifest as JSON, writes `scene.xml`, `models/` and
+diagnostics below `<output-root>/mujoco/<scene_id>/`, and exits with status 2
+after printing typed blockers when compilation is rejected.
+
+Inspect a generated backend entry without starting the RoboSim gRPC server:
+
+```bash
+python -m robosim.view --backend mujoco --entry /path/to/scene.xml
+python -m robosim.view --backend pybullet --entry /path/to/scene.py
+python -m robosim.view --backend gazebo --entry /path/to/world.sdf
+```
+
 Pass `backend="mujoco"`, `backend="gazebo"`, or `backend="pybullet"`. All three
 accept `csd_path=Path("csd/<csd_id>/csd.usda")`. The compiler also consumes an
 asset registry with passed backend variants, an output root, and an asset root.
