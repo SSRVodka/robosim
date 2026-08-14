@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import shutil
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -15,12 +16,15 @@ from robosim.core.mujoco_openusd_package import (
     OpenUsdAsset,
     OpenUsdRigidBody,
     OpenUsdScenePackage,
+    OpenUsdVisualMaterial,
     PackageError,
     _dependency_hash,
     _unique_assets,
     read_openusd_scene_package,
 )
 from robosim.core.pybullet_openusd_package import _rotate, _rpy, _write_obj_materials
+
+_Pose = tuple[float, float, float, float, float, float, float]
 
 
 def compile_openusd_scene_package(
@@ -40,7 +44,7 @@ def compile_openusd_scene_package(
         },
         backend="gazebo",
         realization_config=dict(realization_config or {}),
-        realization_version=f"{realization_version}-gazebo-openusd-0.1",
+        realization_version=f"{realization_version}-gazebo-openusd-0.9",
         simulator_version=simulator_version,
     )
     root = (Path(output_root) / "gazebo" / package.scene_id).resolve()
@@ -62,6 +66,8 @@ def compile_openusd_scene_package(
         asset_root = root / "assets" / key
         shutil.copytree(asset.source.parent / "support", asset_root / "support", dirs_exist_ok=True)
         _write_obj_materials(asset_root, asset)
+        _write_collision_obj_materials(asset_root, asset)
+        _write_gazebo_material_scripts(asset_root, asset)
         assets[(asset.asset_id, asset.resource_digest)] = asset_root
         generated.extend(
             str(path.relative_to(root)) for path in asset_root.rglob("*") if path.is_file()
@@ -121,7 +127,7 @@ def _write_world(
         )
     if robot is not None:
         world.append(robot)
-    joint_states: list[tuple[str, tuple[tuple[str, float], ...]]] = []
+    joint_states: list[tuple[str, _Pose, tuple[tuple[str, float], ...]]] = []
     for instance in package.instances:
         key = (instance.asset.asset_id, instance.asset.resource_digest)
         model = _model(
@@ -135,12 +141,13 @@ def _write_world(
             model.insert(1, _text("static", "true"))
         world.append(model)
         if instance.joint_targets:
-            joint_states.append((model.attrib["name"], instance.joint_targets))
+            joint_states.append((model.attrib["name"], instance.pose, instance.joint_targets))
     if joint_states:
         state = ET.SubElement(world, "state", {"world_name": package.scene_id})
         ET.SubElement(state, "iterations").text = "0"
-        for model_name, targets in joint_states:
+        for model_name, pose, targets in joint_states:
             model_state = ET.SubElement(state, "model", {"name": model_name})
+            ET.SubElement(model_state, "pose").text = _pose(pose)
             for joint_name, target in targets:
                 joint = ET.SubElement(model_state, "joint", {"name": joint_name})
                 ET.SubElement(joint, "angle", {"axis": "0"}).text = str(target)
@@ -163,7 +170,12 @@ def _write_world(
     ET.ElementTree(root).write(path, encoding="utf-8", xml_declaration=True)
 
 
-def _model(asset: OpenUsdAsset, name: str, asset_root: Path, world_root: Path) -> ET.Element:
+def _model(
+    asset: OpenUsdAsset,
+    name: str,
+    asset_root: Path,
+    world_root: Path,
+) -> ET.Element:
     model = ET.Element("model", {"name": name})
     child_frames = {joint.child: _child_pose(joint) for joint in asset.joints}
     for body in asset.bodies:
@@ -174,12 +186,13 @@ def _model(asset: OpenUsdAsset, name: str, asset_root: Path, world_root: Path) -
         if asset.mode != "static":
             _inertial(link, body)
         for index, (visual, material) in enumerate(_visual_parts(asset_root, body, asset)):
-            _geometry(link, "visual", visual, world_root, material, index)
+            _geometry(link, "visual", visual, asset_root, world_root, material, index)
         for index, collision in enumerate(body.collision_objs):
             element = _geometry(
                 link,
                 "collision",
                 asset_root / collision,
+                asset_root,
                 world_root,
                 None,
                 index,
@@ -192,8 +205,8 @@ def _model(asset: OpenUsdAsset, name: str, asset_root: Path, world_root: Path) -
         element = ET.SubElement(model, "joint", {"name": joint.name, "type": joint.kind})
         ET.SubElement(element, "parent").text = joint.parent
         ET.SubElement(element, "child").text = joint.child
-        ET.SubElement(element, "pose", {"relative_to": joint.parent}).text = _pose(
-            (*joint.parent_pos, *joint.parent_quat)
+        ET.SubElement(element, "pose", {"relative_to": joint.child}).text = _pose(
+            (*joint.pos, *joint.quat)
         )
         axis = ET.SubElement(element, "axis")
         ET.SubElement(axis, "xyz").text = {"X": "1 0 0", "Y": "0 1 0", "Z": "0 0 1"}[joint.axis]
@@ -220,8 +233,9 @@ def _geometry(
     link: ET.Element,
     tag: str,
     mesh: Path,
+    asset_root: Path,
     world_root: Path,
-    material: tuple[float, float, float, float] | None,
+    material: OpenUsdVisualMaterial | None,
     index: int,
 ) -> ET.Element:
     element = ET.SubElement(link, tag, {"name": f"{tag}_{index}"})
@@ -229,8 +243,14 @@ def _geometry(
     mesh_element = ET.SubElement(geometry, "mesh")
     ET.SubElement(mesh_element, "uri").text = mesh.relative_to(world_root).as_posix()
     if tag == "visual" and material is not None:
-            sdf_material = ET.SubElement(element, "material")
-            color = _values(material)
+        sdf_material = ET.SubElement(element, "material")
+        if material.texture is not None:
+            script = ET.SubElement(sdf_material, "script")
+            material_root = asset_root / "materials"
+            ET.SubElement(script, "uri").text = material_root.relative_to(world_root).as_posix()
+            ET.SubElement(script, "name").text = _gazebo_material_name(asset_root, material)
+        else:
+            color = _values(material.rgba)
             ET.SubElement(sdf_material, "ambient").text = color
             ET.SubElement(sdf_material, "diffuse").text = color
     return element
@@ -238,17 +258,18 @@ def _geometry(
 
 def _visual_parts(
     asset_root: Path, body: OpenUsdRigidBody, asset: OpenUsdAsset
-) -> tuple[tuple[Path, tuple[float, float, float, float] | None], ...]:
+) -> tuple[tuple[Path, OpenUsdVisualMaterial | None], ...]:
     source = asset_root / body.visual_obj
-    material_by_name = {item.name: item.rgba for item in asset.visual_materials}
+    material_by_name = {item.name: item for item in asset.visual_materials}
     names = _obj_material_names(source)
     if len(names) == 1:
         material = material_by_name.get(names[0] or "")
         if material is None:
             material = material_by_name.get(body.visual_obj.parent.name.lower())
         return ((source, material),)
+    fallback = material_by_name.get(body.visual_obj.parent.name.lower())
     return tuple(
-        (path, material_by_name.get(name or ""))
+        (path, material_by_name.get(name or "", fallback))
         for path, name in zip(_split_visual_obj(source), names, strict=True)
     )
 
@@ -371,32 +392,49 @@ def _robot_model(
     source = Path(pybullet_data.getDataPath()) / "franka_panda"
     destination = root / "robots" / "franka_panda"
     shutil.copytree(source, destination, dirs_exist_ok=True)
+    _normalize_robot_obj_materials(destination)
     urdf = ET.parse(destination / "panda.urdf").getroot()
     model = ET.Element("model", {"name": package.robot.instance_id})
     model.insert(0, _text("pose", _pose(package.robot.pose)))
+    massless_links = _massless_fixed_urdf_links(urdf)
+    joints = _retained_urdf_joints(urdf, massless_links)
+    child_frames: dict[str, tuple[str, tuple[float, float, float, float, float, float, float]]] = {}
+    for joint, parent, pose in joints:
+        child = joint.find("child")
+        if child is None:
+            raise PackageError(f"Gazebo Franka joint is missing child: {joint.attrib['name']}")
+        child_frames[str(child.attrib["link"])] = (parent, pose)
     for urdf_link in urdf.findall("link"):
+        if urdf_link.attrib["name"] in massless_links:
+            continue
         link = ET.SubElement(model, "link", {"name": str(urdf_link.attrib["name"])})
+        if frame := child_frames.get(str(urdf_link.attrib["name"])):
+            pose, parent = frame[1], frame[0]
+            ET.SubElement(link, "pose", {"relative_to": parent}).text = _urdf_pose_text(pose)
         _copy_urdf_inertial(link, urdf_link)
         for tag in ("visual", "collision"):
             for index, element in enumerate(urdf_link.findall(tag)):
                 _copy_urdf_geometry(link, tag, index, element, destination, root)
-    for urdf_joint in urdf.findall("joint"):
+    if package.robot.fixed_base:
+        base_joint = ET.SubElement(model, "joint", {"name": "robot_base_fixed", "type": "fixed"})
+        ET.SubElement(base_joint, "parent").text = "world"
+        ET.SubElement(base_joint, "child").text = "panda_link0"
+    for urdf_joint, parent_name, _ in joints:
         joint = ET.SubElement(
             model,
             "joint",
             {"name": str(urdf_joint.attrib["name"]), "type": str(urdf_joint.attrib["type"])},
         )
-        parent = urdf_joint.find("parent")
         child = urdf_joint.find("child")
-        if parent is None or child is None:
+        if child is None:
             raise PackageError(
                 f"Gazebo Franka joint is missing parent or child: {joint.attrib['name']}"
             )
-        ET.SubElement(joint, "parent").text = str(parent.attrib["link"])
+        ET.SubElement(joint, "parent").text = parent_name
         ET.SubElement(joint, "child").text = str(child.attrib["link"])
-        origin = urdf_joint.find("origin")
-        if origin is not None:
-            ET.SubElement(joint, "pose").text = _urdf_pose(origin)
+        ET.SubElement(
+            joint, "pose", {"relative_to": str(child.attrib["link"])}
+        ).text = "0 0 0 0 0 0"
         axis = urdf_joint.find("axis")
         if axis is not None:
             sdf_axis = ET.SubElement(joint, "axis")
@@ -410,6 +448,212 @@ def _robot_model(
         model,
         tuple(str(path.relative_to(root)) for path in destination.rglob("*") if path.is_file()),
     )
+
+
+def _massless_fixed_urdf_links(urdf: ET.Element) -> frozenset[str]:
+    """Return zero-mass fixed connector links that Gazebo ODE cannot simulate."""
+    joints_by_child = {
+        str(child.attrib["link"]): joint
+        for joint in urdf.findall("joint")
+        if (child := joint.find("child")) is not None
+    }
+    result: set[str] = set()
+    for link in urdf.findall("link"):
+        inertial = link.find("inertial")
+        mass = inertial.find("mass") if inertial is not None else None
+        if mass is None or float(mass.attrib["value"]) != 0.0:
+            continue
+        name = str(link.attrib["name"])
+        joint = joints_by_child.get(name)
+        if (
+            joint is None
+            or joint.attrib["type"] != "fixed"
+            or link.find("visual") is not None
+            or link.find("collision") is not None
+        ):
+            raise PackageError(f"Gazebo robot has an unsupported zero-mass link: {name}")
+        result.add(name)
+    return frozenset(result)
+
+
+def _retained_urdf_joints(
+    urdf: ET.Element, massless_links: frozenset[str]
+) -> tuple[tuple[ET.Element, str, tuple[float, float, float, float, float, float, float]], ...]:
+    """Collapse removed fixed connector links into their retained descendants."""
+    joints_by_child = {
+        str(child.attrib["link"]): joint
+        for joint in urdf.findall("joint")
+        if (child := joint.find("child")) is not None
+    }
+    result = []
+    for joint in urdf.findall("joint"):
+        child = joint.find("child")
+        parent = joint.find("parent")
+        if child is None or parent is None:
+            raise PackageError(
+                f"Gazebo Franka joint is missing parent or child: {joint.attrib['name']}"
+            )
+        if child.attrib["link"] in massless_links:
+            continue
+        parent_name = str(parent.attrib["link"])
+        pose = _urdf_joint_pose(joint.find("origin"))
+        while parent_name in massless_links:
+            connector = joints_by_child[parent_name]
+            connector_parent = connector.find("parent")
+            if connector_parent is None:
+                raise PackageError(f"Gazebo Franka connector has no parent: {parent_name}")
+            pose = _compose_urdf_poses(_urdf_joint_pose(connector.find("origin")), pose)
+            parent_name = str(connector_parent.attrib["link"])
+        result.append((joint, parent_name, pose))
+    return tuple(result)
+
+
+def _urdf_joint_pose(
+    origin: ET.Element | None,
+) -> tuple[float, float, float, float, float, float, float]:
+    if origin is None:
+        return (0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0)
+    x, y, z = (float(value) for value in origin.attrib.get("xyz", "0 0 0").split())
+    roll, pitch, yaw = (float(value) for value in origin.attrib.get("rpy", "0 0 0").split())
+    half_roll, half_pitch, half_yaw = roll / 2, pitch / 2, yaw / 2
+    quaternion = (
+        math.cos(half_roll) * math.cos(half_pitch) * math.cos(half_yaw)
+        + math.sin(half_roll) * math.sin(half_pitch) * math.sin(half_yaw),
+        math.sin(half_roll) * math.cos(half_pitch) * math.cos(half_yaw)
+        - math.cos(half_roll) * math.sin(half_pitch) * math.sin(half_yaw),
+        math.cos(half_roll) * math.sin(half_pitch) * math.cos(half_yaw)
+        + math.sin(half_roll) * math.cos(half_pitch) * math.sin(half_yaw),
+        math.cos(half_roll) * math.cos(half_pitch) * math.sin(half_yaw)
+        - math.sin(half_roll) * math.sin(half_pitch) * math.cos(half_yaw),
+    )
+    return (x, y, z, *quaternion)
+
+
+def _compose_urdf_poses(
+    parent: tuple[float, float, float, float, float, float, float],
+    child: tuple[float, float, float, float, float, float, float],
+) -> tuple[float, float, float, float, float, float, float]:
+    position = _rotate(parent[3:], child[:3])
+    return (
+        parent[0] + position[0],
+        parent[1] + position[1],
+        parent[2] + position[2],
+        *_multiply(parent[3:], child[3:]),
+    )
+
+
+def _urdf_pose_text(pose: tuple[float, float, float, float, float, float, float]) -> str:
+    return _values(pose[:3]) + " " + _rpy(pose[3:])
+
+
+def _write_collision_obj_materials(asset_root: Path, asset: OpenUsdAsset) -> None:
+    """Bind collision OBJ shape names to local default materials for Gazebo Classic."""
+    visual_paths = {body.visual_obj for body in asset.bodies}
+    for body in asset.bodies:
+        for collision in body.collision_objs:
+            if collision in visual_paths:
+                continue
+            path = asset_root / collision
+            lines = path.read_text(encoding="utf-8").splitlines()
+            names = tuple(
+                dict.fromkeys(line.split(maxsplit=1)[1] for line in lines if line.startswith("o "))
+            )
+            if not names:
+                continue
+            mtl = path.with_suffix(".mtl")
+            mtl.write_text(
+                "\n".join(f"newmtl {name}\nKd 0.7 0.7 0.7\nd 1\n" for name in names),
+                encoding="utf-8",
+            )
+            obj_lines: list[str] = [f"mtllib {mtl.name}"]
+            for line in lines:
+                if line.startswith(("mtllib ", "usemtl ")):
+                    continue
+                obj_lines.append(line)
+                if line.startswith("o "):
+                    obj_lines.append(f"usemtl {line.split(maxsplit=1)[1]}")
+            path.write_text("\n".join(obj_lines) + "\n", encoding="utf-8")
+
+
+def _write_gazebo_material_scripts(asset_root: Path, asset: OpenUsdAsset) -> None:
+    """Write OGRE scripts that make textured USD materials authoritative in Gazebo."""
+    material_root = asset_root / "materials"
+    for material in asset.visual_materials:
+        if material.texture is None:
+            continue
+        texture = asset_root / "textures" / material.texture.name
+        if not texture.is_file():
+            raise PackageError(f"Gazebo texture is unavailable: {material.texture}")
+        script = material_root / f"{_material_file_name(material.name)}.material"
+        script.parent.mkdir(exist_ok=True)
+        color = " ".join(str(value) for value in material.rgba)
+        script.write_text(
+            "\n".join(
+                (
+                    f"material {_gazebo_material_name(asset_root, material)}",
+                    "{",
+                    "  technique",
+                    "  {",
+                    "    pass",
+                    "    {",
+                    f"      ambient {color}",
+                    f"      diffuse {color}",
+                    "      texture_unit",
+                    "      {",
+                    f"        texture {Path(os.path.relpath(texture, material_root)).as_posix()}",
+                    "      }",
+                    "    }",
+                    "  }",
+                    "}",
+                    "",
+                )
+            ),
+            encoding="utf-8",
+        )
+
+
+def _gazebo_material_name(asset_root: Path, material: OpenUsdVisualMaterial) -> str:
+    return f"robosim/{asset_root.name}/{_material_file_name(material.name)}"
+
+
+def _material_file_name(name: str) -> str:
+    return name.replace("/", "_")
+
+
+def _normalize_robot_obj_materials(robot_root: Path) -> None:
+    """Make copied Franka OBJ material references package-local and resolvable."""
+    texture = robot_root / "meshes" / "visual" / "colors.png"
+    for obj in robot_root.rglob("*.obj"):
+        lines = obj.read_text(encoding="utf-8").splitlines()
+        names = tuple(
+            dict.fromkeys(
+                line.split(maxsplit=1)[1] for line in lines if line.startswith("usemtl ")
+            )
+        )
+        if not names:
+            continue
+        mtl = obj.with_suffix(".mtl")
+        if mtl.is_file():
+            records = _normalize_mtl_texture_paths(mtl.read_text(encoding="utf-8"), mtl, texture)
+        else:
+            records = "\n".join(
+                f"newmtl {name}\nKd 0.7 0.7 0.7\nd 1\n" for name in names
+            )
+        mtl.write_text(records, encoding="utf-8")
+        body = tuple(line for line in lines if not line.startswith("mtllib "))
+        obj.write_text(
+            "\n".join((f"mtllib {mtl.name}", *body)) + "\n",
+            encoding="utf-8",
+        )
+
+
+def _normalize_mtl_texture_paths(source: str, mtl: Path, texture: Path) -> str:
+    """Replace non-local texture paths in a copied MTL with the copied texture."""
+    texture_ref = Path(os.path.relpath(texture, mtl.parent)).as_posix()
+    lines = source.splitlines()
+    return "\n".join(
+        f"map_Kd {texture_ref}" if line.startswith("map_Kd ") else line for line in lines
+    ) + "\n"
 
 
 def _validate(world: Path, diagnostics: Path, package: OpenUsdScenePackage) -> None:

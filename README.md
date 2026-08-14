@@ -49,8 +49,8 @@ MUJOCO_GL=egl python -m robosim.compile \
   --output-root csd/example/engine_manifests
 ```
 
-It prints the realization manifest as JSON, writes `scene.xml`, `models/` and
-diagnostics below `<output-root>/mujoco/<scene_id>/`, and exits with status 2
+It prints the realization manifest as JSON, writes the backend-native entry and
+diagnostics below `<output-root>/<backend>/<scene_id>/`, and exits with status 2
 after printing typed blockers when compilation is rejected.
 
 Inspect a generated backend entry without starting the RoboSim gRPC server:
@@ -144,21 +144,16 @@ python3 -m robosim.server [--help] [--host <gRPC-listen-host>] [--port <gRPC-lis
 > [!WARNING]
 >
 > 如果选择的后端是 gazebo，那么需要额外启动 ROS2 节点（后续会集成进 `server.py`）。需要先在新的窗口中使用 robosim 虚拟环境：
->
 > ```bash
 > mamba activate robosim
 > pushd drivers_sim/gazebo-11/
-> # 解压 gazbo 预设模型
-> tar -zxpvf assets-model.tar.gz
 > # 构建 Gazebo 项目
 > colcon build
 > source ./install/setup.bash
 > popd
-> mamba activate robosim
-> ros2 launch demos gzsim.nav2.launch.py
+> ros2 launch demos gzsim.nav2.launch.py gui:=true
 > ```
 >
-> 然后再启动 robosim。
 
 现在，你的环境已经准备好了！
 

@@ -1,5 +1,14 @@
 # RoboSim 框架设计
 
+## Gazebo driver workspaces（2026-08-14，进行中）
+
+`drivers_sim/gazebo-11/` 只承载 Gazebo Classic 11 / ROS 2 Humble 路径，
+使用 `gazebo_ros` 和 `gazebo_ros2_control`。`drivers_sim/gazebo/` 承载现代
+Gazebo Sim（原 Ignition）/ `ros_gz_*` 路径；其资源、ROS package 与 build/install
+workspace 不与 Classic 共享。两条路径的 world、plugin、controller 与 resource lookup
+语义独立，不能以同一 package 或环境变量混用。当前实现迭代只完成目录分界与代码
+归属，不将未安装 `ros_gz_*` 的 Gazebo Sim 路径宣称为可运行。
+
 ## MuJoCo v9 OpenUSD package realization（2026-08-03，进行中）
 
 v9 scene 可选地在 `/World/Robot` 声明一个固定基座机器人，而不引用 USD
@@ -432,12 +441,22 @@ closure 复制至本地 `assets/`。SDF 1.7 model/link/joint 映射保留资产�
 closure 被复制并映射为本地 SDF model。实现依据
 https://sdformat.org/spec/1.7/；生成后检查 XML version 和每一个 mesh URI 都在
 realization root 内，证据写入 `diagnostics/sdf_check.json`。
-每个 OBJ object/material group 拆为独立 SDF visual，并使用对应的
-UsdPreviewSurface RGBA；纹理和 MTL 也随 asset support closure 写入本地。articulated
-link 的 pose 由 USD joint 的 `localPos0/localRot0` 与 `localPos1/localRot1` 无损推导，
-joint pose 显式相对 parent link，实例 initial joint target 同时写入 SDF world state
-和 `runtime/initial_joint_positions.json`。v9 procedural shell 依约作为 static model
+每个 OBJ object/material group 拆为独立 SDF visual。纯色
+UsdPreviewSurface 写入 SDF RGBA；带 `UsdUVTexture` 的 visual 则写入 package-local
+OGRE material script，并以 SDF `<material><script>` 作为唯一 rendering authority，避免
+SDF color 覆盖 OBJ/MTL texture。OBJ、MTL、OGRE script 与 texture 均随 asset support
+closure 写入本地。articulated
+link 的 pose 由 USD joint 的 `localPos0/localRot0 × inverse(localPos1/localRot1)` 无损推导，
+joint pose 使用 `localPos1/localRot1` 并显式相对 child link（SDFormat 1.7 joint pose
+默认在 child frame），实例 initial joint target 同时写入 SDF world state
+和 `runtime/initial_joint_positions.json`；world state 中的 model 必须同时写入 CSD
+authored model pose，避免 SDFormat state 的缺省 zero pose 覆盖实例 placement。v9 procedural shell 依约作为 static model
 展开为 Floor/Walls links，不生成 inertial 或 free joint。
+
+机器人 base mobility 是 CSD `RobosimRobotAPI` contract 的 canonical 属性
+`robosim:robot:fixedBase`（默认 `true`），与 `robosim:robot:id` 独立：`true` 映射为世界固定 base，
+`false` 映射为可自由运动的 base。后端不得通过 robot ID 推断该语义；具体 robot ID
+仍只由对应的 backend resource adapter/template 决定。
 
 当前 Gazebo v9 compile **仍不可靠，不能作为可运行 runtime 的验收结论**：该路径仅有
 SDF/XML 与 package-local URI 级别的验证，尚未在 Gazebo Classic 11 中完成稳定的

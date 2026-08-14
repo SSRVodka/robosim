@@ -128,6 +128,7 @@ def test_v9_robot_descriptor_copies_and_patches_control_template(
 {
     def Xform "Robot"
     {
+        custom bool robosim:robot:fixedBase = 1
         custom string robosim:robot:id = "franka_panda"
         custom string robosim:robot:instanceId = "robot"
         quatd xformOp:orient = (1, 0, 0, 0)

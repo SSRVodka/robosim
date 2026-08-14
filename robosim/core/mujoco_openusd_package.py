@@ -25,6 +25,7 @@ _DIGEST = re.compile(r'assetserver:simulationSupport:resourceDigest\s*=\s*"sha25
 _OBJ = re.compile(r"@([^@]+\.obj)@")
 _ROBOT_ID = re.compile(r'robosim:robot:id\s*=\s*"([^"]+)"')
 _ROBOT_INSTANCE_ID = re.compile(r'robosim:robot:instanceId\s*=\s*"([^"]+)"')
+_ROBOT_FIXED_BASE = re.compile(r"robosim:robot:fixedBase\s*=\s*([01])")
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,11 +87,12 @@ class OpenUsdSceneInstance:
 
 @dataclass(frozen=True, slots=True)
 class OpenUsdRobot:
-    """A fixed-base robot described by a v9 scene prim."""
+    """A robot and its authored base-mobility semantics."""
 
     robot_id: str
     instance_id: str
     pose: tuple[float, float, float, float, float, float, float]
+    fixed_base: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -296,7 +298,10 @@ def _read_robot(text: str) -> OpenUsdRobot | None:
     instance_id = _one(_ROBOT_INSTANCE_ID, scope, "robot instance id")
     if not _unit_scale(scope):
         raise PackageError("robot has non-unit instance scale")
-    return OpenUsdRobot(robot_id, instance_id, _pose(scope))
+    fixed_base = _ROBOT_FIXED_BASE.search(scope)
+    return OpenUsdRobot(
+        robot_id, instance_id, _pose(scope), fixed_base is None or fixed_base[1] == "1"
+    )
 
 
 def _read_cameras(text: str) -> tuple[OpenUsdCamera, ...]:
@@ -364,6 +369,8 @@ def _copy_robot(
         raise PackageError(f"robot template has no root body: {entry}")
     body.set("pos", _values(robot.pose[:3]))
     body.set("quat", _values(robot.pose[3:]))
+    if not robot.fixed_base:
+        ET.SubElement(body, "freejoint", {"name": "robot_base_free"})
     world = xml.getroot().find("worldbody")
     if world is not None:
         for light in world.findall("light"):
@@ -517,7 +524,7 @@ def _read_shell_asset(path: Path) -> OpenUsdAsset:
     )
 
 
-def _attribute(prim: Any, name: str, expected: type[str] | type[float]) -> Any:
+def _attribute(prim: Any, name: str, expected: type[str] | type[float] | type[bool]) -> Any:
     value = prim.GetAttribute(name).Get()
     if value is None or not isinstance(value, expected):
         raise PackageError(f"{prim.GetPath()} missing {name}")
@@ -783,10 +790,14 @@ def _read_stage_robot(stage: Any) -> OpenUsdRobot | None:
     prim = stage.GetPrimAtPath("/World/Robot")
     if not prim:
         return None
+    fixed_base = prim.GetAttribute("robosim:robot:fixedBase").Get()
+    if fixed_base is not None and not isinstance(fixed_base, bool):
+        raise PackageError("/World/Robot has invalid robosim:robot:fixedBase")
     return OpenUsdRobot(
         _attribute(prim, "robosim:robot:id", str),
         _attribute(prim, "robosim:robot:instanceId", str),
         _stage_pose(prim),
+        True if fixed_base is None else fixed_base,
     )
 
 

@@ -47,7 +47,7 @@ def _view_pybullet(entry: Path) -> None:
 
 
 def _view_gazebo(entry: Path) -> None:
-    subprocess.run(("gazebo", str(entry)), check=True)
+    subprocess.run(("gazebo", entry.name), cwd=entry.parent, check=True)
 
 
 if __name__ == "__main__":
