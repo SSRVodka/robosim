@@ -21,7 +21,7 @@ def test_create_mujoco_backend_from_csd_manifest(monkeypatch) -> None:
             calls.append((manifest_path, headless))
             return cls()
 
-    monkeypatch.setattr(server, "MuJoCoBackend", FakeMuJoCoBackend)
+    monkeypatch.setattr(server, "_load_backend_class", lambda _: FakeMuJoCoBackend)
 
     backend = server.create_backend(
         backend_type="mujoco",
@@ -44,18 +44,18 @@ def test_create_mujoco_backend_from_scene_path(monkeypatch) -> None:
         def __init__(self, *, scene_path: str, headless: bool = True) -> None:
             calls.append((scene_path, headless))
 
-    monkeypatch.setattr(server, "MuJoCoBackend", FakeMuJoCoBackend)
+    monkeypatch.setattr(server, "_load_backend_class", lambda _: FakeMuJoCoBackend)
 
     backend = server.create_backend(
         backend_type="mujoco",
         robot_name="ignored",
         scene="/tmp/scene.xml",
         csd_manifest=None,
-        headless=True,
+        headless=False,
     )
 
     assert isinstance(backend, FakeMuJoCoBackend)
-    assert calls == [("/tmp/scene.xml", True)]
+    assert calls == [("/tmp/scene.xml", False)]
 
 
 def test_create_pybullet_backend_from_csd_manifest(monkeypatch) -> None:
@@ -72,7 +72,7 @@ def test_create_pybullet_backend_from_csd_manifest(monkeypatch) -> None:
             calls.append((manifest_path, headless))
             return cls()
 
-    monkeypatch.setattr(server, "PyBulletBackend", FakePyBulletBackend)
+    monkeypatch.setattr(server, "_load_backend_class", lambda _: FakePyBulletBackend)
 
     backend = server.create_backend(
         backend_type="pybullet",
@@ -95,7 +95,7 @@ def test_create_pybullet_backend_from_default_scene(monkeypatch) -> None:
         def __init__(self, *, scene_path: str | None = None, headless: bool = True) -> None:
             calls.append((scene_path, headless))
 
-    monkeypatch.setattr(server, "PyBulletBackend", FakePyBulletBackend)
+    monkeypatch.setattr(server, "_load_backend_class", lambda _: FakePyBulletBackend)
 
     backend = server.create_backend(
         backend_type="pybullet",
@@ -107,3 +107,30 @@ def test_create_pybullet_backend_from_default_scene(monkeypatch) -> None:
 
     assert isinstance(backend, FakePyBulletBackend)
     assert calls == [(None, True)]
+
+
+def test_no_headless_selects_backend_viewer_mode() -> None:
+    args = server.parse_args(("--backend", "mujoco", "--no-headless"))
+
+    assert args.backend == "mujoco"
+    assert args.headless is False
+
+
+def test_launch_gazebo_viewer_uses_scene_directory(monkeypatch, tmp_path: Path) -> None:
+    scene = tmp_path / "world.sdf"
+    scene.touch()
+    calls: list[tuple[tuple[str, str], Path]] = []
+
+    class FakeProcess:
+        pass
+
+    def fake_popen(command: tuple[str, str], *, cwd: Path) -> FakeProcess:
+        calls.append((command, cwd))
+        return FakeProcess()
+
+    monkeypatch.setattr(server.subprocess, "Popen", fake_popen)
+
+    process = server.launch_gazebo_viewer(str(scene))
+
+    assert isinstance(process, FakeProcess)
+    assert calls == [(("gazebo", "world.sdf"), tmp_path)]

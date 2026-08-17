@@ -53,14 +53,6 @@ It prints the realization manifest as JSON, writes the backend-native entry and
 diagnostics below `<output-root>/<backend>/<scene_id>/`, and exits with status 2
 after printing typed blockers when compilation is rejected.
 
-Inspect a generated backend entry without starting the RoboSim gRPC server:
-
-```bash
-python -m robosim.view --backend mujoco --entry /path/to/scene.xml
-python -m robosim.view --backend pybullet --entry /path/to/scene.py
-python -m robosim.view --backend gazebo --entry /path/to/world.sdf
-```
-
 Pass `backend="mujoco"`, `backend="gazebo"`, or `backend="pybullet"`. All three
 accept `csd_path=Path("csd/<csd_id>/csd.usda")`. The compiler also consumes an
 asset registry with passed backend variants, an output root, and an asset root.
@@ -138,26 +130,26 @@ popd
 最后启动 robosim（`[]` 表示可选项，`<>` 表示必填项）。更多参数用法请使用 `--help`：
 
 ```bash
-python3 -m robosim.server [--help] [--host <gRPC-listen-host>] [--port <gRPC-listen-port>] [--backend <gazebo|mujoco|pybullet>] [--headless | --no-headless]
+python3 -m robosim.server [--help] [--port <gRPC-listen-port>] [--backend <gazebo|mujoco|pybullet>] [--headless | --no-headless]
 ```
 
 > [!WARNING]
 >
-> 如果选择的后端是 gazebo，那么需要额外启动 ROS2 节点（后续会集成进 `server.py`）。需要先在新的窗口中使用 robosim 虚拟环境：
+> 如果选择的后端是 gazebo，使用 `--no-headless --scene <world.sdf>` 会由 server 启动 Gazebo Classic GUI。headless 模式仍需额外启动 Gazebo/ROS2 场景。
+>
 > ```bash
 > mamba activate robosim
-> pushd drivers_sim/gazebo-11/
-> # 构建 Gazebo 项目
+> pushd drivers_sim/gazebo-11/  # Jazzy / Harmonic 使用 drivers_sim/gazebo/
 > colcon build
 > source ./install/setup.bash
 > popd
-> ros2 launch demos gzsim.nav2.launch.py gui:=true
+> ros2 launch demos gzsim.nav2.launch.py gui:=false
 > ```
 >
 
 现在，你的环境已经准备好了！
 
-PyBullet 和 MuJoCo 后端不需要额外启动 ROS2 节点。headless 模式使用 PyBullet DIRECT client；`--no-headless` 使用 GUI client。
+PyBullet 和 MuJoCo 后端不需要额外启动 ROS2 节点。headless 模式使用 PyBullet DIRECT client；`--no-headless` 使用 GUI client。MuJoCo、PyBullet 和 Gazebo 的原生场景查看均统一由 server 的 `--no-headless` 提供。
 
 > (WIP) OpenHarmony 部署环境的文档正在准备中。
 
