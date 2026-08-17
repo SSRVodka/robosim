@@ -10,9 +10,11 @@ import os
 import threading
 from collections import deque
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Iterator, Optional
 
 from action_msgs.msg import GoalStatus
+from control_msgs.action import FollowJointTrajectory
 from geometry_msgs.msg import Point, Pose, PoseStamped, Quaternion, Twist, Vector3
 from nav2_msgs.action import NavigateToPose
 from nav_msgs.msg import Odometry
@@ -27,6 +29,7 @@ from rclpy.timer import Timer
 from sensor_msgs.msg import Image, Imu, JointState, LaserScan
 from std_msgs.msg import Header
 from tf2_ros import Buffer, TransformListener
+from trajectory_msgs.msg import JointTrajectoryPoint
 
 from control_stubs import common_pb2 as common_pb2
 from control_stubs import mobility_ai_pb2
@@ -35,6 +38,7 @@ from control_stubs import sensing_pb2 as sensing_pb2
 from control_stubs.sensing_pb2 import SensorType
 from robosim.core.backend import SimulatorBackend
 from robosim.core.capabilities import Capability
+from robosim.core.csd import CsdGazeboRuntimeContract, CsdRealizationManifest
 
 
 @dataclass(slots=True)
@@ -72,13 +76,17 @@ class GazeboBackend(SimulatorBackend, Node):
     DISCOVERY_DELAY = 2.0
     REFRESH_INTERVAL = 5.0
 
-    def __init__(self, robot_name: str = "robot") -> None:
+    def __init__(
+        self, robot_name: str = "robot", runtime: CsdGazeboRuntimeContract | None = None
+    ) -> None:
         SimulatorBackend.__init__(self)
         Node.__init__(self, f"robosim_gazebo_backend_{robot_name}")
         self.get_logger().info(f"Initializing GazeboBackend for robot: {robot_name}")
 
         self._robot_name = robot_name
+        self._runtime = runtime
         self._capabilities = Capability.NONE
+        self._joint_command_state = common_pb2.JointState()
 
         # One lock for backend state
         self._state_lock = threading.RLock()
@@ -97,6 +105,7 @@ class GazeboBackend(SimulatorBackend, Node):
 
         self._nav_tracked_action_name: Optional[str] = None
         self._nav_client: Optional[ActionClient] = None
+        self._trajectory_client: ActionClient | None = None
 
         # Spin this node on its own executor thread
         self._executor = MultiThreadedExecutor(
@@ -110,6 +119,15 @@ class GazeboBackend(SimulatorBackend, Node):
         )
         self._executor_thread.start()
 
+        if runtime is not None:
+            self._subscribe_sensor(runtime.joint_state_topic, "sensor_msgs/msg/JointState")
+            for topic in runtime.camera_topics.values():
+                self._subscribe_sensor(topic, "sensor_msgs/msg/Image")
+            self._trajectory_client = ActionClient(
+                self, FollowJointTrajectory, runtime.trajectory_action.strip("/"),
+                callback_group=self._cb_group,
+            )
+
         self.get_logger().info("Discovering and subscribing to sensor topics...")
         self._discover_and_subscribe()
 
@@ -122,6 +140,17 @@ class GazeboBackend(SimulatorBackend, Node):
         self.get_logger().info(
             f"GazeboBackend initialized. Refresh interval: {self.REFRESH_INTERVAL}s"
         )
+
+    @classmethod
+    def from_csd_realization_manifest_file(cls, path: Path) -> "GazeboBackend":
+        import json
+
+        manifest = CsdRealizationManifest.from_json_dict(
+            json.loads(path.read_text(encoding="utf-8"))
+        )
+        if manifest.backend != "gazebo" or manifest.gazebo_runtime is None:
+            raise ValueError("manifest does not contain a Gazebo runtime contract")
+        return cls(robot_name=manifest.csd_id, runtime=manifest.gazebo_runtime)
 
     def _init_tf(self) -> None:
         self._tf_buffer = Buffer()
@@ -295,6 +324,7 @@ class GazeboBackend(SimulatorBackend, Node):
     def _on_joint_state(self, msg: JointState, topic_name: str) -> None:
         self.get_logger().debug(f"JointState received from {topic_name}")
         self._update_sensor(topic_name, msg, SensorType.JOINT)
+        self._detect_capabilities()
 
     def _on_imu(self, msg: Imu, topic_name: str) -> None:
         self.get_logger().debug(f"IMU data received from {topic_name}")
@@ -314,12 +344,27 @@ class GazeboBackend(SimulatorBackend, Node):
     def _on_image(self, msg: Image, topic_name: str) -> None:
         self.get_logger().debug(f"Image received from {topic_name}, size: {msg.width}x{msg.height}")
         self._update_sensor(topic_name, msg, SensorType.CAMERA)
+        self._detect_capabilities()
 
     def _detect_capabilities(self) -> None:
         """Detect capabilities based on dynamically discovered sensors."""
         caps = Capability.EMERGENCY_STOP
 
         with self._state_lock:
+            if self._runtime is not None:
+                joint = self._discovered_sensors.get(self._runtime.joint_state_topic)
+                if joint is not None and isinstance(joint.data, JointState):
+                    caps |= Capability.SENSOR_JOINT | Capability.JOINT_READ
+                    if self._trajectory_client is not None:
+                        caps |= Capability.JOINT_WRITE
+                if any(
+                    isinstance(self._discovered_sensors.get(topic), SensorRecord)
+                    and self._discovered_sensors[topic].data is not None
+                    for topic in self._runtime.camera_topics.values()
+                ):
+                    caps |= Capability.SENSOR_CAMERA
+                self._capabilities = caps
+                return
             for _, info in self._discovered_sensors.items():
                 sensor_type = info.type
                 sensor_cap = SENSOR_TYPE_TO_CAP[sensor_type]
@@ -353,8 +398,12 @@ class GazeboBackend(SimulatorBackend, Node):
             raise NotImplementedError("Headless mode not supported for Gazebo")
 
     def get_robot_state(self) -> common_pb2.JointState:
-        """Get joint state - get the first JointState topic."""
+        """Return the manifest joint state, or the discovered state for legacy use."""
         with self._state_lock:
+            if self._runtime is not None:
+                record = self._discovered_sensors.get(self._runtime.joint_state_topic)
+                if record is not None and isinstance(record.data, JointState):
+                    return GazeboBackend._build_joint_state(record.data)
             records: list[JointState] = [
                 rec.data
                 for rec in self._discovered_sensors.values()
@@ -397,7 +446,8 @@ class GazeboBackend(SimulatorBackend, Node):
         )
 
     def get_joint_command_state(self) -> common_pb2.JointState:
-        return common_pb2.JointState()
+        with self._state_lock:
+            return self._joint_command_state
 
     def set_joint_target(
         self,
@@ -406,15 +456,33 @@ class GazeboBackend(SimulatorBackend, Node):
         mode: core_pb2.JointCommand.ControlMode,
         group: str | None = None,
     ) -> None:
-        if not (self._capabilities & Capability.JOINT_WRITE):
-            self.get_logger().error("Joint write not supported by this backend")
-            raise NotImplementedError("Joint write not supported")
-
-        raise NotImplementedError("Joint target setting not implemented")
+        del group
+        if self._trajectory_client is None:
+            raise NotImplementedError("joint trajectory control requires a Gazebo runtime manifest")
+        if mode != core_pb2.JointCommand.POSITION:
+            raise NotImplementedError("Gazebo runtime supports only position control")
+        if len(names) != len(data):
+            raise ValueError("joint names and targets must have equal length")
+        if not self._trajectory_client.wait_for_server(timeout_sec=5.0):
+            raise TimeoutError("joint trajectory action server unavailable")
+        goal = FollowJointTrajectory.Goal()
+        goal.trajectory.joint_names = names
+        point = JointTrajectoryPoint(positions=data)
+        point.time_from_start.sec = 1
+        goal.trajectory.points = [point]
+        self._trajectory_client.send_goal_async(goal)
+        with self._state_lock:
+            self._joint_command_state = common_pb2.JointState(name=names, position=data)
 
     def servo_control_stream(
         self, request_iterator: Iterator[core_pb2.ServoCommand]) -> Iterator[common_pb2.JointState]:
-        raise NotImplementedError("Servo control stream not implemented")
+        for request in request_iterator:
+            if request.HasField("joint_cmd"):
+                command = request.joint_cmd
+                self.set_joint_target(list(command.name), list(command.data), command.mode)
+                yield self.get_robot_state()
+            else:
+                raise NotImplementedError("Gazebo runtime supports only joint servo commands")
 
     def get_end_effector_state(self, group: str) -> core_pb2.EndEffectorState:
         raise NotImplementedError("End effector state not implemented")

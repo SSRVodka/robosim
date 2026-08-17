@@ -245,6 +245,44 @@ class CsdRealizationCacheKey:
 
 
 @dataclass(frozen=True, slots=True)
+class CsdGazeboRuntimeContract:
+    """Package-local ROS 2 endpoints required by a Gazebo realization."""
+
+    world_file: str
+    robot_control_urdf: str
+    controllers_file: str
+    namespace: str
+    joint_state_topic: str
+    trajectory_action: str
+    camera_topics: Mapping[str, str]
+
+    def to_json_dict(self) -> dict[str, object]:
+        return {
+            "world_file": self.world_file,
+            "robot_control_urdf": self.robot_control_urdf,
+            "controllers_file": self.controllers_file,
+            "namespace": self.namespace,
+            "joint_state_topic": self.joint_state_topic,
+            "trajectory_action": self.trajectory_action,
+            "camera_topics": dict(self.camera_topics),
+        }
+
+    @classmethod
+    def from_json_dict(cls, payload: Mapping[str, Any]) -> "CsdGazeboRuntimeContract":
+        return cls(
+            world_file=str(payload["world_file"]),
+            robot_control_urdf=str(payload["robot_control_urdf"]),
+            controllers_file=str(payload["controllers_file"]),
+            namespace=str(payload["namespace"]),
+            joint_state_topic=str(payload["joint_state_topic"]),
+            trajectory_action=str(payload["trajectory_action"]),
+            camera_topics={
+                str(key): str(value) for key, value in dict(payload["camera_topics"]).items()
+            },
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class CsdRealizationManifest:
     """Manifest for backend-native artifacts derived from one CSD."""
 
@@ -257,6 +295,7 @@ class CsdRealizationManifest:
     generated_files: tuple[str, ...]
     preview_files: tuple[str, ...]
     initial_state_file: str | None = None
+    gazebo_runtime: CsdGazeboRuntimeContract | None = None
 
     def __post_init__(self) -> None:
         if not self.manifest_id:
@@ -293,6 +332,9 @@ class CsdRealizationManifest:
             "generated_files": list(self.generated_files),
             "preview_files": list(self.preview_files),
             "initial_state_file": self.initial_state_file,
+            "gazebo_runtime": (
+                self.gazebo_runtime.to_json_dict() if self.gazebo_runtime is not None else None
+            ),
         }
 
     @classmethod
@@ -309,6 +351,11 @@ class CsdRealizationManifest:
             initial_state_file=(
                 str(payload["initial_state_file"])
                 if payload.get("initial_state_file") is not None
+                else None
+            ),
+            gazebo_runtime=(
+                CsdGazeboRuntimeContract.from_json_dict(payload["gazebo_runtime"])
+                if isinstance(payload.get("gazebo_runtime"), Mapping)
                 else None
             ),
         )

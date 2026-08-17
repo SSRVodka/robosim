@@ -24,6 +24,14 @@ def test_compile_v9_openusd_package_to_self_contained_gazebo_world(tmp_path: Pat
     assert result.blockers == ()
     assert result.manifest is not None
     root = Path(result.manifest.root_path)
+    assert result.manifest.gazebo_runtime is not None
+    runtime = result.manifest.gazebo_runtime
+    assert runtime.namespace == "/robosim/csd_4c9f31903d8cf0dc"
+    assert (root / runtime.robot_control_urdf).is_file()
+    assert (root / runtime.controllers_file).is_file()
+    assert f"{runtime.namespace}/controller_manager:" in (
+        root / runtime.controllers_file
+    ).read_text(encoding="utf-8")
     world = ET.parse(root / "world.sdf").getroot().find("world")
     assert world is not None
     assert ET.parse(root / "world.sdf").getroot().attrib["version"] == "1.7"
@@ -71,6 +79,7 @@ def test_compile_v9_openusd_package_to_self_contained_gazebo_world(tmp_path: Pat
         is not None
     )
     assert robot.find("joint[parent='panda_link7'][child='panda_hand']") is not None
+    assert robot.find("plugin[@filename='libgazebo_ros2_control.so']") is not None
     assert robot.find("link[@name='panda_link1']/pose[@relative_to='panda_link0']") is not None
     assert all(
         float(str(mass.text)) > 0.0 for mass in robot.findall("link/inertial/mass")

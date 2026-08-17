@@ -1754,6 +1754,18 @@ def test_compile_csd_to_gazebo_consumes_composed_openusd_stage(tmp_path: Path) -
     assert (world_root / "diagnostics" / "sdf_check.json").is_file()
     assert (world_root / "diagnostics" / "headless_load.json").is_file()
     assert (world_root / "diagnostics" / "validation_record.json").is_file()
+    assert result.manifest.gazebo_runtime is not None
+    runtime = result.manifest.gazebo_runtime
+    assert runtime.namespace == "/robosim/csd_shared_tabletop"
+    assert runtime.joint_state_topic == "/robosim/csd_shared_tabletop/joint_states"
+    assert (world_root / runtime.robot_control_urdf).is_file()
+    assert (world_root / runtime.controllers_file).is_file()
+    control_urdf = ET.parse(world_root / runtime.robot_control_urdf).getroot()
+    assert control_urdf.find("ros2_control/joint[@name='panda_joint1']") is not None
+    assert "joint_trajectory_controller" in (world_root / runtime.controllers_file).read_text()
+    assert _required_element(models["panda"], "plugin").attrib["filename"] == (
+        "libgazebo_ros2_control.so"
+    )
 
 
 def test_compile_csd_to_gazebo_reports_missing_resource_adapter(tmp_path: Path) -> None:

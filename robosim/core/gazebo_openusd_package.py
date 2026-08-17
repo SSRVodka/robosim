@@ -2,15 +2,22 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
 import shutil
+import sys
 import xml.etree.ElementTree as ET
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, Mapping
 
-from robosim.core.csd import CsdRealizationManifest, make_csd_realization_cache_key
+from robosim.core.csd import (
+    CsdGazeboRuntimeContract,
+    CsdRealizationManifest,
+    make_csd_realization_cache_key,
+)
 from robosim.core.mujoco_openusd_package import (
     OpenUsdArticulationJoint,
     OpenUsdAsset,
@@ -25,8 +32,7 @@ from robosim.core.mujoco_openusd_package import (
 from robosim.core.pybullet_openusd_package import _rotate, _rpy, _write_obj_materials
 
 _Pose = tuple[float, float, float, float, float, float, float]
-
-
+_RUNTIME_TEMPLATE_VERSION = "gazebo-runtime-2"
 def compile_openusd_scene_package(
     *,
     csd_path: Path,
@@ -37,10 +43,17 @@ def compile_openusd_scene_package(
 ) -> CsdRealizationManifest:
     """Compile one validated v9 resource package to portable SDF 1.7."""
     package = read_openusd_scene_package(csd_path)
+    if package.robot is None:
+        raise PackageError("Gazebo runtime requires a robot")
+    try:
+        runtime_hashes = _runtime_plugin_hashes(has_camera=bool(package.cameras))
+    except FileNotFoundError as error:
+        raise PackageError(str(error)) from error
     cache = make_csd_realization_cache_key(
         csd_hash=_dependency_hash(package.root),
         asset_variant_hashes={
-            asset.asset_id: asset.resource_digest for asset in _unique_assets(package)
+            **{asset.asset_id: asset.resource_digest for asset in _unique_assets(package)},
+            **runtime_hashes,
         },
         backend="gazebo",
         realization_config=dict(realization_config or {}),
@@ -75,7 +88,24 @@ def compile_openusd_scene_package(
 
     robot, robot_files = _robot_model(root, package)
     generated.extend(robot_files)
-    _write_world(root / "world.sdf", package, assets, robot)
+    if robot is None:
+        raise PackageError("Gazebo runtime requires a robot")
+    try:
+        runtime = _write_runtime_artifacts(
+            root=root,
+            csd_id=package.scene_id,
+            urdf_source=root / "robots" / "franka_panda" / "panda.urdf",
+            joint_names=(
+                joint.attrib["name"]
+                for joint in robot.findall("joint")
+                if joint.attrib["name"].startswith("panda_joint")
+            ),
+            camera_names=(camera.name for camera in package.cameras),
+        )
+    except ValueError as error:
+        raise PackageError(str(error)) from error
+    _write_world(root / "world.sdf", package, assets, robot, runtime)
+    generated.extend((runtime.robot_control_urdf, runtime.controllers_file))
     generated.extend(
         str(path.relative_to(root))
         for path in (root / "assets").rglob("*")
@@ -96,6 +126,7 @@ def compile_openusd_scene_package(
         generated_files=tuple(dict.fromkeys(generated)),
         preview_files=(),
         initial_state_file=initial_state_file,
+        gazebo_runtime=runtime,
     )
     manifest_path.write_text(json.dumps(manifest.to_json_dict(), indent=2, sort_keys=True))
     return manifest
@@ -105,11 +136,119 @@ def _asset_key(asset: OpenUsdAsset) -> str:
     return "asset-" + asset.resource_digest[:16]
 
 
+def _runtime_plugin_hashes(*, has_camera: bool) -> dict[str, str]:
+    libraries = ["libgazebo_ros2_control.so"]
+    if has_camera:
+        libraries.append("libgazebo_ros_camera.so")
+    hashes: dict[str, str] = {}
+    for library in libraries:
+        path = Path(sys.prefix) / "lib" / library
+        if not path.is_file():
+            raise FileNotFoundError(f"required Gazebo ROS plugin is unavailable: {library}")
+        hashes[f"runtime:{library}"] = hashlib.sha256(path.read_bytes()).hexdigest()
+    hashes["runtime:template"] = _RUNTIME_TEMPLATE_VERSION
+    return hashes
+
+
+def _write_runtime_artifacts(
+    *,
+    root: Path,
+    csd_id: str,
+    urdf_source: Path,
+    joint_names: Iterable[str],
+    camera_names: Iterable[str],
+) -> CsdGazeboRuntimeContract:
+    joints = tuple(joint_names)
+    if not joints:
+        raise ValueError("Gazebo robot has no controllable joints")
+    namespace = f"/robosim/{csd_id}"
+    control_urdf = root / "robot_control.urdf"
+    urdf = ET.parse(urdf_source).getroot()
+    control = ET.SubElement(urdf, "ros2_control", {"name": "GazeboSystem", "type": "system"})
+    hardware = ET.SubElement(control, "hardware")
+    ET.SubElement(hardware, "plugin").text = "gazebo_ros2_control/GazeboSystem"
+    for name in joints:
+        joint = ET.SubElement(control, "joint", {"name": name})
+        ET.SubElement(joint, "command_interface", {"name": "position"})
+        ET.SubElement(joint, "state_interface", {"name": "position"})
+        ET.SubElement(joint, "state_interface", {"name": "velocity"})
+    ET.indent(urdf, space="  ")
+    ET.ElementTree(urdf).write(control_urdf, encoding="utf-8", xml_declaration=True)
+
+    controllers = root / "controllers.yaml"
+    controllers.write_text(_controllers_yaml(namespace, joints), encoding="utf-8")
+    return CsdGazeboRuntimeContract(
+        world_file="world.sdf",
+        robot_control_urdf=control_urdf.name,
+        controllers_file=controllers.name,
+        namespace=namespace,
+        joint_state_topic=f"{namespace}/joint_states",
+        trajectory_action=f"{namespace}/joint_trajectory_controller/follow_joint_trajectory",
+        camera_topics={
+            name: f"{namespace}/cameras/{name}/image_raw" for name in camera_names
+        },
+    )
+
+
+def _append_control_plugin(model: ET.Element, runtime: CsdGazeboRuntimeContract) -> None:
+    plugin = ET.SubElement(
+        model,
+        "plugin",
+        {"name": "gazebo_ros2_control", "filename": "libgazebo_ros2_control.so"},
+    )
+    ET.SubElement(plugin, "robot_param").text = "robot_description"
+    ET.SubElement(plugin, "robot_param_node").text = "robot_state_publisher"
+    ET.SubElement(plugin, "parameters").text = runtime.controllers_file
+    ros = ET.SubElement(plugin, "ros")
+    ET.SubElement(ros, "namespace").text = runtime.namespace
+
+
+def _append_camera_plugin(
+    sensor: ET.Element, camera_name: str, runtime: CsdGazeboRuntimeContract
+) -> None:
+    topic = runtime.camera_topics.get(camera_name)
+    if topic is None:
+        return
+    plugin = ET.SubElement(
+        sensor,
+        "plugin",
+        {"name": f"{camera_name}_ros_camera", "filename": "libgazebo_ros_camera.so"},
+    )
+    ros = ET.SubElement(plugin, "ros")
+    ET.SubElement(ros, "namespace").text = runtime.namespace
+    ET.SubElement(ros, "remapping").text = f"image_raw:={topic}"
+
+
+def _controllers_yaml(namespace: str, joint_names: tuple[str, ...]) -> str:
+    return "\n".join(
+        (
+            f"{namespace}/controller_manager:",
+            "  ros__parameters:",
+            "    update_rate: 100",
+            "    joint_state_broadcaster:",
+            "      type: joint_state_broadcaster/JointStateBroadcaster",
+            "    joint_trajectory_controller:",
+            "      type: joint_trajectory_controller/JointTrajectoryController",
+            f"{namespace}/joint_trajectory_controller:",
+            "  ros__parameters:",
+            "    joints:",
+            *(f"      - {name}" for name in joint_names),
+            "    command_interfaces:",
+            "      - position",
+            "    state_interfaces:",
+            "      - position",
+            "      - velocity",
+            "",
+        )
+    )
+
+
 def _write_world(
     path: Path,
     package: OpenUsdScenePackage,
     asset_roots: Mapping[tuple[str, str], Path],
     robot: ET.Element | None,
+    runtime: CsdGazeboRuntimeContract,
 ) -> None:
     root = ET.Element("sdf", {"version": "1.7"})
     world = ET.SubElement(root, "world", {"name": package.scene_id})
@@ -126,6 +265,7 @@ def _write_world(
             _rotate(light.pose[3:], (0.0, 0.0, -1.0))
         )
     if robot is not None:
+        _append_control_plugin(robot, runtime)
         world.append(robot)
     joint_states: list[tuple[str, _Pose, tuple[tuple[str, float], ...]]] = []
     for instance in package.instances:
@@ -166,6 +306,7 @@ def _write_world(
             ET.SubElement(image, "width").text = "512"
             ET.SubElement(image, "height").text = "512"
             ET.SubElement(image, "format").text = "R8G8B8"
+            _append_camera_plugin(sensor, camera.name, runtime)
     ET.indent(root, space="  ")
     ET.ElementTree(root).write(path, encoding="utf-8", xml_declaration=True)
 

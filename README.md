@@ -18,85 +18,54 @@
 - [ ] (WIP) 支持基于 IL/RL 训练的 Policy 的推理过程；
 
 
-### CSD -> Backend Scene Compiler
+### CSD 编译与运行
 
-> [!IMPORTANT]
->
-> The approved CSD migration replaces the JSON CSD with a composed OpenUSD
-> stage rooted at `csd/<csd_id>/csd.usda`. MuJoCo now consumes that stage
-> directly; PyBullet and Gazebo use the same path. The native MuJoCo USD feasibility
-> gate selected the OpenUSD-to-MJCF path because the official decoder does not
-> preserve required cameras, lights, or sensors. See [`DESIGN.md`](./DESIGN.md)
-> and [`docs/mujoco-openusd-feasibility.md`](./docs/mujoco-openusd-feasibility.md) for the canonical
-> stage contract, backend variants, validation requirements, and acceptance
-> criteria.
+`vsim` 接收固定的 OpenUSD CSD package，并为 MuJoCo、Gazebo 或 PyBullet 生成可重复的本地 realization。CSD 是场景语义源；MJCF、SDF、URDF 和 Python scene 文件都是派生产物，不能反向作为场景定义。
 
-The implemented handoff utilities now provide packaged codeless schemas,
-strict semantic validation, dependency hashing, backend variant selection, and
-`read_openusd_csd(Path(...), backend=...)`. The MuJoCo compiler and cache use
-the composed-stage digest and typed compiler view without persisting an
-equivalent JSON CSD.
+命令行入口使用 `scene-export/v9-vsim-articulated-resources` package。输入为 package 根目录的 `scene.usda`、同级 `manifest.json`、checksum 与资产 dependency closure。仓库中可直接使用 `csd/benchmark_gen/scene.usda`。
 
-`vsim` exposes the CSD compiler boundary through `robosim.core.compile_csd`.
-
-For a v9 MuJoCo resource package, the equivalent command-line entry point is:
+#### 编译
 
 ```bash
-# take mujoco for example
-MUJOCO_GL=egl python -m robosim.compile \
-  --csd csd/example/scene.usda \
-  --backend mujoco \
-  --output-root csd/example/engine_manifests
+python -m robosim.compile \
+  --csd csd/benchmark_gen/scene.usda \
+  --backend gazebo \
+  --output-root csd/benchmark_gen/engine_manifests
 ```
 
-It prints the realization manifest as JSON, writes the backend-native entry and
-diagnostics below `<output-root>/<backend>/<scene_id>/`, and exits with status 2
-after printing typed blockers when compilation is rejected.
+`--backend` 可选 `mujoco`、`gazebo` 或 `pybullet`。成功时标准输出为 manifest JSON；
+无法保持语义或缺少运行时依赖时，输出 typed blocker 并以退出码 `2` 结束。
 
-Pass `backend="mujoco"`, `backend="gazebo"`, or `backend="pybullet"`. All three
-accept `csd_path=Path("csd/<csd_id>/csd.usda")`. The compiler also consumes an
-asset registry with passed backend variants, an output root, and an asset root.
-In benchmark packages, pass
-`output_root=Path("<package>/engine_manifests")`.
+输出固定写入 `<output-root>/<backend>/<csd_id>/`，其中包含 `manifest.json`、后端
+entry file、`assets/` 和 `diagnostics/`。实际使用的 mesh、texture 和 robot dependency
+closure 会复制到 realization package；运行时不得依赖 `drivers_sim` 或下载 cache。
 
-The MuJoCo target writes `engine_manifests/mujoco/<csd_id>/scene.xml`; the Gazebo target writes `engine_manifests/gazebo/<csd_id>/world.sdf`; the PyBullet target writes `engine_manifests/pybullet/<csd_id>/scene.py` plus `scene_meta.json` and package-local URDF/assets. Backend targets copy referenced assets under the backend artifact's local `assets/` directory, then return a `CsdCompilationResult` containing either a `CsdRealizationManifest` or typed `CsdRealizationBlocker` records.
+MuJoCo、Gazebo 与 PyBullet 分别生成 `scene.xml`、`world.sdf` 与 `scene.py`；Python
+API `compile_csd()` 返回 manifest 或 typed blocker。
 
-The compiler scope covers the shared portable CSD contract: environment surfaces, a Franka robot template, rigid objects, transforms, gravity, mass/inertia, collision, standard physics friction and material color, cameras/lights, and explicit blockers for unsupported backend opinions. MuJoCo and PyBullet include load/physics/render diagnostics; Gazebo includes strict SDF validation and an isolated headless load that queries every expected model through Gazebo transport.
+#### 运行 Gazebo CSD
 
-Generated backend artifact directories are self-contained for the mesh variants they use. MuJoCo `scene.xml` points `compiler meshdir` at the copied local `assets/` directory. The Gazebo Classic 11 target uses SDFormat 1.7 and package-relative mesh URIs such as `assets/objects/mug.obj`; the compiler does not require a ROS2 package, launch directory, or package share layout. PyBullet realization treats the full package as the backend scene: URDF files represent bodies, `scene.py` deterministically assembles the physics world through PyBullet APIs, and `scene_meta.json` records sensors, cameras, and CSD entity mappings.
+编译后，先由 runtime 启动 Gazebo 与 ROS 2 controller；`--no-headless` 打开 GUI：
 
-The current MuJoCo compiler produces this complete realization package:
-
-```text
-engine_manifests/
-  mujoco/
-    <csd_id>/
-      manifest.json
-      scene.xml
-      assets/
-      diagnostics/
+```bash
+python -m robosim.gazebo_runtime \
+  --csd-manifest csd/benchmark_gen/engine_manifests/gazebo/<csd_id>/manifest.json \
+  --no-headless
 ```
 
-`scene.xml` must be loadable from that directory without depending on the source `drivers_sim` tree or download caches. Existing `drivers_sim` robot/world assets may be used as temporary template sources, but the compiler must copy their required dependency closure into the realization directory before referencing them from generated MJCF.
+另开终端让 gRPC server 连接该 runtime：
 
-```python
-from pathlib import Path
-
-from robosim.core import compile_csd
-
-result = compile_csd(
-    backend="mujoco",
-    csd_path=Path("csd/csd_shared_tabletop/csd.usda"),
-    asset_registry=asset_registry_json,
-    output_root=Path("engine_manifests"),
-    asset_root=Path("assets"),
-)
-
-if result.manifest is None:
-    print([blocker.to_json_dict() for blocker in result.blockers])
-else:
-    print(result.manifest.to_json_dict())
+```bash
+python -m robosim.server \
+  --backend gazebo \
+  --csd-manifest csd/benchmark_gen/engine_manifests/gazebo/<csd_id>/manifest.json
 ```
+
+机器人资产语义的跨后端对齐仍在进行中，见 [`TODO.md`](./TODO.md)。
+
+编译输出必须可移动：MuJoCo `scene.xml`、Gazebo `world.sdf` 与 PyBullet scene 都只
+引用 package-local 资源。Gazebo 使用 SDFormat 1.7 与相对 mesh URI；PyBullet 以
+URDF、`scene.py` 和 `scene_meta.json` 组成完整运行时场景。
 
 
 ### Quick Start
@@ -146,6 +115,14 @@ python3 -m robosim.server [--help] [--port <gRPC-listen-port>] [--backend <gazeb
 > ros2 launch demos gzsim.nav2.launch.py gui:=false
 > ```
 >
+> 如果你使用新编译出来的 Gazebo 场景，我们暂时还有些功能未能兼容，也正因> 如此，环境部分可以被简化为以下流程：
+> mamba activate robosim
+> python -m robosim.gazebo_runtime \ 
+>   [--csd-manifest </path/to/manifest>] \
+>   [--headless | --no-headless]
+> python -m robosim.server [--help] [--port 
+> <gRPC-listen-port>] --backend gazebo
+
 
 现在，你的环境已经准备好了！
 

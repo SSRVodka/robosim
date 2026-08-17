@@ -36,6 +36,7 @@ from robosim.core.activity import ActivityCoordinator
 from robosim.core.backend import SimulatorBackend
 from robosim.core.impl.policy_lerobot import LerobotPolicyRunner
 from robosim.core.impl.recorder_lerobot import LerobotDataRecorder
+from robosim.core.ros_environment import flush_ros_environment
 from robosim.grpc_server import (
     MobilityServicer,
     PolicyInferenceServicer,
@@ -94,6 +95,8 @@ def create_backend(
     """Create a simulator backend for server startup."""
     backend_class = cast(Any, _load_backend_class(backend_type))
     if backend_type == "gazebo":
+        if csd_manifest is not None:
+            return backend_class.from_csd_realization_manifest_file(Path(csd_manifest))
         return backend_class(robot_name=robot_name)
     if backend_type == "mujoco":
         if csd_manifest is not None:
@@ -202,14 +205,11 @@ async def serve_async(
 
         activity = ActivityCoordinator()
         if backend_type == "gazebo":
+            flush_ros_environment()
             import rclpy as gazebo_rclpy
 
             rclpy = gazebo_rclpy
             rclpy.init()
-            if not headless:
-                if scene is None:
-                    raise ValueError("--scene is required for --backend gazebo --no-headless")
-                gazebo_viewer = launch_gazebo_viewer(scene)
         backend = create_backend(
             backend_type=backend_type,
             robot_name=robot_name,

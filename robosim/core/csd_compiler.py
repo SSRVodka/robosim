@@ -19,6 +19,7 @@ from robosim.core.csd import (
     BackendResourceAdapter,
     BackendResourceMaterial,
     ConcreteScenarioDefinition,
+    CsdGazeboRuntimeContract,
     CsdObject,
     CsdPose,
     CsdRealizationBlocker,
@@ -29,6 +30,12 @@ from robosim.core.csd import (
     CsdSurface,
     backend_resource_adapters_by_asset,
     make_csd_realization_cache_key,
+)
+from robosim.core.gazebo_openusd_package import (
+    _append_camera_plugin,
+    _append_control_plugin,
+    _runtime_plugin_hashes,
+    _write_runtime_artifacts,
 )
 from robosim.core.gazebo_openusd_package import (
     compile_openusd_scene_package as compile_openusd_gazebo_scene_package,
@@ -103,156 +110,6 @@ def compile_csd_to_mujoco(
             manifest=None,
             blockers=(_csd_blocker(Path(csd_path).parent.name, "openusd_package", str(error)),),
         )
-    asset_registry: Mapping[str, Any] = {}
-    asset_root = Path()
-    try:
-        openusd_csd = read_openusd_csd(csd_path, backend=MUJOCO_BACKEND)
-        typed_csd = compiler_csd_from_openusd(openusd_csd)
-    except ValueError as error:
-        csd_id = Path(csd_path).parent.name
-        return CsdCompilationResult(
-            manifest=None,
-            blockers=(
-                _csd_blocker(
-                    csd_id,
-                    "csd_stage",
-                    f"invalid OpenUSD CSD: {error}",
-                ),
-            ),
-        )
-    resources = backend_resource_adapters_by_asset(asset_registry, backend=MUJOCO_BACKEND)
-    blockers = _resource_adapter_blockers(typed_csd, resources, MUJOCO_BACKEND)
-    if blockers:
-        return CsdCompilationResult(manifest=None, blockers=blockers)
-
-    realization_config = dict(realization_config or {})
-    csd_id = typed_csd.csd_id
-    simulator_version = simulator_version or _mujoco_simulator_version()
-
-    semantic_blockers = _mujoco_csd_semantic_blockers(typed_csd)
-    if semantic_blockers:
-        return CsdCompilationResult(manifest=None, blockers=semantic_blockers)
-
-    resource_hashes = {
-        asset_id: resources[asset_id].resource_hash for asset_id in _compiler_asset_ids(typed_csd)
-    }
-    cache_key = make_csd_realization_cache_key(
-        csd_hash=openusd_csd.digest,
-        asset_variant_hashes=resource_hashes,
-        backend=MUJOCO_BACKEND,
-        realization_config=realization_config,
-        realization_version=realization_version,
-        simulator_version=simulator_version,
-    )
-    scene_root = Path(output_root) / MUJOCO_BACKEND / csd_id
-    cached_manifest = _cached_manifest(scene_root, cache_key.digest)
-    if cached_manifest is not None:
-        return CsdCompilationResult(manifest=cached_manifest)
-
-    mesh_blockers = _mesh_path_blockers(
-        typed_csd,
-        resources,
-        Path(asset_root),
-        backend=MUJOCO_BACKEND,
-    )
-    if mesh_blockers:
-        return CsdCompilationResult(manifest=None, blockers=mesh_blockers)
-
-    robot_blockers = _mujoco_robot_template_blockers(
-        csd=typed_csd,
-        realization_config=realization_config,
-    )
-    if robot_blockers:
-        return CsdCompilationResult(manifest=None, blockers=robot_blockers)
-
-    compiled_asset_root = scene_root / "assets"
-    diagnostics_root = scene_root / "diagnostics"
-    scene_root.mkdir(parents=True, exist_ok=True)
-    diagnostics_root.mkdir(exist_ok=True)
-    generated_asset_files = _copy_resource_files(
-        csd=typed_csd,
-        resources=resources,
-        source_asset_root=Path(asset_root),
-        compiled_asset_root=compiled_asset_root,
-    )
-    robot_include, generated_robot_files = _copy_mujoco_robot_template(
-        csd=typed_csd,
-        realization_config=realization_config,
-        scene_root=scene_root,
-        compiled_asset_root=compiled_asset_root,
-    )
-    scene_path = scene_root / "scene.xml"
-    _write_mjcf(
-        scene_path,
-        csd=typed_csd,
-        asset_root=compiled_asset_root,
-        resources=resources,
-        robot_include=robot_include,
-    )
-    load_check_file, load_check_blockers = _write_mujoco_load_check(
-        scene_path=scene_path,
-        diagnostics_root=diagnostics_root,
-        csd=typed_csd,
-    )
-    if load_check_blockers:
-        return CsdCompilationResult(manifest=None, blockers=load_check_blockers)
-    relationship_check_file, relationship_check_blockers = _write_mujoco_relationship_check(
-        scene_path=scene_path,
-        diagnostics_root=diagnostics_root,
-        csd=typed_csd,
-    )
-    if relationship_check_blockers:
-        return CsdCompilationResult(manifest=None, blockers=relationship_check_blockers)
-    physics_check_file, physics_check_blockers = _write_mujoco_physics_check(
-        scene_path=scene_path,
-        diagnostics_root=diagnostics_root,
-        csd=typed_csd,
-    )
-    if physics_check_blockers:
-        return CsdCompilationResult(manifest=None, blockers=physics_check_blockers)
-    preview_file, preview_blockers = _write_mujoco_preview(
-        scene_path=scene_path,
-        diagnostics_root=diagnostics_root,
-        csd=typed_csd,
-    )
-    if preview_blockers:
-        return CsdCompilationResult(manifest=None, blockers=preview_blockers)
-    validation_record_file = "diagnostics/validation_record.json"
-    generated_files = (
-        "manifest.json",
-        "scene.xml",
-        load_check_file,
-        relationship_check_file,
-        physics_check_file,
-        validation_record_file,
-        *generated_asset_files,
-        *generated_robot_files,
-    )
-    manifest = CsdRealizationManifest(
-        manifest_id=f"manifest_{MUJOCO_BACKEND}_{csd_id}",
-        csd_id=csd_id,
-        backend=MUJOCO_BACKEND,
-        cache_key=cache_key.digest,
-        root_path=str(scene_root),
-        entry_file="scene.xml",
-        generated_files=_unique_files(generated_files),
-        preview_files=(preview_file,),
-    )
-    _write_validation_record(
-        scene_root / validation_record_file,
-        CsdRealizationValidationRecord(
-            validation_id=f"validation_{MUJOCO_BACKEND}_{csd_id}",
-            csd_id=csd_id,
-            backend=MUJOCO_BACKEND,
-            manifest_id=manifest.manifest_id,
-            cache_key=manifest.cache_key,
-            status="passed",
-            evidence_files=(load_check_file, relationship_check_file, physics_check_file),
-            preview_files=manifest.preview_files,
-        ),
-    )
-    _write_manifest(scene_root / "manifest.json", manifest)
-    return CsdCompilationResult(manifest=manifest)
 
 
 def compile_csd_to_pybullet(
@@ -534,6 +391,9 @@ def compile_csd_to_gazebo(
     robot_blockers = _gazebo_robot_template_blockers(typed_csd)
     if robot_blockers:
         return CsdCompilationResult(manifest=None, blockers=robot_blockers)
+    runtime_blockers, runtime_hashes = _gazebo_runtime_blockers(openusd_csd, typed_csd)
+    if runtime_blockers:
+        return CsdCompilationResult(manifest=None, blockers=runtime_blockers)
 
     mesh_blockers = _mesh_path_blockers(
         typed_csd,
@@ -550,6 +410,7 @@ def compile_csd_to_gazebo(
     resource_hashes = {
         asset_id: resources[asset_id].resource_hash for asset_id in _compiler_asset_ids(typed_csd)
     }
+    resource_hashes.update(runtime_hashes)
     cache_key = make_csd_realization_cache_key(
         csd_hash=openusd_csd.digest,
         asset_variant_hashes=resource_hashes,
@@ -573,6 +434,11 @@ def compile_csd_to_gazebo(
         source_asset_root=Path(asset_root),
         compiled_asset_root=compiled_asset_root,
     )
+    runtime = _write_gazebo_runtime_artifacts(
+        world_root=world_root,
+        csd=typed_csd,
+        openusd_csd=openusd_csd,
+    )
     try:
         robot_model, generated_robot_files = _gazebo_robot_model(
             scene_root=world_root,
@@ -590,6 +456,8 @@ def compile_csd_to_gazebo(
                 ),
             ),
         )
+    if robot_model is not None:
+        _append_control_plugin(robot_model, runtime)
     world_path = world_root / "world.sdf"
     _write_sdf(
         world_path,
@@ -605,6 +473,7 @@ def compile_csd_to_gazebo(
         sensor_resolutions={
             sensor.source.name: sensor.min_resolution for sensor in openusd_csd.sensors
         },
+        runtime=runtime,
     )
     sdf_check_file, sdf_blockers = _write_gazebo_sdf_check(
         world_path=world_path,
@@ -630,6 +499,8 @@ def compile_csd_to_gazebo(
     generated_files = (
         "manifest.json",
         "world.sdf",
+        runtime.robot_control_urdf,
+        runtime.controllers_file,
         sdf_check_file,
         headless_load_file,
         validation_record_file,
@@ -645,6 +516,7 @@ def compile_csd_to_gazebo(
         entry_file="world.sdf",
         generated_files=_unique_files(generated_files),
         preview_files=(),
+        gazebo_runtime=runtime,
     )
     _write_validation_record(
         world_root / validation_record_file,
@@ -740,6 +612,7 @@ def _write_sdf(
     max_step_size: float,
     real_time_update_rate: float,
     sensor_resolutions: Mapping[str, tuple[int, int]],
+    runtime: CsdGazeboRuntimeContract | None = None,
 ) -> None:
     root = ET.Element("sdf", {"version": "1.7"})
     world = ET.SubElement(root, "world", {"name": _mjcf_name(csd.csd_id)})
@@ -757,7 +630,7 @@ def _write_sdf(
         world.append(robot_model)
     for obj in csd.objects:
         _append_sdf_model(world, obj, resources)
-    _append_sdf_camera_sensors(world, csd, sensor_resolutions)
+    _append_sdf_camera_sensors(world, csd, sensor_resolutions, runtime)
 
     ET.indent(root, space="  ")
     ET.ElementTree(root).write(world_path, encoding="utf-8", xml_declaration=True)
@@ -874,6 +747,7 @@ def _append_sdf_camera_sensors(
     parent: ET.Element,
     csd: ConcreteScenarioDefinition,
     sensor_resolutions: Mapping[str, tuple[int, int]],
+    runtime: CsdGazeboRuntimeContract | None,
 ) -> None:
     if not csd.environment.cameras:
         return
@@ -899,6 +773,8 @@ def _append_sdf_camera_sensors(
         clip = ET.SubElement(camera, "clip")
         ET.SubElement(clip, "near").text = "0.01"
         ET.SubElement(clip, "far").text = "10"
+        if runtime is not None:
+            _append_camera_plugin(sensor, item.camera_id, runtime)
 
 
 def _append_lights(parent: ET.Element, csd: ConcreteScenarioDefinition) -> None:
@@ -1314,6 +1190,57 @@ def _pybullet_csd_semantic_blockers(
                     )
                 )
     return tuple(blockers)
+
+
+def _gazebo_runtime_blockers(
+    openusd_csd: Any, csd: ConcreteScenarioDefinition
+) -> tuple[tuple[CsdRealizationBlocker, ...], dict[str, str]]:
+    """Validate the narrow ROS 2 runtime supported by this iteration."""
+    blockers: list[CsdRealizationBlocker] = []
+    if csd.robot is None:
+        blockers.append(_backend_csd_blocker(
+            csd.csd_id, "robot", GAZEBO_BACKEND, "Gazebo joint-control runtime requires a robot"
+        ))
+    unsupported = {"imu", "lidar", "odometry", "force_torque"}
+    for sensor in openusd_csd.sensors:
+        if sensor.sensor_type in unsupported:
+            blockers.append(_backend_csd_blocker(
+                csd.csd_id, sensor.prim_path.name, GAZEBO_BACKEND,
+                f"Gazebo runtime does not support required sensor type '{sensor.sensor_type}'"
+            ))
+    try:
+        hashes = _runtime_plugin_hashes(
+            has_camera=any(
+                sensor.sensor_type in {"rgb", "depth"} for sensor in openusd_csd.sensors
+            )
+        )
+    except FileNotFoundError as error:
+        blockers.append(
+            _backend_csd_blocker(csd.csd_id, "gazebo_runtime", GAZEBO_BACKEND, str(error))
+        )
+        hashes = {}
+    return tuple(blockers), hashes
+
+
+def _write_gazebo_runtime_artifacts(
+    *, world_root: Path, csd: ConcreteScenarioDefinition, openusd_csd: Any
+) -> CsdGazeboRuntimeContract:
+    if csd.robot is None:
+        raise ValueError("Gazebo runtime requires a robot")
+    source = _pybullet_franka_source_dir()
+    if source is None:
+        raise FileNotFoundError("Franka Panda URDF template is unavailable")
+    return _write_runtime_artifacts(
+        root=world_root,
+        csd_id=csd.csd_id,
+        urdf_source=source / "panda.urdf",
+        joint_names=(f"panda_joint{index}" for index in range(1, 8)),
+        camera_names=(
+            sensor.source.name
+            for sensor in openusd_csd.sensors
+            if sensor.sensor_type in {"rgb", "depth"}
+        ),
+    )
 
 
 def _gazebo_csd_semantic_blockers(

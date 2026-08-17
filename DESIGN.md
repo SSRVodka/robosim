@@ -1,13 +1,62 @@
 # RoboSim 框架设计
 
+## Gazebo Classic CSD runtime（2026-08-17，进行中）
+
+本迭代固定目标为 Gazebo Classic 11 / ROS 2 Humble 的**手动 runtime 生命周期**：
+`python -m robosim.gazebo_runtime --csd-manifest <manifest.json>` 启动
+`robot_state_publisher`、`gzserver` 和 controller spawner；server 仅以
+`--backend gazebo --csd-manifest <manifest>` 连接既有 runtime，绝不拥有或停止
+Gazebo 进程。每个 Gazebo manifest 记录 package-local `world.sdf`、
+`robot_control.urdf`、`controllers.yaml`，以及稳定 namespace
+`/robosim/<csd_id>`、joint-state topic、position trajectory action、已声明 RGB/depth
+camera topics 的 typed runtime contract。
+
+首轮只支持带 Franka robot 的 position control：URDF 的 `ros2_control`
+`GazeboSystem`、position command/state interfaces 必须与 SDF joint 一致；SDF model
+通过 `libgazebo_ros2_control.so` 读取 package-local controller YAML，并启用
+`joint_state_broadcaster` 和 `joint_trajectory_controller`。CSD 明确声明的 RGB/depth
+camera 同样必须 materialize 到 SDF 和 manifest；`imu`、`lidar`、`odometry`、
+`force_torque` 以及无 robot 的 joint-control runtime 返回 typed blocker，不得静默
+省略。缓存输入加入 runtime template 与所需 Gazebo/ROS plugin 的可用文件 digest。
+依据 Gazebo Classic `gazebo_ros2_control` Humble 文档（2026-08-17）：
+https://control.ros.org/humble/doc/gazebo_ros2_control/doc/index.html 。
+
+### Franka control-semantic parity iteration（2026-08-17，进行中）
+
+Gazebo runtime 不得以临时 `all` group 代替 robot semantic contract。机器人控制语义
+属于被 CSD `robot:id` 引用的版本化机器人资产，而非每个 CSD 重复 author 的内容；同一
+Franka 引用在所有场景中具有相同语义。Gazebo realization 必须从该机器人资产的
+package-local SRDF materialize 与 MuJoCo 相同的
+`panda_arm`、`panda_hand`、`panda_arm_hand` group、named states 和 `hand`
+end-effector 描述；其 controller 配置必须有 arm trajectory controller 与
+gripper controller，并在 manifest runtime contract 中明确 action/topic 和 robot
+semantic metadata。GazeboBackend 的 `GetRobotSpec`、joint limit、group membership、
+`SetJointTarget` 和 `GetJointCommandState` 必须基于此 contract，不能依据 ROS graph
+猜测或返回虚构 limits。compiler 必须把所选 robot asset 的 URDF/SRDF/controller
+closure 复制到 `engine_manifests/gazebo/<csd_id>/`，不得让运行时依赖
+`drivers_sim`；CSD 输入仍保持只读。
+
+
 ## Gazebo driver workspaces（2026-08-14，进行中）
 
-`drivers_sim/gazebo-11/` 只承载 Gazebo Classic 11 / ROS 2 Humble 路径，
-使用 `gazebo_ros` 和 `gazebo_ros2_control`。`drivers_sim/gazebo/` 承载现代
-Gazebo Sim（原 Ignition）/ `ros_gz_*` 路径；其资源、ROS package 与 build/install
-workspace 不与 Classic 共享。两条路径的 world、plugin、controller 与 resource lookup
-语义独立，不能以同一 package 或环境变量混用。当前实现迭代只完成目录分界与代码
-归属，不将未安装 `ros_gz_*` 的 Gazebo Sim 路径宣称为可运行。
+`drivers_sim/gazebo-11/` 承载 Gazebo Classic 11 / ROS 2 Humble 路径，使用
+`gazebo_ros` 和 `gazebo_ros2_control`。`drivers_sim/gazebo/` 承载 Gazebo
+Harmonic / ROS 2 Jazzy 路径，使用 `ros_gz_*` 和 `gz_ros2_control`。两条
+路径的 world、plugin、controller 与 resource lookup 语义独立，不能以
+同一 package 或环境变量混用。
+两个 workspace 对外提供同名的 `asset_maps`、`asset_worlds`、
+`robot_sim_common`、`diffdrive_car_desc` 和 `demos` package，并保持
+`ros2 launch demos gzsim.nav2.launch.py gui:=true` 接口一致。
+
+两版内容完全相同的 robot geometry xacro、mesh 和 texture 以
+`gazebo-11/` 为 repository source of truth，`gazebo/` 使用相对软链接引用，
+避免两份源文件漂移。软链接只能用于 backend-neutral 资产；顶层
+robot xacro、world、sensor/control plugin 和 controller 配置仍各自维护。
+Harmonic package 安装后不得依赖源码树中的软链接目标。实现依据
+Gazebo Harmonic ROS 2 migration 文档与 Jazzy `gz_ros2_control` 文档：
+https://gazebosim.org/docs/harmonic/migrating_gazebo_classic_ros2_packages/ 与
+https://control.ros.org/jazzy/doc/gz_ros2_control/doc/index.html。当前机器未安装
+`ros_gz_sim` / `gz_ros2_control`，因此不宣称 Jazzy / Harmonic 已运行验证。
 
 ## MuJoCo v9 OpenUSD package realization（2026-08-03，进行中）
 

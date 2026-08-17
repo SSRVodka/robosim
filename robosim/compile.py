@@ -26,6 +26,8 @@ def main() -> None:
     )
     parser.add_argument("--realization-version", default="csd-compiler-0.10")
     args = parser.parse_args()
+    if not args.csd.is_file():
+        parser.error(f"--csd does not exist or is not a file: {args.csd}")
     try:
         config = json.loads(args.realization_config)
     except json.JSONDecodeError as error:
