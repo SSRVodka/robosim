@@ -7,8 +7,8 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-import pytest
 import mujoco
+import pytest
 
 from robosim.backends.mujoco import MuJoCoBackend
 from robosim.core.mujoco_openusd_package import (
@@ -292,7 +292,11 @@ over "World" {
     checksums.write_text(
         "\n".join(
             (
-                *(line for line in checksums.read_text().splitlines() if not line.endswith(" scene.usda")),
+                *(
+                    line
+                    for line in checksums.read_text().splitlines()
+                    if not line.endswith(" scene.usda")
+                ),
                 f"{hashlib.sha256(scene.read_bytes()).hexdigest()} scene.usda",
                 f"{hashlib.sha256(override.read_bytes()).hexdigest()} override.usda",
             )
@@ -318,7 +322,8 @@ over "World" {
     backend = MuJoCoBackend.from_csd_realization_manifest(manifest, headless=True)
     try:
         joint_id = mujoco.mj_name2id(backend._model, mujoco.mjtObj.mjOBJ_JOINT, name)
-        assert backend._data.qpos[backend._model.jnt_qposadr[joint_id]] == pytest.approx(state[name])
+        qpos = backend._data.qpos[backend._model.jnt_qposadr[joint_id]]
+        assert qpos == pytest.approx(state[name])
     finally:
         backend.shutdown()
 

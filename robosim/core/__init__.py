@@ -2,8 +2,6 @@
 
 from robosim.core.capabilities import Capability
 from robosim.core.csd import (
-    BackendResourceAdapter,
-    BackendResourceMaterial,
     ConcreteScenarioDefinition,
     CsdObjectContact,
     CsdObjectInertial,
@@ -13,7 +11,6 @@ from robosim.core.csd import (
     CsdRealizationManifest,
     CsdRealizationValidationRecord,
     CsdRelationshipType,
-    backend_resource_adapters_by_asset,
     make_csd_realization_cache_key,
 )
 from robosim.core.csd_compiler import (
@@ -34,8 +31,6 @@ from robosim.core.openusd_csd import (
 
 __all__ = [
     "CsdCompilationResult",
-    "BackendResourceAdapter",
-    "BackendResourceMaterial",
     "ConcreteScenarioDefinition",
     "CsdObjectContact",
     "CsdObjectInitialState",
@@ -49,7 +44,6 @@ __all__ = [
     "OpenUsdCsd",
     "SimulatorBackend",
     "Capability",
-    "backend_resource_adapters_by_asset",
     "compile_csd",
     "compile_csd_to_gazebo",
     "compile_csd_to_mujoco",

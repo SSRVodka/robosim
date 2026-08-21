@@ -2,9 +2,30 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from pathlib import Path
 
 from robosim import server
+
+
+def test_importing_mujoco_backend_does_not_load_gazebo_or_rclpy() -> None:
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; import robosim.backends.mujoco; "
+                "assert 'robosim.backends.gazebo.backend' not in sys.modules; "
+                "assert 'rclpy' not in sys.modules"
+            ),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
 
 
 def test_create_mujoco_backend_from_csd_manifest(monkeypatch) -> None:
@@ -116,21 +137,7 @@ def test_no_headless_selects_backend_viewer_mode() -> None:
     assert args.headless is False
 
 
-def test_launch_gazebo_viewer_uses_scene_directory(monkeypatch, tmp_path: Path) -> None:
-    scene = tmp_path / "world.sdf"
-    scene.touch()
-    calls: list[tuple[tuple[str, str], Path]] = []
+def test_no_headless_is_preserved_for_gazebo_server() -> None:
+    args = server.parse_args(("--backend", "gazebo", "--no-headless"))
 
-    class FakeProcess:
-        pass
-
-    def fake_popen(command: tuple[str, str], *, cwd: Path) -> FakeProcess:
-        calls.append((command, cwd))
-        return FakeProcess()
-
-    monkeypatch.setattr(server.subprocess, "Popen", fake_popen)
-
-    process = server.launch_gazebo_viewer(str(scene))
-
-    assert isinstance(process, FakeProcess)
-    assert calls == [(("gazebo", "world.sdf"), tmp_path)]
+    assert args.headless is False

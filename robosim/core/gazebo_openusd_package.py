@@ -10,6 +10,7 @@ import shutil
 import sys
 import xml.etree.ElementTree as ET
 from collections.abc import Iterable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -32,7 +33,22 @@ from robosim.core.mujoco_openusd_package import (
 from robosim.core.pybullet_openusd_package import _rotate, _rpy, _write_obj_materials
 
 _Pose = tuple[float, float, float, float, float, float, float]
-_RUNTIME_TEMPLATE_VERSION = "gazebo-runtime-2"
+_RUNTIME_TEMPLATE_VERSION = "gazebo-runtime-3"
+_ROBOT_PROFILE_DIRECTORIES = {"franka_panda": "franka_panda", "ipads_desc": "ipads"}
+
+
+@dataclass(frozen=True, slots=True)
+class _RobotAssetProfile:
+    robot_id: str
+    source: Path
+    urdf_relative: Path
+    srdf_relative: Path
+    closure_roots: tuple[Path, ...]
+    package_aliases: Mapping[str, Path]
+    position_controllers: Mapping[str, str]
+    cameras: tuple[Mapping[str, Any], ...]
+
+
 def compile_openusd_scene_package(
     *,
     csd_path: Path,
@@ -45,8 +61,11 @@ def compile_openusd_scene_package(
     package = read_openusd_scene_package(csd_path)
     if package.robot is None:
         raise PackageError("Gazebo runtime requires a robot")
+    profile = _robot_asset_profile(package.robot.robot_id)
     try:
-        runtime_hashes = _runtime_plugin_hashes(has_camera=bool(package.cameras))
+        runtime_hashes = _runtime_plugin_hashes(
+            has_camera=bool(package.cameras or profile.cameras), robot_id=package.robot.robot_id
+        )
     except FileNotFoundError as error:
         raise PackageError(str(error)) from error
     cache = make_csd_realization_cache_key(
@@ -72,7 +91,7 @@ def compile_openusd_scene_package(
     root.mkdir(parents=True, exist_ok=True)
     diagnostics = root / "diagnostics"
     diagnostics.mkdir(exist_ok=True)
-    generated = ["manifest.json", "world.sdf"]
+    generated = ["manifest.json", "world.sdf", "diagnostics/runtime_preflight.json"]
     assets: dict[tuple[str, str], Path] = {}
     for asset in _unique_assets(package):
         key = _asset_key(asset)
@@ -94,22 +113,23 @@ def compile_openusd_scene_package(
         runtime = _write_runtime_artifacts(
             root=root,
             csd_id=package.scene_id,
-            urdf_source=root / "robots" / "franka_panda" / "panda.urdf",
-            joint_names=(
-                joint.attrib["name"]
-                for joint in robot.findall("joint")
-                if joint.attrib["name"].startswith("panda_joint")
+            urdf_source=(
+                root
+                / "robots"
+                / package.robot.robot_id
+                / _robot_asset_profile(package.robot.robot_id).urdf_relative
             ),
-            camera_names=(camera.name for camera in package.cameras),
+            camera_names=(
+                *(camera.name for camera in package.cameras),
+                *(str(camera["name"]) for camera in profile.cameras),
+            ),
+            runtime_version=simulator_version,
         )
     except ValueError as error:
         raise PackageError(str(error)) from error
     _write_world(root / "world.sdf", package, assets, robot, runtime)
-    generated.extend((runtime.robot_control_urdf, runtime.controllers_file))
     generated.extend(
-        str(path.relative_to(root))
-        for path in (root / "assets").rglob("*")
-        if path.is_file()
+        (runtime.robot_control_urdf, runtime.controllers_file, runtime.robot_semantics_file)
     )
     initial_state_file = _write_initial_state(root, package)
     if initial_state_file is not None:
@@ -136,17 +156,42 @@ def _asset_key(asset: OpenUsdAsset) -> str:
     return "asset-" + asset.resource_digest[:16]
 
 
-def _runtime_plugin_hashes(*, has_camera: bool) -> dict[str, str]:
-    libraries = ["libgazebo_ros2_control.so"]
+def _runtime_plugin_hashes(*, has_camera: bool, robot_id: str = "franka_panda") -> dict[str, str]:
+    """Return the exact installed runtime inputs required by this realization."""
+    executables = ["gzserver", "ros2"]
+    packages = [
+        "robot_state_publisher",
+        "gazebo_ros2_control",
+        "controller_manager",
+        "joint_state_broadcaster",
+        "joint_trajectory_controller",
+    ]
+    libraries = [
+        "libgazebo_ros2_control.so",
+        "libjoint_state_broadcaster.so",
+        "libjoint_trajectory_controller.so",
+    ]
     if has_camera:
         libraries.append("libgazebo_ros_camera.so")
     hashes: dict[str, str] = {}
+    missing = [name for name in executables if not (Path(sys.prefix) / "bin" / name).is_file()]
+    missing.extend(
+        package
+        for package in packages
+        if not (
+            Path(sys.prefix) / "share" / "ament_index" / "resource_index" / "packages" / package
+        ).is_file()
+    )
+    if missing:
+        raise FileNotFoundError(f"required Gazebo ROS runtime is unavailable: {', '.join(missing)}")
     for library in libraries:
         path = Path(sys.prefix) / "lib" / library
         if not path.is_file():
             raise FileNotFoundError(f"required Gazebo ROS plugin is unavailable: {library}")
         hashes[f"runtime:{library}"] = hashlib.sha256(path.read_bytes()).hexdigest()
     hashes["runtime:template"] = _RUNTIME_TEMPLATE_VERSION
+    profile = _robot_asset_profile(robot_id)
+    hashes[f"runtime:{robot_id}"] = _profile_closure_hash(profile)
     return hashes
 
 
@@ -155,15 +200,19 @@ def _write_runtime_artifacts(
     root: Path,
     csd_id: str,
     urdf_source: Path,
-    joint_names: Iterable[str],
     camera_names: Iterable[str],
+    runtime_version: str | None = None,
 ) -> CsdGazeboRuntimeContract:
-    joints = tuple(joint_names)
-    if not joints:
-        raise ValueError("Gazebo robot has no controllable joints")
     namespace = f"/robosim/{csd_id}"
     control_urdf = root / "robot_control.urdf"
     urdf = ET.parse(urdf_source).getroot()
+    joints = tuple(
+        joint.attrib["name"]
+        for joint in urdf.findall("joint")
+        if joint.attrib["type"] != "fixed"
+        and joint.find("limit") is not None
+        and joint.find("mimic") is None
+    )
     control = ET.SubElement(urdf, "ros2_control", {"name": "GazeboSystem", "type": "system"})
     hardware = ET.SubElement(control, "hardware")
     ET.SubElement(hardware, "plugin").text = "gazebo_ros2_control/GazeboSystem"
@@ -176,17 +225,43 @@ def _write_runtime_artifacts(
     ET.ElementTree(urdf).write(control_urdf, encoding="utf-8", xml_declaration=True)
 
     controllers = root / "controllers.yaml"
-    controllers.write_text(_controllers_yaml(namespace, joints), encoding="utf-8")
+    semantics_file, semantics = _write_robot_semantics(root, urdf_source)
+    actions = {
+        name: f"{namespace}/{controller}/follow_joint_trajectory"
+        for name, controller in semantics["controller_names"].items()
+    }
+    controllers.write_text(
+        _controllers_yaml(namespace, semantics["controller_groups"], semantics["controller_names"]),
+        encoding="utf-8",
+    )
+    diagnostics = root / "diagnostics"
+    diagnostics.mkdir(exist_ok=True)
+    (diagnostics / "runtime_preflight.json").write_text(
+        json.dumps(
+            {
+                "runtime_prefix": sys.prefix,
+                "runtime_version": runtime_version or sys.prefix,
+                "gazebo_ros2_control": hashlib.sha256(
+                    (Path(sys.prefix) / "lib" / "libgazebo_ros2_control.so").read_bytes()
+                ).hexdigest(),
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    first_action = next(iter(actions.values()))
     return CsdGazeboRuntimeContract(
         world_file="world.sdf",
         robot_control_urdf=control_urdf.name,
         controllers_file=controllers.name,
         namespace=namespace,
         joint_state_topic=f"{namespace}/joint_states",
-        trajectory_action=f"{namespace}/joint_trajectory_controller/follow_joint_trajectory",
-        camera_topics={
-            name: f"{namespace}/cameras/{name}/image_raw" for name in camera_names
-        },
+        trajectory_action=first_action,
+        camera_topics={name: f"{namespace}/cameras/{name}/image_raw" for name in camera_names},
+        gripper_trajectory_action=actions.get("hand", ""),
+        robot_semantics_file=semantics_file,
+        trajectory_actions=actions,
     )
 
 
@@ -216,31 +291,62 @@ def _append_camera_plugin(
     )
     ros = ET.SubElement(plugin, "ros")
     ET.SubElement(ros, "namespace").text = runtime.namespace
-    ET.SubElement(ros, "remapping").text = f"image_raw:={topic}"
+    ET.SubElement(plugin, "camera_name").text = f"cameras/{camera_name}"
 
 
-def _controllers_yaml(namespace: str, joint_names: tuple[str, ...]) -> str:
-    return "\n".join(
-        (
-            f"{namespace}/controller_manager:",
-            "  ros__parameters:",
-            "    update_rate: 100",
-            "    joint_state_broadcaster:",
-            "      type: joint_state_broadcaster/JointStateBroadcaster",
-            "    joint_trajectory_controller:",
-            "      type: joint_trajectory_controller/JointTrajectoryController",
-            f"{namespace}/joint_trajectory_controller:",
-            "  ros__parameters:",
-            "    joints:",
-            *(f"      - {name}" for name in joint_names),
-            "    command_interfaces:",
-            "      - position",
-            "    state_interfaces:",
-            "      - position",
-            "      - velocity",
-            "",
+def _camera_sensor(
+    link: ET.Element,
+    *,
+    name: str,
+    pose: str,
+    fovy: float,
+    width: int,
+    height: int,
+    runtime: CsdGazeboRuntimeContract,
+) -> None:
+    sensor = ET.SubElement(link, "sensor", {"name": name, "type": "camera"})
+    ET.SubElement(sensor, "pose").text = pose
+    ET.SubElement(sensor, "always_on").text = "true"
+    ET.SubElement(sensor, "update_rate").text = "30"
+    config = ET.SubElement(sensor, "camera")
+    ET.SubElement(config, "horizontal_fov").text = str(math.radians(fovy))
+    image = ET.SubElement(config, "image")
+    ET.SubElement(image, "width").text = str(width)
+    ET.SubElement(image, "height").text = str(height)
+    ET.SubElement(image, "format").text = "R8G8B8"
+    _append_camera_plugin(sensor, name, runtime)
+
+
+def _controllers_yaml(
+    namespace: str, groups: Mapping[str, list[str]], names: Mapping[str, str]
+) -> str:
+    lines = [
+        f"{namespace}/controller_manager:",
+        "  ros__parameters:",
+        "    update_rate: 100",
+        "    joint_state_broadcaster:",
+        "      type: joint_state_broadcaster/JointStateBroadcaster",
+    ]
+    for name in groups:
+        lines.extend(
+            (
+                f"    {names[name]}:",
+                "      type: joint_trajectory_controller/JointTrajectoryController",
+            )
         )
-    )
+    for name, joints in groups.items():
+        lines.extend((f"{namespace}/{names[name]}:", "  ros__parameters:", "    joints:"))
+        lines.extend(f"      - {joint}" for joint in joints)
+        lines.extend(
+            (
+                "    command_interfaces:",
+                "      - position",
+                "    state_interfaces:",
+                "      - position",
+                "      - velocity",
+            )
+        )
+    return "\n".join((*lines, ""))
 
 
 def _write_world(
@@ -258,14 +364,30 @@ def _write_world(
     ET.SubElement(world, "gravity").text = "0 0 -9.81"
     for light in package.lights:
         element = ET.SubElement(world, "light", {"name": light.name, "type": "directional"})
-        ET.SubElement(element, "diffuse").text = (
-            f"{light.intensity} {light.intensity} {light.intensity} 1"
-        )
+        ET.SubElement(
+            element, "diffuse"
+        ).text = f"{light.intensity} {light.intensity} {light.intensity} 1"
         ET.SubElement(element, "direction").text = _values(
             _rotate(light.pose[3:], (0.0, 0.0, -1.0))
         )
     if robot is not None:
+        assert package.robot is not None
         _append_control_plugin(robot, runtime)
+        profile = _robot_asset_profile(package.robot.robot_id)
+        links = {link.attrib["name"]: link for link in robot.findall("link")}
+        for robot_camera in profile.cameras:
+            link_name = str(robot_camera["link"])
+            if link_name not in links:
+                raise PackageError(f"Gazebo robot camera link is unavailable: {link_name}")
+            _camera_sensor(
+                links[link_name],
+                name=str(robot_camera["name"]),
+                pose=" ".join(str(value) for value in robot_camera["pose"]),
+                fovy=float(robot_camera["fovy"]),
+                width=int(robot_camera["width"]),
+                height=int(robot_camera["height"]),
+                runtime=runtime,
+            )
         world.append(robot)
     joint_states: list[tuple[str, _Pose, tuple[tuple[str, float], ...]]] = []
     for instance in package.instances:
@@ -295,18 +417,16 @@ def _write_world(
         sensors = ET.SubElement(world, "model", {"name": "csd_sensors"})
         ET.SubElement(sensors, "static").text = "true"
         link = ET.SubElement(sensors, "link", {"name": "sensors_link"})
-        for camera in package.cameras:
-            sensor = ET.SubElement(link, "sensor", {"name": camera.name, "type": "camera"})
-            ET.SubElement(sensor, "pose").text = _pose(camera.pose)
-            ET.SubElement(sensor, "always_on").text = "true"
-            ET.SubElement(sensor, "update_rate").text = "30"
-            config = ET.SubElement(sensor, "camera")
-            ET.SubElement(config, "horizontal_fov").text = str(math.radians(camera.fovy))
-            image = ET.SubElement(config, "image")
-            ET.SubElement(image, "width").text = "512"
-            ET.SubElement(image, "height").text = "512"
-            ET.SubElement(image, "format").text = "R8G8B8"
-            _append_camera_plugin(sensor, camera.name, runtime)
+        for scene_camera in package.cameras:
+            _camera_sensor(
+                link,
+                name=scene_camera.name,
+                pose=_pose(scene_camera.pose),
+                fovy=scene_camera.fovy,
+                width=512,
+                height=512,
+                runtime=runtime,
+            )
     ET.indent(root, space="  ")
     ET.ElementTree(root).write(path, encoding="utf-8", xml_declaration=True)
 
@@ -471,7 +591,7 @@ def _child_pose(
 
 
 def _inverse_pose(
-    pose: tuple[float, float, float, float, float, float, float]
+    pose: tuple[float, float, float, float, float, float, float],
 ) -> tuple[float, float, float, float, float, float, float]:
     position, quat = pose[:3], pose[3:]
     inverse_quat = (quat[0], -quat[1], -quat[2], -quat[3])
@@ -526,15 +646,11 @@ def _robot_model(
 ) -> tuple[ET.Element | None, tuple[str, ...]]:
     if package.robot is None:
         return None, ()
-    if package.robot.robot_id != "franka_panda":
-        raise PackageError(f"unsupported Gazebo robot: {package.robot.robot_id}")
-    import pybullet_data
-
-    source = Path(pybullet_data.getDataPath()) / "franka_panda"
-    destination = root / "robots" / "franka_panda"
-    shutil.copytree(source, destination, dirs_exist_ok=True)
+    profile = _robot_asset_profile(package.robot.robot_id)
+    destination = root / "robots" / package.robot.robot_id
+    _copy_robot_closure(profile, destination)
     _normalize_robot_obj_materials(destination)
-    urdf = ET.parse(destination / "panda.urdf").getroot()
+    urdf = ET.parse(destination / profile.urdf_relative).getroot()
     model = ET.Element("model", {"name": package.robot.instance_id})
     model.insert(0, _text("pose", _pose(package.robot.pose)))
     massless_links = _massless_fixed_urdf_links(urdf)
@@ -557,9 +673,21 @@ def _robot_model(
             for index, element in enumerate(urdf_link.findall(tag)):
                 _copy_urdf_geometry(link, tag, index, element, destination, root)
     if package.robot.fixed_base:
+        children = {
+            child.attrib["link"]
+            for joint in urdf.findall("joint")
+            if (child := joint.find("child")) is not None
+        }
+        roots = [
+            link.attrib["name"]
+            for link in urdf.findall("link")
+            if link.attrib["name"] not in children
+        ]
+        if len(roots) != 1:
+            raise PackageError(f"Gazebo robot has no unique base link: {package.robot.robot_id}")
         base_joint = ET.SubElement(model, "joint", {"name": "robot_base_fixed", "type": "fixed"})
         ET.SubElement(base_joint, "parent").text = "world"
-        ET.SubElement(base_joint, "child").text = "panda_link0"
+        ET.SubElement(base_joint, "child").text = roots[0]
     for urdf_joint, parent_name, _ in joints:
         joint = ET.SubElement(
             model,
@@ -591,6 +719,222 @@ def _robot_model(
     )
 
 
+def _copy_robot_closure(profile: _RobotAssetProfile, destination: Path) -> None:
+    if destination.exists():
+        shutil.rmtree(destination)
+    for relative in profile.closure_roots:
+        shutil.copytree(profile.source / relative, destination / relative, dirs_exist_ok=True)
+    shutil.copy2(profile.source / "manifest.json", destination / "manifest.json")
+
+
+def _robot_asset_profile(robot_id: str) -> _RobotAssetProfile:
+    directory = _ROBOT_PROFILE_DIRECTORIES.get(robot_id)
+    if directory is None:
+        raise PackageError(f"Gazebo robot asset profile is unavailable: {robot_id}")
+    source = (
+        Path(__file__).resolve().parents[2]
+        / "drivers_sim"
+        / "gazebo-11"
+        / "assets"
+        / "robots"
+        / directory
+    )
+    try:
+        payload = json.loads((source / "manifest.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise PackageError(f"Gazebo robot asset profile is unavailable: {robot_id}") from error
+    gazebo = payload.get("gazebo")
+    if (
+        payload.get("schema_version") != "robosim.robot-asset/1"
+        or payload.get("robot_id") != robot_id
+        or not isinstance(gazebo, dict)
+    ):
+        raise PackageError(f"invalid Gazebo robot asset profile: {robot_id}")
+    urdf = Path(str(gazebo.get("urdf", "")))
+    srdf = Path(str(gazebo.get("srdf", "")))
+    roots = tuple(Path(str(item)) for item in gazebo.get("closure_roots", ()))
+    aliases = {
+        str(key): Path(str(value)) for key, value in dict(gazebo.get("package_aliases", {})).items()
+    }
+    entries = gazebo.get("position_controllers", ())
+    cameras = gazebo.get("cameras", [])
+    if not isinstance(entries, list):
+        raise PackageError(f"invalid Gazebo robot controllers: {robot_id}")
+    controllers = {
+        str(item["group"]): str(item["controller"])
+        for item in entries
+        if isinstance(item, dict)
+        and isinstance(item.get("group"), str)
+        and isinstance(item.get("controller"), str)
+    }
+    relatives = (urdf, srdf, *roots, *aliases.values())
+    if (
+        not urdf.parts
+        or not srdf.parts
+        or not roots
+        or len(controllers) != len(entries)
+        or len(set(controllers.values())) != len(controllers)
+        or any(path.is_absolute() or ".." in path.parts for path in relatives)
+        or not isinstance(cameras, list)
+        or any(
+            not isinstance(camera, dict)
+            or not isinstance(camera.get("name"), str)
+            or not isinstance(camera.get("link"), str)
+            or not isinstance(camera.get("pose"), list)
+            or len(camera["pose"]) != 6
+            or not all(key in camera for key in ("fovy", "width", "height"))
+            for camera in cameras
+        )
+    ):
+        raise PackageError(f"incomplete Gazebo robot asset profile: {robot_id}")
+    if not (source / urdf).is_file() or not (source / srdf).is_file():
+        raise PackageError(f"Gazebo robot profile has unresolved semantic files: {robot_id}")
+    if any(not (source / root).is_dir() for root in roots):
+        raise PackageError(f"Gazebo robot profile has unresolved closure roots: {robot_id}")
+    if any(not (source / target).is_dir() for target in aliases.values()):
+        raise PackageError(f"Gazebo robot profile has unresolved package alias: {robot_id}")
+    return _RobotAssetProfile(
+        robot_id=robot_id,
+        source=source,
+        urdf_relative=urdf,
+        srdf_relative=srdf,
+        closure_roots=roots,
+        package_aliases=aliases,
+        position_controllers=controllers,
+        cameras=tuple(cameras),
+    )
+
+
+def _profile_closure_hash(profile: _RobotAssetProfile) -> str:
+    """Hash only files the manifest declares part of this robot realization."""
+    digest = hashlib.sha256()
+    files = [profile.source / "manifest.json"]
+    files.extend(
+        path
+        for root in profile.closure_roots
+        for path in (profile.source / root).rglob("*")
+        if path.is_file()
+    )
+    for path in sorted(files):
+        digest.update(path.relative_to(profile.source).as_posix().encode())
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+def _franka_gazebo_source() -> Path:
+    return _robot_asset_profile("franka_panda").source
+
+
+def _write_robot_semantics(root: Path, urdf_source: Path) -> tuple[str, dict[str, Any]]:
+    robot_root = next(
+        (parent for parent in urdf_source.parents if (parent / "manifest.json").is_file()),
+        None,
+    )
+    if robot_root is None:
+        raise ValueError("Gazebo robot manifest is unavailable")
+    profile = json.loads((robot_root / "manifest.json").read_text(encoding="utf-8"))["gazebo"]
+    srdf = robot_root / str(profile["srdf"])
+    urdf = ET.parse(urdf_source).getroot()
+    limits = {
+        joint.attrib["name"]: {
+            "type": joint.attrib["type"],
+            "lower": float(limit.attrib.get("lower", 0.0)),
+            "upper": float(limit.attrib.get("upper", 0.0)),
+            "velocity": float(limit.attrib.get("velocity", 0.0)),
+            "effort": float(limit.attrib.get("effort", 0.0)),
+        }
+        for joint in urdf.findall("joint")
+        if joint.attrib["type"] != "fixed" and (limit := joint.find("limit")) is not None
+    }
+    mimic_joints = {
+        joint.attrib["name"] for joint in urdf.findall("joint") if joint.find("mimic") is not None
+    }
+    groups = _srdf_groups(srdf, urdf, set(limits))
+    controller_names = {
+        str(item["group"]): str(item["controller"])
+        for item in profile["position_controllers"]
+        if isinstance(item, dict)
+    }
+    controller_groups = {name: groups[name] for name in controller_names if name in groups}
+    if len(controller_groups) != len(controller_names):
+        raise PackageError(f"Gazebo controller group is absent from SRDF: {urdf.attrib['name']}")
+    if any(
+        not joints or mimic_joints.intersection(joints) for joints in controller_groups.values()
+    ):
+        raise PackageError(
+            f"Gazebo controller group contains a mimic or no movable joint: {urdf.attrib['name']}"
+        )
+    semantic = {
+        "robot_name": urdf.attrib["name"],
+        "srdf_file": str(srdf.relative_to(root)),
+        "joint_limits": limits,
+        "mimic_joints": sorted(mimic_joints),
+        "groups": groups,
+        "controller_groups": controller_groups,
+        "controller_names": controller_names,
+        "named_states": _srdf_named_states(srdf, groups),
+        "end_effectors": [
+            dict(item.attrib) for item in ET.parse(srdf).getroot().findall("end_effector")
+        ],
+    }
+    relative = "runtime/robot_semantics.json"
+    path = root / relative
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(json.dumps(semantic, indent=2, sort_keys=True), encoding="utf-8")
+    return relative, semantic
+
+
+def _srdf_named_states(
+    path: Path, groups: Mapping[str, list[str]]
+) -> dict[str, dict[str, list[float]]]:
+    result: dict[str, dict[str, list[float]]] = {}
+    for state in ET.parse(path).getroot().findall("group_state"):
+        group = state.attrib["group"]
+        values = {
+            joint.attrib["name"]: float(joint.attrib["value"]) for joint in state.findall("joint")
+        }
+        joint_names = groups.get(group, [])
+        result.setdefault(group, {})[state.attrib["name"]] = [
+            values.get(name, 0.0) for name in joint_names
+        ]
+    return result
+
+
+def _srdf_groups(path: Path, urdf: ET.Element, movable: set[str]) -> dict[str, list[str]]:
+    parent_joint = {
+        child.attrib["link"]: joint
+        for joint in urdf.findall("joint")
+        if (child := joint.find("child")) is not None
+    }
+    raw = {group.attrib["name"]: group for group in ET.parse(path).getroot().findall("group")}
+
+    def resolve(name: str) -> list[str]:
+        if name not in raw:
+            raise PackageError(f"SRDF group references unknown subgroup '{name}'")
+        group = raw[name]
+        result = [
+            item.attrib["name"] for item in group.findall("joint") if item.attrib["name"] in movable
+        ]
+        for chain in group.findall("chain"):
+            link = chain.attrib["tip_link"]
+            chain_joints: list[str] = []
+            while link != chain.attrib["base_link"]:
+                joint = parent_joint.get(link)
+                parent = joint.find("parent") if joint is not None else None
+                if joint is None or parent is None:
+                    raise PackageError(f"SRDF chain cannot resolve group '{name}'")
+                if joint.attrib["name"] in movable:
+                    chain_joints.append(joint.attrib["name"])
+                link = parent.attrib["link"]
+            result.extend(reversed(chain_joints))
+        for child in group.findall("group"):
+            result.extend(resolve(child.attrib["name"]))
+        return list(dict.fromkeys(result))
+
+    groups = {name: resolve(name) for name in raw}
+    return {name: joints for name, joints in groups.items() if joints}
+
+
 def _massless_fixed_urdf_links(urdf: ET.Element) -> frozenset[str]:
     """Return zero-mass fixed connector links that Gazebo ODE cannot simulate."""
     joints_by_child = {
@@ -602,13 +946,23 @@ def _massless_fixed_urdf_links(urdf: ET.Element) -> frozenset[str]:
     for link in urdf.findall("link"):
         inertial = link.find("inertial")
         mass = inertial.find("mass") if inertial is not None else None
-        if mass is None or float(mass.attrib["value"]) != 0.0:
-            continue
         name = str(link.attrib["name"])
         joint = joints_by_child.get(name)
+        if mass is None:
+            if (
+                joint is not None
+                and joint.attrib["type"] == "fixed"
+                and link.find("visual") is None
+                and link.find("collision") is None
+            ):
+                result.add(name)
+            continue
+        if float(mass.attrib["value"]) != 0.0:
+            continue
+        if joint is None:
+            continue
         if (
-            joint is None
-            or joint.attrib["type"] != "fixed"
+            joint.attrib["type"] != "fixed"
             or link.find("visual") is not None
             or link.find("collision") is not None
         ):
@@ -763,13 +1117,16 @@ def _material_file_name(name: str) -> str:
 
 def _normalize_robot_obj_materials(robot_root: Path) -> None:
     """Make copied Franka OBJ material references package-local and resolvable."""
-    texture = robot_root / "meshes" / "visual" / "colors.png"
+    textures = tuple(robot_root.rglob("meshes/visual/colors.png"))
+    if not textures:
+        return
+    if len(textures) != 1:
+        raise PackageError("Gazebo robot OBJ closure has no unique color texture")
+    texture = textures[0]
     for obj in robot_root.rglob("*.obj"):
         lines = obj.read_text(encoding="utf-8").splitlines()
         names = tuple(
-            dict.fromkeys(
-                line.split(maxsplit=1)[1] for line in lines if line.startswith("usemtl ")
-            )
+            dict.fromkeys(line.split(maxsplit=1)[1] for line in lines if line.startswith("usemtl "))
         )
         if not names:
             continue
@@ -777,9 +1134,7 @@ def _normalize_robot_obj_materials(robot_root: Path) -> None:
         if mtl.is_file():
             records = _normalize_mtl_texture_paths(mtl.read_text(encoding="utf-8"), mtl, texture)
         else:
-            records = "\n".join(
-                f"newmtl {name}\nKd 0.7 0.7 0.7\nd 1\n" for name in names
-            )
+            records = "\n".join(f"newmtl {name}\nKd 0.7 0.7 0.7\nd 1\n" for name in names)
         mtl.write_text(records, encoding="utf-8")
         body = tuple(line for line in lines if not line.startswith("mtllib "))
         obj.write_text(
@@ -792,9 +1147,10 @@ def _normalize_mtl_texture_paths(source: str, mtl: Path, texture: Path) -> str:
     """Replace non-local texture paths in a copied MTL with the copied texture."""
     texture_ref = Path(os.path.relpath(texture, mtl.parent)).as_posix()
     lines = source.splitlines()
-    return "\n".join(
-        f"map_Kd {texture_ref}" if line.startswith("map_Kd ") else line for line in lines
-    ) + "\n"
+    return (
+        "\n".join(f"map_Kd {texture_ref}" if line.startswith("map_Kd ") else line for line in lines)
+        + "\n"
+    )
 
 
 def _validate(world: Path, diagnostics: Path, package: OpenUsdScenePackage) -> None:
@@ -860,6 +1216,12 @@ def _copy_urdf_geometry(
         return
     filename = str(mesh.attrib["filename"]).removeprefix("package://")
     local = robot_root / filename
+    if not local.is_file() and "/" in filename:
+        alias, relative = filename.split("/", 1)
+        profile = json.loads((robot_root / "manifest.json").read_text(encoding="utf-8"))
+        aliases = dict(profile["gazebo"]["package_aliases"])
+        if alias in aliases:
+            local = robot_root / str(aliases[alias]) / relative
     if not local.is_file():
         raise PackageError(f"Gazebo Franka mesh is unavailable: {filename}")
     geometry = ET.SubElement(target, "geometry")

@@ -48,7 +48,7 @@ from the exact official MuJoCo revision recorded below.
 | Platform | Arch Linux `7.1.3`, x86-64, glibc `2.43` |
 | gRPC / protobuf after install | `1.78.1` / `6.33.5` |
 
-OpenUSD was installed in the existing `robosim2` environment and pinned in
+OpenUSD was installed in the existing `robosim` environment and pinned in
 `environment.yml`; no new environment was created. The conda-forge OpenUSD
 package exposes `pxrConfig.cmake` at the environment prefix itself, so the
 working configuration used `pxr_DIR=$CONDA_PREFIX`.
@@ -174,4 +174,3 @@ fails. Consequently, the native package probe test was removed after recording
 this evidence; it is not a production regression test. The composed OpenUSD
 fixture and its strict stage-contract test remain as inputs for the selected
 OpenUSD-to-MJCF implementation.
-

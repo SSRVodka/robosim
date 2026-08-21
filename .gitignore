@@ -229,6 +229,7 @@ refs
 
 example/
 outputs/
+tmp/
 csd/
 .vscode/
 uv.lock

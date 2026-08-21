@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import signal
-import subprocess
 from concurrent import futures
 from pathlib import Path
 from types import ModuleType
@@ -47,24 +46,6 @@ from robosim.grpc_server import (
 )
 
 DATA_REPO_ROOT = Path(__file__).resolve().parent.parent
-
-
-def launch_gazebo_viewer(scene: str) -> subprocess.Popen[bytes]:
-    """Launch Gazebo Classic with a local SDF world."""
-    entry = Path(scene).resolve()
-    if not entry.is_file():
-        raise FileNotFoundError(f"Gazebo scene file does not exist: {entry}")
-    return subprocess.Popen(("gazebo", entry.name), cwd=entry.parent)
-
-
-def stop_gazebo_viewer(process: subprocess.Popen[bytes] | None) -> None:
-    """Stop a Gazebo viewer process started by this server."""
-    if process is not None and process.poll() is None:
-        process.terminate()
-        try:
-            process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            process.kill()
 
 
 def _load_backend_class(backend_type: str) -> type[SimulatorBackend]:
@@ -170,20 +151,20 @@ async def serve_async(
     recorder: LerobotDataRecorder | None = None
     policy_runner: LerobotPolicyRunner | None = None
     server: grpc_aio.Server | None = None
-    gazebo_viewer: subprocess.Popen[bytes] | None = None
+    gazebo_runtime: Any | None = None
     rclpy: ModuleType | None = None
 
-    async def shutdown_handler_async() -> None:
-        """Async shutdown handler for gRPC server."""
-        nonlocal server, backend, policy_runner, gazebo_viewer
-        print("\nReceived shutdown signal, stopping server...")
+    async def shutdown() -> None:
+        """Stop services and owned resources in dependency order."""
+        nonlocal server, backend, policy_runner, gazebo_runtime
         if server is not None:
             await server.stop(grace=1.0)
         if policy_runner is not None:
             policy_runner.shutdown()
         if backend is not None:
             backend.shutdown()
-        stop_gazebo_viewer(gazebo_viewer)
+        if gazebo_runtime is not None:
+            gazebo_runtime.stop()
         if rclpy is not None:
             try:
                 rclpy.shutdown()
@@ -191,13 +172,12 @@ async def serve_async(
                 pass
 
     loop = asyncio.get_running_loop()
-    should_shutdown = False
+    shutdown_requested = asyncio.Event()
 
     def shutdown_handler(sig: int, frame) -> None:
-        nonlocal should_shutdown
+        del frame
         print(f"\nReceived signal {sig}, initiating shutdown...")
-        should_shutdown = True
-        loop.call_soon_threadsafe(lambda: asyncio.create_task(shutdown_handler_async()))
+        loop.call_soon_threadsafe(shutdown_requested.set)
 
     try:
         signal.signal(signal.SIGINT, shutdown_handler)
@@ -206,10 +186,16 @@ async def serve_async(
         activity = ActivityCoordinator()
         if backend_type == "gazebo":
             flush_ros_environment()
+            if csd_manifest is not None:
+                from robosim.backends.gazebo.runtime import GazeboRuntime
+
+                gazebo_runtime = GazeboRuntime(Path(csd_manifest), headless=headless)
+                gazebo_runtime.start()
             import rclpy as gazebo_rclpy
+            from rclpy.signals import SignalHandlerOptions
 
             rclpy = gazebo_rclpy
-            rclpy.init()
+            rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
         backend = create_backend(
             backend_type=backend_type,
             robot_name=robot_name,
@@ -233,21 +219,12 @@ async def serve_async(
         print(f"Capabilities: {backend.capabilities}")
         print("Press Ctrl+C to stop")
 
-        while not should_shutdown:
-            await asyncio.sleep(0.1)
+        await shutdown_requested.wait()
     except Exception as e:
         print(f"Server error: {e}")
-        if policy_runner is not None:
-            policy_runner.shutdown()
-        if backend is not None:
-            backend.shutdown()
-        stop_gazebo_viewer(gazebo_viewer)
-        if rclpy is not None:
-            try:
-                rclpy.shutdown()
-            except Exception:
-                pass
         raise
+    finally:
+        await shutdown()
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:

@@ -43,30 +43,6 @@ closure 会复制到 realization package；运行时不得依赖 `drivers_sim` �
 MuJoCo、Gazebo 与 PyBullet 分别生成 `scene.xml`、`world.sdf` 与 `scene.py`；Python
 API `compile_csd()` 返回 manifest 或 typed blocker。
 
-#### 运行 Gazebo CSD
-
-编译后，先由 runtime 启动 Gazebo 与 ROS 2 controller；`--no-headless` 打开 GUI：
-
-```bash
-python -m robosim.gazebo_runtime \
-  --csd-manifest csd/benchmark_gen/engine_manifests/gazebo/<csd_id>/manifest.json \
-  --no-headless
-```
-
-另开终端让 gRPC server 连接该 runtime：
-
-```bash
-python -m robosim.server \
-  --backend gazebo \
-  --csd-manifest csd/benchmark_gen/engine_manifests/gazebo/<csd_id>/manifest.json
-```
-
-机器人资产语义的跨后端对齐仍在进行中，见 [`TODO.md`](./TODO.md)。
-
-编译输出必须可移动：MuJoCo `scene.xml`、Gazebo `world.sdf` 与 PyBullet scene 都只
-引用 package-local 资源。Gazebo 使用 SDFormat 1.7 与相对 mesh URI；PyBullet 以
-URDF、`scene.py` 和 `scene_meta.json` 组成完整运行时场景。
-
 
 ### Quick Start
 
@@ -99,12 +75,13 @@ popd
 最后启动 robosim（`[]` 表示可选项，`<>` 表示必填项）。更多参数用法请使用 `--help`：
 
 ```bash
-python3 -m robosim.server [--help] [--port <gRPC-listen-port>] [--backend <gazebo|mujoco|pybullet>] [--headless | --no-headless]
+python3 -m robosim.server [--help] [--port <gRPC-listen-port>] [--backend <gazebo|mujoco|pybullet>] [--headless | --no-headless] [ --csd-manifest </path/to/manifest> ]
 ```
 
 > [!WARNING]
 >
-> 如果选择的后端是 gazebo，使用 `--no-headless --scene <world.sdf>` 会由 server 启动 Gazebo Classic GUI。headless 模式仍需额外启动 Gazebo/ROS2 场景。
+> Gazebo legacy 模式（不传 `--csd-manifest`）仍连接用户自行启动的 ROS/Gazebo graph。
+> manifest 模式由 server 完整管理 Gazebo Classic 与 controllers，无需另开 runtime。
 >
 > ```bash
 > mamba activate robosim
@@ -115,13 +92,14 @@ python3 -m robosim.server [--help] [--port <gRPC-listen-port>] [--backend <gazeb
 > ros2 launch demos gzsim.nav2.launch.py gui:=false
 > ```
 >
-> 如果你使用新编译出来的 Gazebo 场景，我们暂时还有些功能未能兼容，也正因> 如此，环境部分可以被简化为以下流程：
+> 如果使用编译出的 Gazebo realization，启动流程为：
+>
+> ```bash
 > mamba activate robosim
-> python -m robosim.gazebo_runtime \ 
->   [--csd-manifest </path/to/manifest>] \
+> python -m robosim.server --port <gRPC-listen-port> \
+>   --backend gazebo --csd-manifest </path/to/manifest> \
 >   [--headless | --no-headless]
-> python -m robosim.server [--help] [--port 
-> <gRPC-listen-port>] --backend gazebo
+> ```
 
 
 现在，你的环境已经准备好了！

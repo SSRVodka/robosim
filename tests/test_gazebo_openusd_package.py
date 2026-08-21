@@ -2,13 +2,24 @@
 
 from __future__ import annotations
 
+import json
 import xml.etree.ElementTree as ET
 from dataclasses import replace
 from pathlib import Path
 
+import pytest
+
 from robosim.core.csd_compiler import compile_csd
-from robosim.core.gazebo_openusd_package import _robot_model
-from robosim.core.mujoco_openusd_package import _read_robot, read_openusd_scene_package
+from robosim.core.gazebo_openusd_package import (
+    _robot_asset_profile,
+    _robot_model,
+    _write_runtime_artifacts,
+)
+from robosim.core.mujoco_openusd_package import (
+    PackageError,
+    _read_robot,
+    read_openusd_scene_package,
+)
 
 BENCHMARK_SCENE = Path(__file__).parents[1] / "csd" / "benchmark_gen" / "scene.usda"
 
@@ -27,11 +38,41 @@ def test_compile_v9_openusd_package_to_self_contained_gazebo_world(tmp_path: Pat
     assert result.manifest.gazebo_runtime is not None
     runtime = result.manifest.gazebo_runtime
     assert runtime.namespace == "/robosim/csd_4c9f31903d8cf0dc"
+    assert runtime.camera_topics == {
+        "agent_view": f"{runtime.namespace}/cameras/agent_view/image_raw",
+        "wrist_view": f"{runtime.namespace}/cameras/wrist_view/image_raw",
+    }
     assert (root / runtime.robot_control_urdf).is_file()
     assert (root / runtime.controllers_file).is_file()
+    assert (root / runtime.robot_semantics_file).is_file()
+    semantics = json.loads(
+        (root / runtime.robot_semantics_file).read_text(encoding="utf-8")
+    )
+    assert (
+        root / "robots" / "franka_panda" / "panda_moveit_config" / "config" / "panda.srdf"
+    ).is_file()
+    robot_urdf = ET.parse(root / runtime.robot_control_urdf).getroot()
+    assert all(link.find("inertial") is not None for link in robot_urdf.findall("link"))
+    assert all(
+        str(mesh.attrib["filename"]).endswith(".obj")
+        for mesh in robot_urdf.findall("link/visual/geometry/mesh")
+    )
+    assert runtime.gripper_trajectory_action.endswith("hand_controller/follow_joint_trajectory")
+    assert "panda_finger_joint2" in semantics["mimic_joints"]
+    control_urdf = robot_urdf
+    assert control_urdf.find("ros2_control/joint[@name='panda_finger_joint2']") is None
+    assert semantics["groups"] == {
+        "panda_arm": [f"panda_joint{index}" for index in range(1, 8)],
+        "hand": ["panda_finger_joint1"],
+        "panda_arm_hand": [
+            *(f"panda_joint{index}" for index in range(1, 8)),
+            "panda_finger_joint1",
+        ],
+    }
     assert f"{runtime.namespace}/controller_manager:" in (
         root / runtime.controllers_file
     ).read_text(encoding="utf-8")
+    assert "hand_controller:" in (root / runtime.controllers_file).read_text(encoding="utf-8")
     world = ET.parse(root / "world.sdf").getroot().find("world")
     assert world is not None
     assert ET.parse(root / "world.sdf").getroot().attrib["version"] == "1.7"
@@ -42,6 +83,12 @@ def test_compile_v9_openusd_package_to_self_contained_gazebo_world(tmp_path: Pat
         "cabinet_double_door_01",
         "stool_square_low_01",
     } <= set(models)
+    wrist = models["robot"].find("link[@name='panda_hand']/sensor[@name='wrist_view']")
+    assert wrist is not None
+    assert wrist.findtext("plugin/camera_name") == "cameras/wrist_view"
+    agent = world.find("model[@name='csd_sensors']/link/sensor[@name='agent_view']")
+    assert agent is not None
+    assert agent.findtext("plugin/camera_name") == "cameras/agent_view"
     cabinet = models["cabinet_double_door_01"]
     assert cabinet.findall("joint")
     assert len(cabinet.findall(".//collision")) > 1
@@ -81,9 +128,7 @@ def test_compile_v9_openusd_package_to_self_contained_gazebo_world(tmp_path: Pat
     assert robot.find("joint[parent='panda_link7'][child='panda_hand']") is not None
     assert robot.find("plugin[@filename='libgazebo_ros2_control.so']") is not None
     assert robot.find("link[@name='panda_link1']/pose[@relative_to='panda_link0']") is not None
-    assert all(
-        float(str(mass.text)) > 0.0 for mass in robot.findall("link/inertial/mass")
-    )
+    assert all(float(str(mass.text)) > 0.0 for mass in robot.findall("link/inertial/mass"))
     textured_visuals = [
         visual
         for visual in world.findall(".//visual")
@@ -97,7 +142,7 @@ def test_compile_v9_openusd_package_to_self_contained_gazebo_world(tmp_path: Pat
         assert script_root.is_dir()
         assert any(script_root.glob("*.material"))
         assert visual.find("material/diffuse") is None
-    for obj in (root / "robots" / "franka_panda").rglob("*.obj"):
+    for obj in (root / "robots" / "franka_panda" / "panda_description").rglob("*.obj"):
         references = [
             line.split(maxsplit=1)[1]
             for line in obj.read_text(encoding="utf-8").splitlines()
@@ -118,6 +163,7 @@ def test_compile_v9_openusd_package_to_self_contained_gazebo_world(tmp_path: Pat
     assert all(not uri.is_absolute() and (root / uri).is_file() for uri in mesh_uris)
     assert (root / "diagnostics" / "sdf_check.json").is_file()
     assert (root / "diagnostics" / "entity_mapping.json").is_file()
+    assert (root / "diagnostics" / "runtime_preflight.json").is_file()
 
 
 def test_gazebo_robot_base_mobility_follows_csd(tmp_path: Path) -> None:
@@ -131,16 +177,55 @@ def test_gazebo_robot_base_mobility_follows_csd(tmp_path: Path) -> None:
     assert model.find("joint[@name='robot_base_fixed']") is None
 
 
+def test_gazebo_iPads_profile_compiles_from_robot_id(tmp_path: Path) -> None:
+    package = read_openusd_scene_package(BENCHMARK_SCENE)
+    assert package.robot is not None
+
+    model, files = _robot_model(
+        tmp_path, replace(package, robot=replace(package.robot, robot_id="ipads_desc"))
+    )
+
+    assert model is not None
+    assert (
+        tmp_path / "robots" / "ipads_desc" / "ipads_moveit_config" / "config" / "ipads_desc.srdf"
+    ).is_file()
+    assert files
+    runtime = _write_runtime_artifacts(
+        root=tmp_path,
+        csd_id="ipads",
+        urdf_source=tmp_path
+        / "robots"
+        / "ipads_desc"
+        / "ipads_description"
+        / "urdf"
+        / "ipads_desc.urdf",
+        camera_names=(),
+    )
+    assert set(runtime.trajectory_actions) == {"left_arm_group", "right_arm_group"}
+    semantics = json.loads(
+        (tmp_path / runtime.robot_semantics_file).read_text(encoding="utf-8")
+    )
+    assert semantics["controller_groups"] == {
+        "left_arm_group": semantics["groups"]["left_arm_group"],
+        "right_arm_group": semantics["groups"]["right_arm_group"],
+    }
+
+
 def test_robot_fixed_base_defaults_to_true() -> None:
     robot = _read_robot(
-        '''def Xform "Robot"
+        """def Xform "Robot"
 {
     custom string robosim:robot:id = "franka_panda"
     custom string robosim:robot:instanceId = "robot"
     quatd xformOp:orient = (1, 0, 0, 0)
     double3 xformOp:translate = (0, 0, 0)
     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
-}'''
+}"""
     )
 
     assert robot is not None and robot.fixed_base
+
+
+def test_gazebo_rejects_unknown_robot_profile() -> None:
+    with pytest.raises(PackageError, match="profile is unavailable"):
+        _robot_asset_profile("unsupported_robot")
