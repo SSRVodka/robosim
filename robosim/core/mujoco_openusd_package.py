@@ -96,6 +96,12 @@ class OpenUsdRobot:
 
 
 @dataclass(frozen=True, slots=True)
+class _RobotTemplate:
+    root: Path
+    entry_file: str
+
+
+@dataclass(frozen=True, slots=True)
 class OpenUsdCamera:
     """A scene-authored perspective camera."""
 
@@ -200,7 +206,7 @@ def compile_openusd_scene_package(
     resources = {asset.asset_id: asset.resource_digest for asset in _unique_assets(package)}
     robot_template = _robot_template(package.robot) if package.robot is not None else None
     if package.robot is not None and robot_template is not None:
-        resources[f"robot:{package.robot.robot_id}"] = _directory_hash(robot_template)
+        resources[f"robot:{package.robot.robot_id}"] = _directory_hash(robot_template.root)
     cache = make_csd_realization_cache_key(
         csd_hash=closure,
         asset_variant_hashes=resources,
@@ -336,33 +342,60 @@ def _read_lights(text: str) -> tuple[OpenUsdDistantLight, ...]:
     return tuple(result)
 
 
-def _robot_template(robot: OpenUsdRobot) -> Path:
-    if robot.robot_id != "franka_panda":
-        raise PackageError(f"unsupported MuJoCo robot: {robot.robot_id}")
-    path = (
+def _robot_template(robot: OpenUsdRobot) -> _RobotTemplate:
+    robot_root = (
         Path(__file__).resolve().parents[2]
         / "drivers_sim"
         / "mujoco"
         / "assets"
         / "robots"
-        / "franka_panda"
     )
-    if not (path / "panda.xml").is_file() or not (path / "panda.srdf").is_file():
-        raise PackageError(f"MuJoCo robot template is incomplete: {path}")
-    return path
+    manifest_path = robot_root / "manifest.json"
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise PackageError(
+            f"MuJoCo robot template registry is unavailable: {manifest_path}"
+        ) from error
+    entries = payload.get("robots")
+    if payload.get("schema_version") != "robosim.robot-assets/1" or not isinstance(entries, list):
+        raise PackageError(f"invalid MuJoCo robot template registry: {manifest_path}")
+    for entry in entries:
+        if isinstance(entry, dict) and entry.get("robot_id") == robot.robot_id:
+            directory = entry.get("directory")
+            entry_file = entry.get("mjcf")
+            srdf_file = entry.get("srdf")
+            if not isinstance(directory, str):
+                raise PackageError(f"invalid MuJoCo robot template registry: {manifest_path}")
+            if not isinstance(entry_file, str) or not isinstance(srdf_file, str):
+                raise PackageError(f"invalid MuJoCo robot template registry: {manifest_path}")
+            path = robot_root / directory
+            entry_path = (path / entry_file).resolve()
+            srdf_path = (path / srdf_file).resolve()
+            if (
+                Path(directory).is_absolute()
+                or ".." in Path(directory).parts
+                or not entry_path.is_relative_to(path)
+                or not srdf_path.is_relative_to(path)
+                or not entry_path.is_file()
+                or not srdf_path.is_file()
+            ):
+                raise PackageError(f"MuJoCo robot template is incomplete: {path}")
+            return _RobotTemplate(path, entry_file)
+    raise PackageError(f"unsupported MuJoCo robot: {robot.robot_id}")
 
 
 def _copy_robot(
     *,
     root: Path,
     robot: OpenUsdRobot | None,
-    template: Path | None,
+    template: _RobotTemplate | None,
 ) -> tuple[str | None, tuple[str, ...]]:
     if robot is None or template is None:
         return None, ()
     destination = root / "robots" / robot.robot_id
-    shutil.copytree(template, destination, dirs_exist_ok=True)
-    entry = destination / "panda.xml"
+    shutil.copytree(template.root, destination, dirs_exist_ok=True)
+    entry = destination / template.entry_file
     xml = ET.parse(entry)
     body = xml.getroot().find("worldbody/body")
     if body is None:
@@ -388,7 +421,7 @@ def _copy_robot(
     ET.indent(xml)
     xml.write(entry, encoding="unicode", xml_declaration=False)
     files = tuple(str(path.relative_to(root)) for path in destination.rglob("*") if path.is_file())
-    return str(Path("robots") / robot.robot_id / "panda.xml"), files
+    return str(Path("robots") / robot.robot_id / template.entry_file), files
 
 
 def _read_asset(path: Path) -> OpenUsdAsset:

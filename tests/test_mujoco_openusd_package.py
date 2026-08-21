@@ -13,8 +13,11 @@ import pytest
 from robosim.backends.mujoco import MuJoCoBackend
 from robosim.core.mujoco_openusd_package import (
     OpenUsdArticulationJoint,
+    OpenUsdRobot,
+    _copy_robot,
     _parent_to_child,
     _read_shell_materials,
+    _robot_template,
     _split_visual_obj,
     compile_openusd_scene_package,
     read_openusd_scene_package,
@@ -209,6 +212,21 @@ def test_v9_robot_descriptor_copies_and_patches_control_template(
         assert backend._model.nlight == 1
     finally:
         backend.shutdown()
+
+
+def test_jaka_robot_template_copies_and_loads(tmp_path: Path) -> None:
+    robot = OpenUsdRobot("jaka_s5", "robot", (0, 0, 0, 1, 0, 0, 0), True)
+    include, files = _copy_robot(
+        root=tmp_path,
+        robot=robot,
+        template=_robot_template(robot),
+    )
+
+    entry = tmp_path / include
+    assert include == "robots/jaka_s5/jaka_s5.xml"
+    assert entry.is_file()
+    assert "robots/jaka_s5/jaka_s5.srdf" in files
+    assert mujoco.MjModel.from_xml_path(str(entry)).njnt == 8
 
 
 def test_v9d_shell_realizes_separate_floor_and_walls(

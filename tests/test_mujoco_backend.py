@@ -23,6 +23,10 @@ G1_29DOF_SCENE_PATH = (
     Path(__file__).resolve().parent.parent
     / "drivers_sim/mujoco/assets/robots/unitree_g1/g1_29dof.xml"
 )
+JAKA_S5_SCENE_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "drivers_sim/mujoco/assets/robots/jaka_s5/scene.xml"
+)
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "csd"
 SHARED_OPENUSD_CSD = FIXTURE_ROOT / "openusd" / "shared_tabletop" / "csd.usda"
 SEMANTIC_OPENUSD_ROOT = FIXTURE_ROOT / "openusd" / "semantic"
@@ -151,6 +155,81 @@ def test_set_joint_target_and_reset_world(backend: MuJoCoBackend) -> None:
         timeout=1.0,
     )
     assert reset
+
+
+def test_jaka_gripper_has_one_control_joint_and_mimics_follower() -> None:
+    model = mujoco.MjModel.from_xml_path(str(JAKA_S5_SCENE_PATH))
+    data = mujoco.MjData(model)
+    data.qpos[:] = model.key("home").qpos
+    data.qpos[model.joint("joint_1").qposadr] = np.pi
+    mujoco.mj_forward(model, data)
+    link_01 = model.body("Link_01")
+    assert data.xmat[link_01.id] == pytest.approx(np.eye(3).ravel())
+    assert data.ncon == 0
+    assert data.qpos[model.joint("finger_tip1_joint").qposadr] == 0.0
+
+    backend = MuJoCoBackend(str(JAKA_S5_SCENE_PATH), headless=True)
+    try:
+        gripper_site = backend._model.site("pgia140")
+        assert backend._data.site_xpos[gripper_site.id] == pytest.approx(
+            (0.445901019764, -0.114422357266, 0.664619191314)
+        )
+        assert backend._data.site_xmat[gripper_site.id] == pytest.approx(
+            (
+                0.000796332458,
+                0.999998421402,
+                -0.001588410281,
+                -0.999999682926,
+                0.000796333468,
+                0.000000003373,
+                0.000001268277,
+                0.001588409774,
+                0.999998738476,
+            )
+        )
+        groups = {group.name: group for group in backend.get_robot_spec().joint_model_groups}
+        assert list(groups["pgia140_gripper"].joint_names) == ["finger_tip1_joint"]
+        limits = {limit.name: limit for limit in backend.get_robot_spec().joints}
+        assert limits["finger_tip1_joint"].lower_limit == 0.0
+        assert limits["finger_tip1_joint"].upper_limit == 1.0
+        states = {
+            state.name: state.joint_values
+            for state in groups["pgia140_gripper"].named_states
+        }
+        assert list(states["closed"]) == [0.0]
+        assert list(states["open"]) == [1.0]
+        backend.set_joint_target(
+            names=["finger_tip1_joint"],
+            data=[1.0],
+            mode=core_pb2.JointCommand.ControlMode.POSITION,
+            group="pgia140_gripper",
+        )
+
+        def is_open() -> bool:
+            state = backend.get_robot_state()
+            positions = dict(zip(state.name, state.position, strict=True))
+            return all(
+                positions[name] > 0.039 for name in ("finger_tip1_joint", "finger_tip2_joint")
+        )
+
+        assert _wait_for_condition(is_open)
+        backend.set_joint_target(
+            names=["finger_tip1_joint"],
+            data=[0.0],
+            mode=core_pb2.JointCommand.ControlMode.POSITION,
+            group="pgia140_gripper",
+        )
+
+        def is_closed() -> bool:
+            state = backend.get_robot_state()
+            positions = dict(zip(state.name, state.position, strict=True))
+            return all(
+                positions[name] < 1e-3 for name in ("finger_tip1_joint", "finger_tip2_joint")
+            )
+
+        assert _wait_for_condition(is_closed)
+    finally:
+        backend.shutdown()
 
 
 def test_joint_command_state_stays_replayable_during_velocity_control(

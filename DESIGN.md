@@ -139,6 +139,12 @@ distant light 的 orientation 转换为其照射方向。没有 author camera �
 与 distant-light realization；复制的 robot template 中的 scene light 会移除，避免
 引入未在 CSD 声明的 light 或 camera。
 
+每个 backend 的 `assets/robots/manifest.json` 是该 backend 可用 robot template 的唯一
+注册表，schema 为 `robosim.robot-assets/1`。MuJoCo 每个条目必须声明 `robot_id`、资产
+目录、`mjcf` 与 `srdf`，其 `robot_id` 必须与 CSD `robot:id` 一致。compiler 从根级
+注册表查找模板、复制完整模板 closure 后，从所选主 MJCF patch 根 body 位姿并以该文件
+生成顶层 include；不得在 Python 中维护 robot-id 或入口文件名的映射。
+
 MuJoCo 的输入收敛为 `scene-export/v9-vsim-articulated-resources` package 中的
 `scene.usda`；同级 `manifest.json`、`checksums.sha256` 与被引用 `asset.usda` 是
 唯一资源来源。`compile_csd_to_mujoco()` 不再接收 asset registry 或 asset root。
@@ -695,6 +701,10 @@ robosim/
 - 默认空闲态会先落到 SRDF 默认姿态，再做 position hold 并持续叠加抗重力项；
 - 位置/速度模式在关节空间内转成简洁的 PD 力矩控制，并叠加重力补偿；
 - 扭矩模式直接写目标力矩，并叠加重力补偿。
+- 只有一个 SRDF 可控 joint 的 mimic 夹爪可在 MJCF `<custom>` 中以名为
+  `robosim_normalized_position_<joint-name>` 的 numeric 声明其 position 控制语义；
+  numeric data 为 `1` 时，后端将 `[0, 1]` 线性映射至 MJCF 行程下限到上限；为 `-1` 时
+  映射方向相反。后端将同一目标同步给 equality follower。未声明的 joint 保持原有物理单位语义。
 
 ### 3. jmg / ee 语义
 - 优先读取 `.srdf`；

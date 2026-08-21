@@ -129,6 +129,10 @@ class MuJoCoBackend(SimulatorBackend):
         self._robot_body_ids = self._collect_robot_body_ids()
         self._joint_infos = self._build_joint_infos()
         self._joint_infos_by_name = {info.name: info for info in self._joint_infos}
+        self._normalized_position_joint_directions = (
+            self._build_normalized_position_joint_directions()
+        )
+        self._mimic_followers = self._build_mimic_followers()
         self._root_hold_joint = self._find_root_hold_joint()
         self._root_hold_qpos: np.ndarray | None = None
         self._body_children = self._build_body_children()
@@ -435,6 +439,31 @@ class MuJoCoBackend(SimulatorBackend):
             )
         return joint_infos
 
+    def _build_mimic_followers(self) -> dict[str, list[str]]:
+        followers: dict[str, list[str]] = {}
+        identity = np.array((0, 1, 0, 0, 0), dtype=np.float64)
+        for equality_id in range(self._model.neq):
+            if int(self._model.eq_type[equality_id]) != int(mujoco.mjtEq.mjEQ_JOINT):
+                continue
+            if not np.allclose(self._model.eq_data[equality_id, :5], identity):
+                continue
+            follower_id = int(self._model.eq_obj1id[equality_id])
+            driver_id = int(self._model.eq_obj2id[equality_id])
+            follower = self._model.joint(follower_id).name
+            driver = self._model.joint(driver_id).name
+            if follower in self._joint_infos_by_name and driver in self._joint_infos_by_name:
+                followers.setdefault(driver, []).append(follower)
+        return followers
+
+    def _build_normalized_position_joint_directions(self) -> dict[str, float]:
+        prefix = "robosim_normalized_position_"
+        return {
+            name.removeprefix(prefix): float(self._model.numeric(numeric_id).data[0])
+            for numeric_id in range(self._model.nnumeric)
+            if (name := self._model.numeric(numeric_id).name).startswith(prefix)
+            and name.removeprefix(prefix) in self._joint_infos_by_name
+        }
+
     def _build_joint_groups(self) -> dict[str, JointModelGroup]:
         if self._srdf_path is None:
             return self._build_fallback_joint_groups()
@@ -598,8 +627,12 @@ class MuJoCoBackend(SimulatorBackend):
                 name=info.name,
                 type=self._joint_type_name(info.joint_type),
                 jmg_names=self._joint_to_groups.get(info.name, []),
-                lower_limit=info.lower_limit,
-                upper_limit=info.upper_limit,
+                lower_limit=0.0
+                if info.name in self._normalized_position_joint_directions
+                else info.lower_limit,
+                upper_limit=1.0
+                if info.name in self._normalized_position_joint_directions
+                else info.upper_limit,
                 velocity_limit=0.0,
                 acceleration_limit=0.0,
                 effort_limit=0.0,
@@ -611,7 +644,15 @@ class MuJoCoBackend(SimulatorBackend):
                 name=group.name,
                 joint_names=group.joint_names,
                 named_states=[
-                    core_pb2.JointModelGroupNamedState(name=name, joint_values=values)
+                    core_pb2.JointModelGroupNamedState(
+                        name=name,
+                        joint_values=[
+                            self._normalized_position_value(joint_name, value)
+                            for joint_name, value in zip(
+                                group.joint_names, values, strict=True
+                            )
+                        ],
+                    )
                     for name, values in sorted(group.named_states.items())
                 ],
                 end_effectors=[
@@ -652,7 +693,7 @@ class MuJoCoBackend(SimulatorBackend):
                 info = self._joint_infos_by_name.get(joint_name)
                 if info is None or not info.controllable:
                     raise ValueError(f"Joint '{joint_name}' is not controllable")
-                target_value = float(target)
+                target_value = self._normalized_position_target(joint_name, float(target), mode)
                 if (
                     mode == core_pb2.JointCommand.ControlMode.VELOCITY
                     and abs(target_value) <= IDLE_HOLD_VELOCITY_EPS
@@ -665,6 +706,39 @@ class MuJoCoBackend(SimulatorBackend):
                 else:
                     self._control_targets[joint_name] = (mode, target_value)
                     self._idle_hold_joint_names.discard(joint_name)
+                if mode in {
+                    core_pb2.JointCommand.ControlMode.POSITION,
+                    core_pb2.JointCommand.ControlMode.VELOCITY,
+                }:
+                    for follower in self._mimic_followers.get(joint_name, []):
+                        self._control_targets[follower] = (mode, target_value)
+                        self._idle_hold_joint_names.discard(follower)
+
+    def _normalized_position_value(self, joint_name: str, value: float) -> float:
+        direction = self._normalized_position_joint_directions.get(joint_name)
+        if direction is None:
+            return value
+        info = self._joint_infos_by_name[joint_name]
+        normalized = (value - info.lower_limit) / (info.upper_limit - info.lower_limit)
+        return normalized if direction > 0 else 1.0 - normalized
+
+    def _normalized_position_target(
+        self,
+        joint_name: str,
+        target: float,
+        mode: core_pb2.JointCommand.ControlMode,
+    ) -> float:
+        if (
+            mode != core_pb2.JointCommand.ControlMode.POSITION
+            or joint_name not in self._normalized_position_joint_directions
+        ):
+            return target
+        if not 0.0 <= target <= 1.0:
+            raise ValueError(f"Normalized position target for '{joint_name}' must be in [0, 1]")
+        info = self._joint_infos_by_name[joint_name]
+        direction = self._normalized_position_joint_directions[joint_name]
+        normalized = target if direction > 0 else 1.0 - target
+        return info.lower_limit + normalized * (info.upper_limit - info.lower_limit)
 
     def servo_control_stream(
         self, request_iterator: Iterator[core_pb2.ServoCommand]

@@ -34,9 +34,6 @@ from robosim.core.pybullet_openusd_package import _rotate, _rpy, _write_obj_mate
 
 _Pose = tuple[float, float, float, float, float, float, float]
 _RUNTIME_TEMPLATE_VERSION = "gazebo-runtime-3"
-_ROBOT_PROFILE_DIRECTORIES = {"franka_panda": "franka_panda", "ipads_desc": "ipads"}
-
-
 @dataclass(frozen=True, slots=True)
 class _RobotAssetProfile:
     robot_id: str
@@ -728,17 +725,31 @@ def _copy_robot_closure(profile: _RobotAssetProfile, destination: Path) -> None:
 
 
 def _robot_asset_profile(robot_id: str) -> _RobotAssetProfile:
-    directory = _ROBOT_PROFILE_DIRECTORIES.get(robot_id)
-    if directory is None:
-        raise PackageError(f"Gazebo robot asset profile is unavailable: {robot_id}")
-    source = (
+    robot_root = (
         Path(__file__).resolve().parents[2]
         / "drivers_sim"
         / "gazebo-11"
         / "assets"
         / "robots"
-        / directory
     )
+    try:
+        registry = json.loads((robot_root / "manifest.json").read_text(encoding="utf-8"))
+        entries = registry["robots"]
+        directory = next(
+            entry["directory"]
+            for entry in entries
+            if entry["robot_id"] == robot_id
+        )
+    except (KeyError, OSError, StopIteration, TypeError, json.JSONDecodeError) as error:
+        raise PackageError(f"Gazebo robot asset profile is unavailable: {robot_id}") from error
+    if (
+        registry.get("schema_version") != "robosim.robot-assets/1"
+        or not isinstance(directory, str)
+        or Path(directory).is_absolute()
+        or ".." in Path(directory).parts
+    ):
+        raise PackageError(f"Gazebo robot asset profile is unavailable: {robot_id}")
+    source = robot_root / directory
     try:
         payload = json.loads((source / "manifest.json").read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
