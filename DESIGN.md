@@ -1,5 +1,14 @@
 # RoboSim 框架设计
 
+## CSD realization reference contract（2026-08-23）
+
+`engine_manifests/<backend>/<csd_id>/` 是 scene package 内唯一合法的 backend slot；
+compiler 拒绝任何其他 output root。slot 只保存 generated/runtime/diagnostics 与 entry，
+不得复制 package OBJ、PNG、MTL 或 asset closure，所有 asset 引用从 slot 使用相对路径
+返回 package。完整 scene/benchmark package 是可移动单位。`drivers_sim` 与
+`pybullet_data` robot template provider 是可移植性例外：仅生成经 pose、base mobility、
+camera/light 清理后的薄 adapter，robot template closure 不复制但其 hash 必须进入 cache key。
+
 ## Gazebo Manipulate MVP（2026-08-20，进行中）
 
 `robosim.server` 是 Gazebo manifest 路径的唯一正式生命周期入口。server 在创建
@@ -276,6 +285,16 @@ engine_manifests/
       diagnostics/
         ...
 ```
+
+### Benchmark package texture normalization（2026-08-23）
+
+`scene-export/v9-vsim-articulated-resources` benchmark package 在发布时必须将每个
+由 composed USD `UsdUVTexture` 实际引用的二维纹理规范为 package-local PNG。PNG
+保留源图的 RGB 或 RGBA 通道；不得无条件丢弃 alpha。该工作属于 benchmark/asset
+输出，不属于每个 backend realization：`engine_manifests/` 只能通过固定相对路径
+引用这些纹理，不能复制或重编码它们。未被当前 USD 材质网络引用的 PBR 通道不因此
+新增转换或支持承诺。转换后必须更新引用它的 USD layer、asset manifest 和 package
+checksum，使 package 继续是可验证的 dependency closure。
 
 调用方应把 `compile_csd(..., output_root=...)` 的 `output_root` 设为 benchmark
 package 下的 `engine_manifests/`。MuJoCo 目标写入

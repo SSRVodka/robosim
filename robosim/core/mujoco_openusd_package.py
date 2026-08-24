@@ -5,8 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import re
-import shutil
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
@@ -201,6 +201,7 @@ def compile_openusd_scene_package(
     simulator_version: str | None,
 ) -> CsdRealizationManifest:
     package = read_openusd_scene_package(csd_path)
+    _require_package_output_root(package, output_root)
     config = dict(realization_config or {})
     closure = _dependency_hash(package.root)
     resources = {asset.asset_id: asset.resource_digest for asset in _unique_assets(package)}
@@ -233,17 +234,15 @@ def compile_openusd_scene_package(
     for asset in assets:
         key = _asset_key(asset)
         model_names[(asset.asset_id, asset.resource_digest)] = key
-        model_root = root / "models" / key
-        _copy_support(asset.source.parent, model_root)
-        generated.extend(_copy_materials(asset, model_root))
+        model_root = root / "generated" / "models" / key
         _write_asset(model_root / "asset.xml", asset)
         _load_asset(model_root / "asset.xml")
         report = f"diagnostics/{key}-load.json"
         (root / report).write_text(
             json.dumps({"asset_id": asset.asset_id, "status": "passed"}, indent=2)
         )
-        generated.extend((f"models/{key}/asset.xml", report))
-    robot_include, robot_files = _copy_robot(
+        generated.extend((f"generated/models/{key}/asset.xml", report))
+    robot_include, robot_files = _write_robot(
         root=root,
         robot=package.robot,
         template=robot_template,
@@ -385,7 +384,7 @@ def _robot_template(robot: OpenUsdRobot) -> _RobotTemplate:
     raise PackageError(f"unsupported MuJoCo robot: {robot.robot_id}")
 
 
-def _copy_robot(
+def _write_robot(
     *,
     root: Path,
     robot: OpenUsdRobot | None,
@@ -393,10 +392,11 @@ def _copy_robot(
 ) -> tuple[str | None, tuple[str, ...]]:
     if robot is None or template is None:
         return None, ()
-    destination = root / "robots" / robot.robot_id
-    shutil.copytree(template.root, destination, dirs_exist_ok=True)
+    destination = root / "generated" / "robots" / robot.robot_id
+    destination.mkdir(parents=True, exist_ok=True)
+    source = template.root / template.entry_file
     entry = destination / template.entry_file
-    xml = ET.parse(entry)
+    xml = ET.parse(source)
     body = xml.getroot().find("worldbody/body")
     if body is None:
         raise PackageError(f"robot template has no root body: {entry}")
@@ -413,15 +413,22 @@ def _copy_robot(
             parent.remove(camera)
     compiler = xml.getroot().find("compiler")
     if compiler is not None:
-        compiler.set("meshdir", ".")
+        compiler.set("meshdir", _relative_path(template.root / "assets", destination))
     for mesh in xml.getroot().findall("asset/mesh"):
         file = mesh.get("file")
         if file is not None and "/" not in file:
-            mesh.set("file", f"assets/{file}")
+            mesh.set("file", file)
+    ET.indent(xml)
     ET.indent(xml)
     xml.write(entry, encoding="unicode", xml_declaration=False)
-    files = tuple(str(path.relative_to(root)) for path in destination.rglob("*") if path.is_file())
-    return str(Path("robots") / robot.robot_id / template.entry_file), files
+    return (
+        str(Path("generated") / "robots" / robot.robot_id / template.entry_file),
+        (str(entry.relative_to(root)),),
+    )
+
+
+# Kept as an internal compatibility name for callers that previously used the helper.
+_copy_robot = _write_robot
 
 
 def _read_asset(path: Path) -> OpenUsdAsset:
@@ -878,7 +885,11 @@ def _write_asset(path: Path, asset: OpenUsdAsset) -> None:
     ET.SubElement(
         root,
         "compiler",
-        {"angle": "radian", "meshdir": "support/obj", "texturedir": "textures"},
+        {
+            "angle": "radian",
+            "meshdir": ".",
+            "texturedir": ".",
+        },
     )
     assets = ET.SubElement(root, "asset")
     materials = {item.name: f"{item.name}_material" for item in asset.visual_materials}
@@ -889,7 +900,7 @@ def _write_asset(path: Path, asset: OpenUsdAsset) -> None:
             ET.SubElement(
                 assets,
                 "texture",
-                {"name": texture, "type": "2d", "file": item.texture.with_suffix(".png").name},
+                {"name": texture, "type": "2d", "file": _relative_path(item.texture, path.parent)},
             )
             attrs["texture"] = texture
         ET.SubElement(assets, "material", attrs)
@@ -930,16 +941,16 @@ def _write_asset(path: Path, asset: OpenUsdAsset) -> None:
                 },
             )
         visual_objs = (
-            _shell_visual_objs(path, body.visual_obj, asset.visual_materials)
+            _shell_visual_objs(asset.source.parent, body.visual_obj, asset.visual_materials)
             if asset.mode == "static"
-            else _visual_obj_parts(path, body.visual_obj)
+            else _visual_obj_parts(asset.source.parent, body.visual_obj)
         )
         parts = [(item, name, True) for item, name in visual_objs]
         parts.extend((item, None, False) for item in body.collision_objs)
         for index, (obj, material, is_visual) in enumerate(parts):
             mesh = f"{body.path}_{index}"
             flat_box = (
-                _flat_obj(path.parent / obj)
+                _flat_obj(asset.source.parent / obj)
                 if not is_visual or obj.name != body.visual_obj.name
                 else None
             )
@@ -948,7 +959,10 @@ def _write_asset(path: Path, asset: OpenUsdAsset) -> None:
                 ET.SubElement(
                     assets,
                     "mesh",
-                    {"name": mesh, "file": obj.relative_to("support/obj").as_posix()},
+                    {
+                        "name": mesh,
+                        "file": _relative_path(asset.source.parent / obj, path.parent),
+                    },
                 )
                 geom.update({"type": "mesh", "mesh": mesh})
             else:
@@ -1011,7 +1025,9 @@ def _write_scene(
     ET.SubElement(visual, "global", {"offwidth": "512", "offheight": "512"})
     assets = ET.SubElement(root, "asset")
     for model in sorted(set(models.values())):
-        ET.SubElement(assets, "model", {"name": model, "file": f"models/{model}/asset.xml"})
+        ET.SubElement(
+            assets, "model", {"name": model, "file": f"generated/models/{model}/asset.xml"}
+        )
     world = ET.SubElement(root, "worldbody")
     for instance in package.instances:
         model = models[(instance.asset.asset_id, instance.asset.resource_digest)]
@@ -1149,31 +1165,20 @@ def _verify_checksums(root: Path) -> None:
             raise PackageError(f"checksum mismatch: {relative}")
 
 
-def _copy_support(source: Path, destination: Path) -> None:
-    support = source / "support"
-    if not support.is_dir():
-        raise PackageError(f"{source} has no support directory")
-    shutil.copytree(support, destination / "support", dirs_exist_ok=True)
+def _relative_path(target: Path, origin: Path) -> str:
+    return Path(os.path.relpath(target, origin)).as_posix()
 
 
-def _copy_materials(asset: OpenUsdAsset, destination: Path) -> list[str]:
-    from PIL import Image
-
-    generated: list[str] = []
-    textures = destination / "textures"
-    textures.mkdir(exist_ok=True)
-    for material in asset.visual_materials:
-        if material.texture is None:
-            continue
-        target = textures / material.texture.with_suffix(".png").name
-        with Image.open(material.texture) as image:
-            image.convert("RGB").save(target)
-        generated.append(target.relative_to(destination.parent.parent).as_posix())
-    return generated
+def _require_package_output_root(package: OpenUsdScenePackage, output_root: Path) -> None:
+    expected = package.root / "engine_manifests"
+    if output_root.resolve() != expected.resolve():
+        raise PackageError(
+            f"output_root must be the scene package engine_manifests directory: {expected}"
+        )
 
 
 def _shell_visual_objs(
-    asset_xml: Path,
+    asset_root: Path,
     visual: Path,
     materials: tuple[OpenUsdVisualMaterial, ...],
 ) -> tuple[tuple[Path, str | None], ...]:
@@ -1181,10 +1186,9 @@ def _shell_visual_objs(
         return ((visual, None),)
     for material in materials:
         if visual == Path("support/obj") / material.name / "visual.obj":
-            return tuple((item, material.name) for item in _split_visual_obj(asset_xml, visual))
-    source = asset_xml.parent / visual
+            return tuple((visual, material.name) for _ in _split_visual_obj(asset_root, visual))
+    source = asset_root / visual
     lines = source.read_text().splitlines()
-    prefix = [line for line in lines if not line.startswith(("o ", "usemtl ", "f "))]
     result: list[tuple[Path, str]] = []
     for material in materials:
         selected: list[str] = []
@@ -1195,9 +1199,7 @@ def _shell_visual_objs(
             elif active and line.startswith("f "):
                 selected.append(line)
         if selected:
-            target = source.with_name(f"visual_{material.name}.obj")
-            target.write_text("\n".join((*prefix, *selected, "")))
-            result.append((target.relative_to(asset_xml.parent), material.name))
+            result.append((visual, material.name))
         elif material.name == "floor":
             result.append((Path("support/obj/collision_000.obj"), material.name))
         else:
@@ -1205,8 +1207,8 @@ def _shell_visual_objs(
     return tuple(result)
 
 
-def _split_visual_obj(asset_xml: Path, visual: Path) -> tuple[Path, ...]:
-    source = asset_xml.parent / visual
+def _split_visual_obj(asset_root: Path, visual: Path) -> tuple[Path, ...]:
+    source = asset_root / visual
     lines = source.read_text().splitlines()
     groups: list[list[str]] = []
     active: list[str] | None = None
@@ -1218,22 +1220,19 @@ def _split_visual_obj(asset_xml: Path, visual: Path) -> tuple[Path, ...]:
             active.append(line)
     if len(groups) <= 1:
         return (visual,)
-    prefix = [line for line in lines if not line.startswith(("o ", "usemtl ", "f "))]
     result: list[Path] = []
-    for index, faces in enumerate(groups):
+    for faces in groups:
         if not faces:
             continue
-        target = source.with_name(f"{source.stem}_{index:03d}.obj")
-        target.write_text("\n".join((*prefix, *faces, "")))
-        result.append(target.relative_to(asset_xml.parent))
+        result.append(visual)
     if not result:
         raise PackageError(f"visual OBJ has no faces: {visual}")
     return tuple(result)
 
 
-def _visual_obj_parts(asset_xml: Path, visual: Path) -> tuple[tuple[Path, str | None], ...]:
-    parts = _split_visual_obj(asset_xml, visual)
-    materials = _obj_material_names(asset_xml.parent / visual)
+def _visual_obj_parts(asset_root: Path, visual: Path) -> tuple[tuple[Path, str | None], ...]:
+    parts = _split_visual_obj(asset_root, visual)
+    materials = _obj_material_names(asset_root / visual)
     if len(parts) != len(materials):
         raise PackageError(f"visual OBJ has inconsistent object/material groups: {visual}")
     return tuple(zip(parts, materials, strict=True))

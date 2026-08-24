@@ -6,7 +6,6 @@ import hashlib
 import json
 import math
 import os
-import shutil
 import sys
 import xml.etree.ElementTree as ET
 from collections.abc import Iterable
@@ -30,7 +29,7 @@ from robosim.core.mujoco_openusd_package import (
     _unique_assets,
     read_openusd_scene_package,
 )
-from robosim.core.pybullet_openusd_package import _rotate, _rpy, _write_obj_materials
+from robosim.core.pybullet_openusd_package import _rotate, _rpy
 
 _Pose = tuple[float, float, float, float, float, float, float]
 _RUNTIME_TEMPLATE_VERSION = "gazebo-runtime-3"
@@ -56,6 +55,7 @@ def compile_openusd_scene_package(
 ) -> CsdRealizationManifest:
     """Compile one validated v9 resource package to portable SDF 1.7."""
     package = read_openusd_scene_package(csd_path)
+    _require_package_output_root(package, output_root)
     if package.robot is None:
         raise PackageError("Gazebo runtime requires a robot")
     profile = _robot_asset_profile(package.robot.robot_id)
@@ -92,15 +92,11 @@ def compile_openusd_scene_package(
     assets: dict[tuple[str, str], Path] = {}
     for asset in _unique_assets(package):
         key = _asset_key(asset)
-        asset_root = root / "assets" / key
-        shutil.copytree(asset.source.parent / "support", asset_root / "support", dirs_exist_ok=True)
-        _write_obj_materials(asset_root, asset)
-        _write_collision_obj_materials(asset_root, asset)
-        _write_gazebo_material_scripts(asset_root, asset)
+        asset_root = asset.source.parent
+        material_root = root / "generated" / "materials" / key
+        _write_gazebo_material_scripts(material_root, asset)
         assets[(asset.asset_id, asset.resource_digest)] = asset_root
-        generated.extend(
-            str(path.relative_to(root)) for path in asset_root.rglob("*") if path.is_file()
-        )
+        generated.extend(str(path.relative_to(root)) for path in material_root.glob("*.material"))
 
     robot, robot_files = _robot_model(root, package)
     generated.extend(robot_files)
@@ -110,12 +106,7 @@ def compile_openusd_scene_package(
         runtime = _write_runtime_artifacts(
             root=root,
             csd_id=package.scene_id,
-            urdf_source=(
-                root
-                / "robots"
-                / package.robot.robot_id
-                / _robot_asset_profile(package.robot.robot_id).urdf_relative
-            ),
+            urdf_source=profile.source / profile.urdf_relative,
             camera_names=(
                 *(camera.name for camera in package.cameras),
                 *(str(camera["name"]) for camera in profile.cameras),
@@ -190,6 +181,14 @@ def _runtime_plugin_hashes(*, has_camera: bool, robot_id: str = "franka_panda") 
     profile = _robot_asset_profile(robot_id)
     hashes[f"runtime:{robot_id}"] = _profile_closure_hash(profile)
     return hashes
+
+
+def _require_package_output_root(package: OpenUsdScenePackage, output_root: Path) -> None:
+    expected = package.root / "engine_manifests"
+    if output_root.resolve() != expected.resolve():
+        raise PackageError(
+            f"output_root must be the scene package engine_manifests directory: {expected}"
+        )
 
 
 def _write_runtime_artifacts(
@@ -444,7 +443,7 @@ def _model(
         if asset.mode != "static":
             _inertial(link, body)
         for index, (visual, material) in enumerate(_visual_parts(asset_root, body, asset)):
-            _geometry(link, "visual", visual, asset_root, world_root, material, index)
+            _geometry(link, "visual", visual, asset_root, world_root, asset, material, index)
         for index, collision in enumerate(body.collision_objs):
             element = _geometry(
                 link,
@@ -452,6 +451,7 @@ def _model(
                 asset_root / collision,
                 asset_root,
                 world_root,
+                asset,
                 None,
                 index,
             )
@@ -493,6 +493,7 @@ def _geometry(
     mesh: Path,
     asset_root: Path,
     world_root: Path,
+    asset: OpenUsdAsset,
     material: OpenUsdVisualMaterial | None,
     index: int,
 ) -> ET.Element:
@@ -504,9 +505,9 @@ def _geometry(
         sdf_material = ET.SubElement(element, "material")
         if material.texture is not None:
             script = ET.SubElement(sdf_material, "script")
-            material_root = asset_root / "materials"
+            material_root = world_root / "generated" / "materials" / _asset_key(asset)
             ET.SubElement(script, "uri").text = material_root.relative_to(world_root).as_posix()
-            ET.SubElement(script, "name").text = _gazebo_material_name(asset_root, material)
+            ET.SubElement(script, "name").text = _gazebo_material_name(asset, material)
         else:
             color = _values(material.rgba)
             ET.SubElement(sdf_material, "ambient").text = color
@@ -644,9 +645,7 @@ def _robot_model(
     if package.robot is None:
         return None, ()
     profile = _robot_asset_profile(package.robot.robot_id)
-    destination = root / "robots" / package.robot.robot_id
-    _copy_robot_closure(profile, destination)
-    _normalize_robot_obj_materials(destination)
+    destination = profile.source
     urdf = ET.parse(destination / profile.urdf_relative).getroot()
     model = ET.Element("model", {"name": package.robot.instance_id})
     model.insert(0, _text("pose", _pose(package.robot.pose)))
@@ -710,18 +709,7 @@ def _robot_model(
                 sdf_limit = ET.SubElement(sdf_axis, "limit")
                 ET.SubElement(sdf_limit, "lower").text = str(limit.attrib.get("lower", "0"))
                 ET.SubElement(sdf_limit, "upper").text = str(limit.attrib.get("upper", "0"))
-    return (
-        model,
-        tuple(str(path.relative_to(root)) for path in destination.rglob("*") if path.is_file()),
-    )
-
-
-def _copy_robot_closure(profile: _RobotAssetProfile, destination: Path) -> None:
-    if destination.exists():
-        shutil.rmtree(destination)
-    for relative in profile.closure_roots:
-        shutil.copytree(profile.source / relative, destination / relative, dirs_exist_ok=True)
-    shutil.copy2(profile.source / "manifest.json", destination / "manifest.json")
+    return model, ()
 
 
 def _robot_asset_profile(robot_id: str) -> _RobotAssetProfile:
@@ -877,7 +865,7 @@ def _write_robot_semantics(root: Path, urdf_source: Path) -> tuple[str, dict[str
         )
     semantic = {
         "robot_name": urdf.attrib["name"],
-        "srdf_file": str(srdf.relative_to(root)),
+        "srdf_file": Path(os.path.relpath(srdf, root)).as_posix(),
         "joint_limits": limits,
         "mimic_joints": sorted(mimic_joints),
         "groups": groups,
@@ -1081,13 +1069,12 @@ def _write_collision_obj_materials(asset_root: Path, asset: OpenUsdAsset) -> Non
             path.write_text("\n".join(obj_lines) + "\n", encoding="utf-8")
 
 
-def _write_gazebo_material_scripts(asset_root: Path, asset: OpenUsdAsset) -> None:
+def _write_gazebo_material_scripts(material_root: Path, asset: OpenUsdAsset) -> None:
     """Write OGRE scripts that make textured USD materials authoritative in Gazebo."""
-    material_root = asset_root / "materials"
     for material in asset.visual_materials:
         if material.texture is None:
             continue
-        texture = asset_root / "textures" / material.texture.name
+        texture = material.texture
         if not texture.is_file():
             raise PackageError(f"Gazebo texture is unavailable: {material.texture}")
         script = material_root / f"{_material_file_name(material.name)}.material"
@@ -1096,7 +1083,7 @@ def _write_gazebo_material_scripts(asset_root: Path, asset: OpenUsdAsset) -> Non
         script.write_text(
             "\n".join(
                 (
-                    f"material {_gazebo_material_name(asset_root, material)}",
+                    f"material {_gazebo_material_name(asset, material)}",
                     "{",
                     "  technique",
                     "  {",
@@ -1118,8 +1105,8 @@ def _write_gazebo_material_scripts(asset_root: Path, asset: OpenUsdAsset) -> Non
         )
 
 
-def _gazebo_material_name(asset_root: Path, material: OpenUsdVisualMaterial) -> str:
-    return f"robosim/{asset_root.name}/{_material_file_name(material.name)}"
+def _gazebo_material_name(asset: OpenUsdAsset, material: OpenUsdVisualMaterial) -> str:
+    return f"robosim/{_asset_key(asset)}/{_material_file_name(material.name)}"
 
 
 def _material_file_name(name: str) -> str:

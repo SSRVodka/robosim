@@ -36,9 +36,12 @@ python -m robosim.compile \
 `--backend` 可选 `mujoco`、`gazebo` 或 `pybullet`。成功时标准输出为 manifest JSON；
 无法保持语义或缺少运行时依赖时，输出 typed blocker 并以退出码 `2` 结束。
 
-输出固定写入 `<output-root>/<backend>/<csd_id>/`，其中包含 `manifest.json`、后端
-entry file、`assets/` 和 `diagnostics/`。实际使用的 mesh、texture 和 robot dependency
-closure 会复制到 realization package；运行时不得依赖 `drivers_sim` 或下载 cache。
+`--output-root` 必须是 scene package 内的 `engine_manifests/`。输出固定写入
+`<output-root>/<backend>/<csd_id>/`，其中只有 `manifest.json`、后端 entry file、
+`generated/`、`runtime/` 和 `diagnostics/`。OBJ、MTL、PNG 与 package asset closure 不
+复制；entry 以相对路径引用 scene package 资源。完整 scene package 才是可移动单位。
+机器人是明确例外：MuJoCo/Gazebo 使用 `drivers_sim`，PyBullet 使用 `pybullet_data` 的
+template provider，运行机器人场景时该 provider 必须可用。
 
 MuJoCo、Gazebo 与 PyBullet 分别生成 `scene.xml`、`world.sdf` 与 `scene.py`；Python
 API `compile_csd()` 返回 manifest 或 typed blocker。

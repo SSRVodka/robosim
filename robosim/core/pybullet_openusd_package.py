@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -23,6 +24,31 @@ from robosim.core.mujoco_openusd_package import (
 )
 
 
+def _require_package_output_root(package: OpenUsdScenePackage, output_root: Path) -> None:
+    expected = package.root / "engine_manifests"
+    if output_root.resolve() != expected.resolve():
+        raise PackageError(
+            f"output_root must be the scene package engine_manifests directory: {expected}"
+        )
+
+
+def _robot_hashes(package: OpenUsdScenePackage) -> dict[str, str]:
+    if package.robot is None:
+        return {}
+    if package.robot.robot_id != "franka_panda":
+        raise PackageError(f"unsupported PyBullet robot: {package.robot.robot_id}")
+    import pybullet_data
+
+    source = Path(pybullet_data.getDataPath()) / "franka_panda"
+    if not (source / "panda.urdf").is_file():
+        raise PackageError("PyBullet Franka template is unavailable")
+    digest = hashlib.sha256()
+    for path in sorted(item for item in source.rglob("*") if item.is_file()):
+        digest.update(path.relative_to(source).as_posix().encode())
+        digest.update(path.read_bytes())
+    return {f"robot:{package.robot.robot_id}": digest.hexdigest()}
+
+
 def compile_openusd_scene_package(
     *,
     csd_path: Path,
@@ -33,11 +59,14 @@ def compile_openusd_scene_package(
 ) -> CsdRealizationManifest:
     """Compile one validated v9 resource package into a portable PyBullet package."""
     package = read_openusd_scene_package(csd_path)
+    _require_package_output_root(package, output_root)
+    robot_hashes = _robot_hashes(package)
     cache = make_csd_realization_cache_key(
         csd_hash=_dependency_hash(package.root),
-        asset_variant_hashes={
-            asset.asset_id: asset.resource_digest for asset in _unique_assets(package)
-        },
+        asset_variant_hashes=(
+            {asset.asset_id: asset.resource_digest for asset in _unique_assets(package)}
+            | robot_hashes
+        ),
         backend="pybullet",
         realization_config=dict(realization_config or {}),
         realization_version=f"{realization_version}-pybullet-openusd-0.2",
@@ -58,19 +87,11 @@ def compile_openusd_scene_package(
     asset_paths: dict[tuple[str, str], str] = {}
     for asset in _unique_assets(package):
         key = _asset_key(asset)
-        asset_root = root / "assets" / key
-        _copy_asset_support(asset, asset_root)
-        _write_urdf(asset_root / "asset.urdf", asset)
-        asset_paths[(asset.asset_id, asset.resource_digest)] = f"assets/{key}/asset.urdf"
-        generated.extend(
-            str(path.relative_to(root)) for path in asset_root.rglob("*") if path.is_file()
-        )
-    robot_path = _copy_robot(root, package)
-    if robot_path is not None:
-        generated.extend(
-            str(path.relative_to(root)) for path in (root / "robots").rglob("*") if path.is_file()
-        )
-    meta = _meta(package, asset_paths, robot_path)
+        relative = f"generated/assets/{key}.urdf"
+        _write_urdf(root / relative, asset)
+        asset_paths[(asset.asset_id, asset.resource_digest)] = relative
+        generated.append(relative)
+    meta = _meta(package, asset_paths)
     (root / "scene_meta.json").write_text(json.dumps(meta, indent=2, sort_keys=True))
     _write_loader(root / "scene.py")
     _validate(root, package)
@@ -78,6 +99,7 @@ def compile_openusd_scene_package(
     preview = _write_preview(root, meta)
     if preview is not None:
         generated.append(preview)
+    shutil.rmtree(root / "__pycache__", ignore_errors=True)
     manifest = CsdRealizationManifest(
         manifest_id=f"manifest_pybullet_{package.scene_id}",
         csd_id=package.scene_id,
@@ -96,103 +118,13 @@ def _asset_key(asset: OpenUsdAsset) -> str:
     return "asset-" + asset.resource_digest[:16]
 
 
-def _copy_asset_support(asset: OpenUsdAsset, destination: Path) -> None:
-    support = asset.source.parent / "support"
-    if not support.is_dir():
-        raise PackageError(f"{asset.source.parent} has no support directory")
-    shutil.copytree(support, destination / "support", dirs_exist_ok=True)
-    _write_obj_materials(destination, asset)
-
-
-def _write_obj_materials(destination: Path, asset: OpenUsdAsset) -> None:
-    """Translate USD PreviewSurface bindings into OBJ MTL records."""
-    materials = _usd_visual_materials(asset.source)
-    if not materials:
-        return
-    textures = destination / "textures"
-    textures.mkdir(exist_ok=True)
-    for visual in {body.visual_obj for body in asset.bodies}:
-        obj = destination / visual
-        if not obj.is_file():
-            raise PackageError(f"missing copied visual OBJ for {asset.asset_id}")
-        names = {
-            line.split(maxsplit=1)[1]
-            for line in obj.read_text().splitlines()
-            if line.startswith("usemtl ")
-        }
-        selected = {name: materials[name] for name in names if name in materials}
-        if not selected:
-            continue
-        mtl = obj.with_suffix(".mtl")
-        records: list[str] = []
-        for name, (color, texture) in selected.items():
-            records.extend(
-                (
-                    f"newmtl {name}",
-                    f"Kd {' '.join(str(value) for value in color[:3])}",
-                    f"d {color[3]}",
-                )
-            )
-            if texture is not None:
-                target = textures / texture.name
-                shutil.copy2(texture, target)
-                records.append(f"map_Kd {Path(os.path.relpath(target, obj.parent)).as_posix()}")
-            records.append("")
-        mtl.write_text("\n".join(records))
-        lines = obj.read_text().splitlines()
-        if not any(line.startswith("mtllib ") for line in lines):
-            obj.write_text("\n".join((f"mtllib {mtl.name}", *lines, "")))
-
-
-def _usd_visual_materials(
-    asset_path: Path,
-) -> dict[str, tuple[tuple[float, float, float, float], Path | None]]:
-    from pxr import Usd, UsdShade
-
-    stage = Usd.Stage.Open(str(asset_path), Usd.Stage.LoadAll)
-    if stage is None:
-        raise PackageError(f"cannot compose asset USD: {asset_path}")
-    result: dict[str, tuple[tuple[float, float, float, float], Path | None]] = {}
-    for prim in stage.Traverse():
-        if prim.GetTypeName() != "Material" or "PhysicsMaterialAPI" in prim.GetAppliedSchemas():
-            continue
-        material = UsdShade.Material(prim)
-        surface = material.ComputeSurfaceSource()[0]
-        if not surface:
-            continue
-        shader = UsdShade.Shader(surface)
-        if shader.GetIdAttr().Get() != "UsdPreviewSurface":
-            continue
-        diffuse = shader.GetInput("diffuseColor").Get() or (0.8, 0.8, 0.8)
-        opacity = float(shader.GetInput("opacity").Get() or 1.0)
-        texture = next(
-            (
-                Path(input_.Get().resolvedPath)
-                for child in prim.GetChildren()
-                if (candidate := UsdShade.Shader(child)).GetIdAttr().Get() == "UsdUVTexture"
-                for input_ in (candidate.GetInput("file"),)
-                if input_.Get() and input_.Get().resolvedPath
-            ),
-            None,
-        )
-        key = str(prim.GetPath()).lstrip("/").replace("/", "_")
-        value = (
-            (float(diffuse[0]), float(diffuse[1]), float(diffuse[2]), opacity),
-            texture,
-        )
-        result[key] = value
-        if key.startswith("Asset_"):
-            result[key.removeprefix("Asset_")] = value
-    return result
-
-
 def _write_urdf(path: Path, asset: OpenUsdAsset) -> None:
     root = ET.Element("robot", {"name": _asset_key(asset)})
     joint_by_child = {joint.child: joint for joint in asset.joints}
     for body in asset.bodies:
         link = ET.SubElement(root, "link", {"name": body.path})
         frame = joint_by_child.get(body.path)
-        _append_link(link, body, frame)
+        _append_link(link, body, frame, asset.source.parent, path.parent)
     for joint in asset.joints:
         element = ET.SubElement(root, "joint", {"name": joint.name, "type": joint.kind})
         ET.SubElement(element, "parent", {"link": joint.parent})
@@ -228,6 +160,8 @@ def _append_link(
     link: ET.Element,
     body: OpenUsdRigidBody,
     joint: OpenUsdArticulationJoint | None,
+    asset_root: Path,
+    urdf_root: Path,
 ) -> None:
     origin = {"xyz": "0 0 0", "rpy": "0 0 0"}
     if joint is not None:
@@ -253,9 +187,9 @@ def _append_link(
             "izz": str(body.diagonal_inertia[2]),
         },
     )
-    _mesh(link, "visual", body.visual_obj, origin)
+    _mesh(link, "visual", body.visual_obj, origin, asset_root, urdf_root)
     for index, collision in enumerate(body.collision_objs):
-        _mesh(link, "collision", collision, origin, index)
+        _mesh(link, "collision", collision, origin, asset_root, urdf_root, index)
 
 
 def _inertial_pose(
@@ -275,33 +209,19 @@ def _mesh(
     tag: str,
     mesh: Path,
     origin: dict[str, str],
+    asset_root: Path,
+    urdf_root: Path,
     index: int = 0,
 ) -> None:
     element = ET.SubElement(link, tag, {"name": f"{tag}_{index}"})
     ET.SubElement(element, "origin", origin)
     geometry = ET.SubElement(element, "geometry")
-    ET.SubElement(geometry, "mesh", {"filename": mesh.as_posix()})
-
-
-def _copy_robot(root: Path, package: OpenUsdScenePackage) -> str | None:
-    if package.robot is None:
-        return None
-    if package.robot.robot_id != "franka_panda":
-        raise PackageError(f"unsupported PyBullet robot: {package.robot.robot_id}")
-    import pybullet_data
-
-    source = Path(pybullet_data.getDataPath()) / "franka_panda"
-    if not (source / "panda.urdf").is_file():
-        raise PackageError("PyBullet Franka template is unavailable")
-    destination = root / "robots" / "franka_panda"
-    shutil.copytree(source, destination, dirs_exist_ok=True)
-    urdf = destination / "panda.urdf"
-    urdf.write_text(urdf.read_text().replace("package://meshes/", "meshes/"))
-    return "robots/franka_panda/panda.urdf"
+    filename = Path(os.path.relpath(asset_root / mesh, urdf_root)).as_posix()
+    ET.SubElement(geometry, "mesh", {"filename": filename})
 
 
 def _meta(
-    package: OpenUsdScenePackage, assets: Mapping[tuple[str, str], str], robot_path: str | None
+    package: OpenUsdScenePackage, assets: Mapping[tuple[str, str], str]
 ) -> dict[str, object]:
     if len(package.lights) > 1:
         raise PackageError("PyBullet realization supports one DistantLight")
@@ -348,14 +268,14 @@ def _meta(
         light = package.lights[0]
         direction = _rotate(light.pose[3:], (0.0, 0.0, -1.0))
         result["light"] = {"direction": list(direction), "intensity": light.intensity}
-    if package.robot is not None and robot_path is not None:
+    if package.robot is not None:
         px, py, pz, qw, qx, qy, qz = package.robot.pose
         result.update(
             {
                 "robot_name": package.robot.instance_id,
                 "robot": {
                     "name": package.robot.instance_id,
-                    "urdf_path": robot_path,
+                    "robot_id": package.robot.robot_id,
                     "position": [px, py, pz],
                     "orientation_xyzw": [qx, qy, qz, qw],
                 },
@@ -379,8 +299,10 @@ def load_scene(physics_client_id: int) -> dict[str, object]:
     bodies = {}
     robot = meta.get("robot")
     if robot:
+        import pybullet_data
+        robot_path = Path(pybullet_data.getDataPath()) / robot["robot_id"] / "panda.urdf"
         bodies[meta["robot_name"]] = p.loadURDF(
-            str(root / robot["urdf_path"]), basePosition=robot["position"],
+            str(robot_path), basePosition=robot["position"],
             baseOrientation=robot["orientation_xyzw"], useFixedBase=True,
             flags=p.URDF_USE_INERTIA_FROM_FILE, physicsClientId=physics_client_id,
         )

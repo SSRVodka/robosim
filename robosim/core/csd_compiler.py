@@ -46,6 +46,25 @@ def _compile(
     realization_version: str,
     simulator_version: str | None,
 ) -> CsdCompilationResult:
+    expected_root = csd_path.resolve().parent / "engine_manifests"
+    if output_root.resolve() != expected_root:
+        csd_id = csd_path.resolve().parent.name
+        return CsdCompilationResult(
+            manifest=None,
+            blockers=(
+                CsdRealizationBlocker(
+                    blocker_id=f"{csd_id}_{backend}_invalid_output_root",
+                    csd_id=csd_id,
+                    backend=backend,
+                    asset_id="openusd_package",
+                    scope="csd",
+                    reason=(
+                        "output_root must be the scene package engine_manifests directory: "
+                        f"{expected_root}"
+                    ),
+                ),
+            ),
+        )
     try:
         return CsdCompilationResult(
             manifest=compiler(

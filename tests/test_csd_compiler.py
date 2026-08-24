@@ -41,13 +41,25 @@ def test_compile_csd_reports_package_error(
     monkeypatch.setattr(csd_compiler, "compile_openusd_gazebo_scene_package", compiler)
     result = csd_compiler.compile_csd_to_gazebo(
         csd_path=tmp_path / "scene.usda",
-        output_root=tmp_path,
+        output_root=tmp_path / "engine_manifests",
         simulator_version="test",
     )
 
     assert result.manifest is None
     assert result.blockers[0].backend == "gazebo"
     assert result.blockers[0].reason == "invalid package"
+
+
+def test_compile_csd_rejects_output_outside_scene_package(tmp_path: Path) -> None:
+    result = compile_csd(
+        backend="mujoco",
+        csd_path=tmp_path / "scene.usda",
+        output_root=tmp_path / "elsewhere",
+        simulator_version="test",
+    )
+
+    assert result.manifest is None
+    assert "output_root must be" in result.blockers[0].reason
 
 
 def test_compile_csd_rejects_unknown_backend(tmp_path: Path) -> None:

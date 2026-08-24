@@ -17,6 +17,16 @@ scene.usda  --USD reference-->  asset.usda  --custom asset fields-->  OBJ
 USD package 是语义来源；OBJ 是 export worker 从 composed USD 生成的仿真支持文件。
 `vsim` 只接收 `scene.usda` 入口及其包内 dependency closure，不使用额外资产 registry。
 
+### Realization output boundary
+
+编译器的 `output_root` 必须严格等于 `scene.usda` 同级目录下的
+`engine_manifests/`。一个 backend slot 是
+`engine_manifests/<backend>/<scene_id>/`，其中只允许 compiler 生成的 entry、
+`generated/`、`runtime/` 与 `diagnostics/` 文件；不得复制 package OBJ、MTL、PNG 或
+其他 asset support closure。所有 package asset 引用必须是从该 slot 回到 package 内
+资源的相对路径，PNG 必须为 package-local 文件。可移动单位是完整 scene package，而
+不是单独的 backend slot。
+
 ## 2. Package 目录
 
 ```text
@@ -78,9 +88,8 @@ contact material、link 和 joint 必须由 `asset.usda` 定义。首轮 MuJoCo 
 ### 3.1 Robot descriptor
 
 一个 v9 scene 至多包含一个直接位于 `/World/Robot` 的固定基座 robot descriptor。
-它是场景声明，不是 `assets/` 中的 USD reference：MuJoCo compiler 根据
-`robosim:robot:id` 选择 compiler-owned control template，复制其 MJCF、SRDF 与
-mesh dependency closure，并把本 prim 的 pose patch 到复制后模板的 root body。
+它是场景声明，不是 `assets/` 中的 USD reference：compiler 根据 `robosim:robot:id`
+选择 provider-owned control template，并把本 prim 的 pose patch 到生成的薄 adapter。
 
 ```usda
 def Xform "Robot"
@@ -95,8 +104,10 @@ def Xform "Robot"
 
 `robot:id` 是 target backend 支持的 template identity，不是普通 asset ID；当前
 MuJoCo target 支持 `franka_panda`。`robot:instanceId` 是稳定场景实例名。robot
-不得有非单位 scale。模板 closure hash 由 compiler 加入 realization cache key；输出
-不得在运行时依赖 template source。模板中的未声明 camera/light 不得泄漏到 scene。
+不得有非单位 scale。模板 closure hash 由 compiler 加入 realization cache key。
+`drivers_sim`（MuJoCo/Gazebo）和 `pybullet_data`（PyBullet）是明确例外：输出不复制
+robot mesh closure，运行时需要相应 template provider 可用。模板中的未声明
+camera/light 不得泄漏到 scene。
 
 ### 3.2 Cameras and lights
 
