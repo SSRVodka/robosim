@@ -12,7 +12,7 @@ from robosim.core import compile_csd
 def main() -> None:
     """Run one CSD realization and print its manifest or blockers as JSON."""
     parser = argparse.ArgumentParser(description="Compile an OpenUSD CSD package.")
-    parser.add_argument("--backend", choices=("mujoco", "pybullet"), default="mujoco")
+    parser.add_argument("--backend", choices=("mujoco", "pybullet", "gazebo"), default="mujoco")
     parser.add_argument("--csd", required=True, type=Path, help="Path to package scene.usda")
     parser.add_argument(
         "--output-root",
@@ -26,6 +26,8 @@ def main() -> None:
     )
     parser.add_argument("--realization-version", default="csd-compiler-0.10")
     args = parser.parse_args()
+    if not args.csd.is_file():
+        parser.error(f"--csd does not exist or is not a file: {args.csd}")
     try:
         config = json.loads(args.realization_config)
     except json.JSONDecodeError as error:

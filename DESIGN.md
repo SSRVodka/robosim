@@ -1,5 +1,131 @@
 # RoboSim 框架设计
 
+## CSD realization reference contract（2026-08-23）
+
+`engine_manifests/<backend>/<csd_id>/` 是 scene package 内唯一合法的 backend slot；
+compiler 拒绝任何其他 output root。slot 只保存 generated/runtime/diagnostics 与 entry，
+不得复制 package OBJ、PNG、MTL 或 asset closure，所有 asset 引用从 slot 使用相对路径
+返回 package。完整 scene/benchmark package 是可移动单位。`drivers_sim` 与
+`pybullet_data` robot template provider 是可移植性例外：仅生成经 pose、base mobility、
+camera/light 清理后的薄 adapter，robot template closure 不复制但其 hash 必须进入 cache key。
+
+## Gazebo Manipulate MVP（2026-08-20，进行中）
+
+`robosim.server` 是 Gazebo manifest 路径的唯一正式生命周期入口。server 在创建
+`GazeboBackend` 前启动 package-local `robot_state_publisher`、`gzserver` 和 controllers，
+等待 controller manager ready，并在退出时统一关闭 backend 与这些进程。内部
+`GazeboRuntime` 只提供 `start()`/`stop()` 生命周期，不提供独立 CLI。默认 headless
+只启动 `gzserver`；`--no-headless` 在同一 runtime 上额外启动 `gzclient`。
+
+本迭代的新 Gazebo manipulation 路径只消费 v9 OpenUSD CSD compiler 生成的
+self-contained package。唯一支持的 robot asset profile 是 `franka_panda` 和
+`ipads_desc`；profile `manifest.json` 是 robot-control 的唯一输入。compiler 复制其
+URDF/SRDF、mesh/texture 和 controller closure，再从复制后的语义文件导出 joint limits、
+SRDF groups/named states/end-effectors、mimic joints 与 group-controller mapping。
+
+MVP 只支持按 SRDF group 的 POSITION 关节控制及 joint/RGB/depth observation。命令必须
+携带 group，joint set 必须精确匹配目标 controller group。Franka 可控 group 是
+`panda_arm`、`hand`，`panda_arm_hand` 仅为语义 group；iPads 可控 group 是
+`left_arm_group`、`right_arm_group`。FK、IK、Cartesian servo、Twist、导航、reset
+和抓取判定未实现。
+
+manifest runtime contract 固定 namespace、joint-state topic、每个 group 的 trajectory
+action、package-local artifacts 与 robot semantics。manifest backend 不执行 topic/action
+discovery，也不使用 `all` group。无 manifest 的旧 backend/旧 CSD 编译路径为 legacy
+compatibility，不能作为该路径 fallback。实现依据 Gazebo Classic
+`gazebo_ros2_control` Humble 文档：
+https://control.ros.org/humble/doc/gazebo_ros2_control/doc/index.html 。
+
+## Gazebo Classic CSD runtime（2026-08-17，已被 server-owned runtime 取代）
+
+原手动双入口设计已废弃；其 package contract 继续有效。每个 Gazebo manifest 记录
+package-local `world.sdf`、
+`robot_control.urdf`、`controllers.yaml`，以及稳定 namespace
+`/robosim/<csd_id>`、joint-state topic、position trajectory action、已声明 RGB/depth
+camera topics 的 typed runtime contract。
+
+首轮只支持带 Franka robot 的 position control：URDF 的 `ros2_control`
+`GazeboSystem`、position command/state interfaces 必须与 SDF joint 一致；SDF model
+通过 `libgazebo_ros2_control.so` 读取 package-local controller YAML，并启用
+`joint_state_broadcaster` 和 `joint_trajectory_controller`。CSD 明确声明的 RGB/depth
+camera 同样必须 materialize 到 SDF 和 manifest；`imu`、`lidar`、`odometry`、
+`force_torque` 以及无 robot 的 joint-control runtime 返回 typed blocker，不得静默
+省略。缓存输入加入 runtime template 与所需 Gazebo/ROS plugin 的可用文件 digest。
+依据 Gazebo Classic `gazebo_ros2_control` Humble 文档（2026-08-17）：
+https://control.ros.org/humble/doc/gazebo_ros2_control/doc/index.html 。
+
+### Franka control-semantic parity iteration（2026-08-17，进行中）
+
+Gazebo runtime 不得以临时 `all` group 代替 robot semantic contract。机器人控制语义
+属于被 CSD `robot:id` 引用的版本化机器人资产，而非每个 CSD 重复 author 的内容；同一
+Franka 引用在所有场景中具有相同语义。Gazebo realization 必须从该机器人资产的
+package-local SRDF materialize 与 MuJoCo 相同的
+`panda_arm`、`panda_hand`、`panda_arm_hand` group、named states 和 `hand`
+end-effector 描述；其 controller 配置必须有 arm trajectory controller 与
+gripper controller，并在 manifest runtime contract 中明确 action/topic 和 robot
+semantic metadata。GazeboBackend 的 `GetRobotSpec`、joint limit、group membership、
+`SetJointTarget` 和 `GetJointCommandState` 必须基于此 contract，不能依据 ROS graph
+猜测或返回虚构 limits。compiler 必须把所选 robot asset 的 URDF/SRDF/controller
+closure 复制到 `engine_manifests/gazebo/<csd_id>/`，不得让运行时依赖
+`drivers_sim`；CSD 输入仍保持只读。
+
+实现记录（2026-08-18）：Gazebo Franka realization 复制
+`drivers_sim/gazebo-11/assets/robots/franka_panda/` 中 vendored 的 Apache-2.0
+PyBullet Panda URDF/OBJ closure（保存为当前 `panda_description`）与
+`panda_moveit_config` SRDF，并在 package-local
+`runtime/robot_semantics.json` 是 manifest 通过相对路径引用的唯一机器人语义源，固化 URDF limit、SRDF-derived named state、
+`panda_arm`、`panda_hand`、`panda_arm_hand` 和 `hand` end-effector contract。
+runtime 以独立 arm/gripper position trajectory controllers 执行这两个可控 group；
+combined group 不映射为不存在的单一 controller。closure digest 参与 Gazebo cache
+key，生成物不再使用 PyBullet 的临时 Franka template 或运行时的 `drivers_sim` 路径。
+
+Gazebo 相机 topic 统一为
+`/robosim/<csd_id>/cameras/<camera_name>/image_raw`，不保留插件默认的并行别名。
+场景相机（例如 `agent_view`）保持 world-mounted；机器人随动相机属于 robot asset
+profile。Franka profile 声明安装在 `panda_hand` 上的 `wrist_view`，compiler 将其
+写入机器人 link，因此相机姿态随 articulation 更新。两类相机共同写入 manifest
+runtime contract，GazeboBackend 只订阅该 contract 中的规范 topic。
+
+### Generic Gazebo robot asset-profile iteration（2026-08-18，进行中）
+
+Gazebo compiler 不得以 `franka_panda` 条件分支承载控制语义。它必须从 CSD
+`robot:id` 解析 repository robot asset profile：profile 的 URDF、可选 SRDF、mesh
+package aliases 与 controller groups 构成其 closure。compiler 将 closure 复制到
+realization package，并从 URDF/SRDF 生成 package-local semantic contract；每个
+可控 SRDF group 对应一个 trajectory action。缺少可解析 URDF、SRDF、group 或其
+joint control mapping 的资产必须返回 typed blocker。Franka 与 iPads 双臂资产均为
+本迭代的 compiler contract fixtures，不能依赖机器人名称、关节前缀或固定的
+end-effector 名称。
+
+robot asset profile 固定为资产目录的 `manifest.json`，schema 为
+`robosim.robot-asset/1`。Gazebo profile 仅声明 `urdf`、`srdf`、`closure_roots`、
+`package_aliases` 和 `position_controllers`（SRDF group 到 controller name）；joint
+limits、groups、named states 与 end-effectors 一律从复制后的 URDF/SRDF 推导，不得
+在 profile 重复 author。编译路径不允许从目录结构猜测 profile；缺少或不匹配的
+manifest 返回 typed blocker。
+
+
+## Gazebo driver workspaces（2026-08-14，进行中）
+
+`drivers_sim/gazebo-11/` 承载 Gazebo Classic 11 / ROS 2 Humble 路径，使用
+`gazebo_ros` 和 `gazebo_ros2_control`。`drivers_sim/gazebo/` 承载 Gazebo
+Harmonic / ROS 2 Jazzy 路径，使用 `ros_gz_*` 和 `gz_ros2_control`。两条
+路径的 world、plugin、controller 与 resource lookup 语义独立，不能以
+同一 package 或环境变量混用。
+两个 workspace 对外提供同名的 `asset_maps`、`asset_worlds`、
+`robot_sim_common`、`diffdrive_car_desc` 和 `demos` package，并保持
+`ros2 launch demos gzsim.nav2.launch.py gui:=true` 接口一致。
+
+两版内容完全相同的 robot geometry xacro、mesh 和 texture 以
+`gazebo-11/` 为 repository source of truth，`gazebo/` 使用相对软链接引用，
+避免两份源文件漂移。软链接只能用于 backend-neutral 资产；顶层
+robot xacro、world、sensor/control plugin 和 controller 配置仍各自维护。
+Harmonic package 安装后不得依赖源码树中的软链接目标。实现依据
+Gazebo Harmonic ROS 2 migration 文档与 Jazzy `gz_ros2_control` 文档：
+https://gazebosim.org/docs/harmonic/migrating_gazebo_classic_ros2_packages/ 与
+https://control.ros.org/jazzy/doc/gz_ros2_control/doc/index.html。当前机器未安装
+`ros_gz_sim` / `gz_ros2_control`，因此不宣称 Jazzy / Harmonic 已运行验证。
+
 ## MuJoCo v9 OpenUSD package realization（2026-08-03，进行中）
 
 v9 scene 可选地在 `/World/Robot` 声明一个固定基座机器人，而不引用 USD
@@ -21,6 +147,12 @@ distant light 的 orientation 转换为其照射方向。没有 author camera �
 实现记录（2026-08-04）：v9 compiler `csd-compiler-0.9` 增加上述 robot、camera
 与 distant-light realization；复制的 robot template 中的 scene light 会移除，避免
 引入未在 CSD 声明的 light 或 camera。
+
+每个 backend 的 `assets/robots/manifest.json` 是该 backend 可用 robot template 的唯一
+注册表，schema 为 `robosim.robot-assets/1`。MuJoCo 每个条目必须声明 `robot_id`、资产
+目录、`mjcf` 与 `srdf`，其 `robot_id` 必须与 CSD `robot:id` 一致。compiler 从根级
+注册表查找模板、复制完整模板 closure 后，从所选主 MJCF patch 根 body 位姿并以该文件
+生成顶层 include；不得在 Python 中维护 robot-id 或入口文件名的映射。
 
 MuJoCo 的输入收敛为 `scene-export/v9-vsim-articulated-resources` package 中的
 `scene.usda`；同级 `manifest.json`、`checksums.sha256` 与被引用 `asset.usda` 是
@@ -154,6 +286,16 @@ engine_manifests/
         ...
 ```
 
+### Benchmark package texture normalization（2026-08-23）
+
+`scene-export/v9-vsim-articulated-resources` benchmark package 在发布时必须将每个
+由 composed USD `UsdUVTexture` 实际引用的二维纹理规范为 package-local PNG。PNG
+保留源图的 RGB 或 RGBA 通道；不得无条件丢弃 alpha。该工作属于 benchmark/asset
+输出，不属于每个 backend realization：`engine_manifests/` 只能通过固定相对路径
+引用这些纹理，不能复制或重编码它们。未被当前 USD 材质网络引用的 PBR 通道不因此
+新增转换或支持承诺。转换后必须更新引用它的 USD layer、asset manifest 和 package
+checksum，使 package 继续是可验证的 dependency closure。
+
 调用方应把 `compile_csd(..., output_root=...)` 的 `output_root` 设为 benchmark
 package 下的 `engine_manifests/`。MuJoCo 目标写入
 `engine_manifests/mujoco/<csd_id>/scene.xml`；Gazebo 目标写入
@@ -178,7 +320,7 @@ variants，而不是只验证 default selection。
 
 MuJoCo production path 已固定为 **OpenUSD-to-MJCF**，不实现或维护第二条 native
 loader。官方 MuJoCo 3.9.0 source 的 `usd_decoder_plugin` 与 `mjcPhysics` 可以在
-`robosim2` 中针对 OpenUSD 26.05 成功构建、选择性打包、从新 Python process 加载，
+`robosim` 中针对 OpenUSD 26.05 成功构建、选择性打包、从新 Python process 加载，
 并正确保留基础 rigid body、mass/inertia、collision、joint、gravity、renderable
 geometry 与稳定 stepping。但是 probe CSD 中的标准 `UsdGeomCamera` 与 `UsdLux`
 light 在 compiled `mjModel` 中分别得到 `ncam=0`、`nlight=0`，decoder 也没有创建
@@ -389,41 +531,21 @@ cache API 与三个 backend entry point 只接受 composed-stage digest 或 `csd
 path；typed compiler view 只能由 strict OpenUSD reader 构造。旧 scenario JSON
 fixtures 与 test-only JSON-to-USD adapter 已替换成直接 USDA fixtures，变体测试通过
 USD property/relationship edits 表达 simulator extension 与 invalid-stage cases。
-Asset registry、evaluator、manifest、diagnostics 继续使用 JSON，因为这些是独立的
-typed artifact contracts，不是 CSD sidecar 或第二语义来源。
+Evaluator、manifest、diagnostics 继续使用 JSON，因为这些是独立的 typed artifact
+contracts，不是 CSD sidecar 或第二语义来源。`csd_compiler.py` 只负责 backend
+dispatch、simulator version 获取和统一 blocker 包装；MJCF、PyBullet scene 与 Gazebo
+SDF 的 realization 分别只由对应的 `*_openusd_package.py` 实现，禁止再加入第二套
+asset-registry compiler。
+
+`robosim.backends` 顶层 package 不得主动导入具体 backend。具体 backend 只能由
+server 选择后或调用方显式访问时惰性加载，避免 MuJoCo/PyBullet 进程继承 Gazebo 的
+ROS2/rclpy 可选依赖。
 所有 committed CSD fixtures 还必须通过官方 `usdchecker` 的全部 backend variant；
 例如 `physics:diagonalInertia` 必须与 `physics:principalAxes` 成对 author。当前
 backend compiler 仅支持 identity principal axes，rotated axes 会成为显式 stage
 validation blocker，不能被静默丢弃。
 
-实现记录（2026-07-09，2026-07-17 修正）：第一版
-`compile_csd_to_gazebo()` 曾依据最新 SDFormat 1.12 specification 与 Gazebo Sim 8
-resource 文档实现，但项目 acceptance runtime 实际是 Gazebo Classic 11.15.1 与
-libsdformat 9.10.2；该组合只安装到 SDF 1.7 schema。把现代 Gazebo Sim 的最新
-protocol version 当作 Gazebo Classic target 是错误假设。因此 Gazebo Classic
-realization 固定输出 SDF 1.7，同时 canonical CSD 仍为当前 OpenUSD stage；backend
-artifact 的协议版本不反向限制 canonical CSD。Gazebo 产物写入
-`engine_manifests/gazebo/<csd_id>/world.sdf`，并复制 CSD 引用的 Gazebo backend
-resources 到 `engine_manifests/gazebo/<csd_id>/assets/...`。SDF 内 mesh URI
-使用相对路径 `assets/...`，使 `world.sdf` 可随 artifact root 移动；不要求生成
-ROS2 package、launch 目录或安装到 package share。后续 runtime 加载时可通过
-当前工作目录、绝对路径或 `GZ_SIM_RESOURCE_PATH` 暴露 artifact root，但编译器
-本身只负责生成可审计、可缓存、资产自包含的 backend-native 文件。
-
-实现记录（2026-07-17）：`compile_csd_to_gazebo()` 已改为只接受 canonical
-`csd.usda` 路径，选择 `physicsBackend=gazebo`，并与另外两个 backend 共享 strict
-stage validation、typed compiler view 与 composed-stage digest cache input。SDF 1.7
-realization 映射 world gravity/physics、box/cylinder surface、robot、rigid objects、
-mass/diagonal inertia、collision、friction、UsdPreviewSurface color、directional light
-和 camera sensor。Franka 临时模板通过官方 `gz sdf -p` 从 URDF 转为 SDF model，
-并把 Gazebo 可加载的 collision mesh dependency closure 复制到 realization package；
-world 中不存在 source-tree、download cache 或绝对资源引用。每次非缓存 realization
-必须通过 `gz sdf -k`，再在隔离的 Gazebo master 上由 `gzserver --verbose` headless
-加载，并通过 Gazebo transport 查询全部预期 model；任何 Gazebo `[Err]` 输出都会
-转成 blocker。证据写入 `diagnostics/sdf_check.json`、`headless_load.json` 与
-`validation_record.json`。
-
-实现记录（2026-08-04）：Gazebo 也接入 v9
+Gazebo compiler 只接受 v9
 `scene-export/v9-vsim-articulated-resources` package 路径。它直接消费
 `scene.usda` 及包内 dependency closure，不再要求 asset registry；输出固定为
 `engine_manifests/gazebo/<scene_id>/world.sdf`，并将每个唯一 asset 的 OBJ support
@@ -432,12 +554,22 @@ closure 复制至本地 `assets/`。SDF 1.7 model/link/joint 映射保留资产�
 closure 被复制并映射为本地 SDF model。实现依据
 https://sdformat.org/spec/1.7/；生成后检查 XML version 和每一个 mesh URI 都在
 realization root 内，证据写入 `diagnostics/sdf_check.json`。
-每个 OBJ object/material group 拆为独立 SDF visual，并使用对应的
-UsdPreviewSurface RGBA；纹理和 MTL 也随 asset support closure 写入本地。articulated
-link 的 pose 由 USD joint 的 `localPos0/localRot0` 与 `localPos1/localRot1` 无损推导，
-joint pose 显式相对 parent link，实例 initial joint target 同时写入 SDF world state
-和 `runtime/initial_joint_positions.json`。v9 procedural shell 依约作为 static model
+每个 OBJ object/material group 拆为独立 SDF visual。纯色
+UsdPreviewSurface 写入 SDF RGBA；带 `UsdUVTexture` 的 visual 则写入 package-local
+OGRE material script，并以 SDF `<material><script>` 作为唯一 rendering authority，避免
+SDF color 覆盖 OBJ/MTL texture。OBJ、MTL、OGRE script 与 texture 均随 asset support
+closure 写入本地。articulated
+link 的 pose 由 USD joint 的 `localPos0/localRot0 × inverse(localPos1/localRot1)` 无损推导，
+joint pose 使用 `localPos1/localRot1` 并显式相对 child link（SDFormat 1.7 joint pose
+默认在 child frame），实例 initial joint target 同时写入 SDF world state
+和 `runtime/initial_joint_positions.json`；world state 中的 model 必须同时写入 CSD
+authored model pose，避免 SDFormat state 的缺省 zero pose 覆盖实例 placement。v9 procedural shell 依约作为 static model
 展开为 Floor/Walls links，不生成 inertial 或 free joint。
+
+机器人 base mobility 是 CSD `RobosimRobotAPI` contract 的 canonical 属性
+`robosim:robot:fixedBase`（默认 `true`），与 `robosim:robot:id` 独立：`true` 映射为世界固定 base，
+`false` 映射为可自由运动的 base。后端不得通过 robot ID 推断该语义；具体 robot ID
+仍只由对应的 backend resource adapter/template 决定。
 
 当前 Gazebo v9 compile **仍不可靠，不能作为可运行 runtime 的验收结论**：该路径仅有
 SDF/XML 与 package-local URI 级别的验证，尚未在 Gazebo Classic 11 中完成稳定的
@@ -588,6 +720,10 @@ robosim/
 - 默认空闲态会先落到 SRDF 默认姿态，再做 position hold 并持续叠加抗重力项；
 - 位置/速度模式在关节空间内转成简洁的 PD 力矩控制，并叠加重力补偿；
 - 扭矩模式直接写目标力矩，并叠加重力补偿。
+- 只有一个 SRDF 可控 joint 的 mimic 夹爪可在 MJCF `<custom>` 中以名为
+  `robosim_normalized_position_<joint-name>` 的 numeric 声明其 position 控制语义；
+  numeric data 为 `1` 时，后端将 `[0, 1]` 线性映射至 MJCF 行程下限到上限；为 `-1` 时
+  映射方向相反。后端将同一目标同步给 equality follower。未声明的 joint 保持原有物理单位语义。
 
 ### 3. jmg / ee 语义
 - 优先读取 `.srdf`；

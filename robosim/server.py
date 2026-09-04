@@ -8,6 +8,8 @@ import asyncio
 import signal
 from concurrent import futures
 from pathlib import Path
+from types import ModuleType
+from typing import Any, Sequence, cast
 
 from grpc import aio as grpc_aio
 
@@ -29,11 +31,11 @@ from control_stubs import (
 from control_stubs import (
     simulation_pb2_grpc as sim_grpc,
 )
-from robosim.backends import GazeboBackend, MuJoCoBackend, PyBulletBackend
 from robosim.core.activity import ActivityCoordinator
 from robosim.core.backend import SimulatorBackend
 from robosim.core.impl.policy_lerobot import LerobotPolicyRunner
 from robosim.core.impl.recorder_lerobot import LerobotDataRecorder
+from robosim.core.ros_environment import flush_ros_environment
 from robosim.grpc_server import (
     MobilityServicer,
     PolicyInferenceServicer,
@@ -46,6 +48,23 @@ from robosim.grpc_server import (
 DATA_REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
+def _load_backend_class(backend_type: str) -> type[SimulatorBackend]:
+    """Import only the backend selected for this server instance."""
+    if backend_type == "gazebo":
+        from robosim.backends.gazebo import GazeboBackend
+
+        return GazeboBackend
+    if backend_type == "mujoco":
+        from robosim.backends.mujoco import MuJoCoBackend
+
+        return MuJoCoBackend
+    if backend_type == "pybullet":
+        from robosim.backends.pybullet import PyBulletBackend
+
+        return PyBulletBackend
+    raise ValueError(f"Unknown backend type: {backend_type}")
+
+
 def create_backend(
     *,
     backend_type: str,
@@ -55,26 +74,29 @@ def create_backend(
     headless: bool,
 ) -> SimulatorBackend:
     """Create a simulator backend for server startup."""
+    backend_class = cast(Any, _load_backend_class(backend_type))
     if backend_type == "gazebo":
-        return GazeboBackend(robot_name=robot_name)
+        if csd_manifest is not None:
+            return backend_class.from_csd_realization_manifest_file(Path(csd_manifest))
+        return backend_class(robot_name=robot_name)
     if backend_type == "mujoco":
         if csd_manifest is not None:
-            return MuJoCoBackend.from_csd_realization_manifest_file(
+            return backend_class.from_csd_realization_manifest_file(
                 Path(csd_manifest),
                 headless=headless,
             )
-        return MuJoCoBackend(
+        return backend_class(
             scene_path=scene or "drivers_sim/mujoco/assets/robots/franka_panda/scene.xml",
             headless=headless,
         )
     if backend_type == "pybullet":
         if csd_manifest is not None:
-            return PyBulletBackend.from_csd_realization_manifest_file(
+            return backend_class.from_csd_realization_manifest_file(
                 Path(csd_manifest),
                 headless=headless,
             )
-        return PyBulletBackend(scene_path=scene, headless=headless)
-    raise ValueError(f"Unknown backend type: {backend_type}")
+        return backend_class(scene_path=scene, headless=headless)
+    raise AssertionError("backend type was validated before construction")
 
 
 def create_server(
@@ -125,36 +147,37 @@ async def serve_async(
     headless: bool = True,
 ) -> None:
     """Run the gRPC server asynchronously."""
-    import rclpy
-
     backend: SimulatorBackend | None = None
     recorder: LerobotDataRecorder | None = None
     policy_runner: LerobotPolicyRunner | None = None
     server: grpc_aio.Server | None = None
+    gazebo_runtime: Any | None = None
+    rclpy: ModuleType | None = None
 
-    async def shutdown_handler_async() -> None:
-        """Async shutdown handler for gRPC server."""
-        nonlocal server, backend, policy_runner
-        print("\nReceived shutdown signal, stopping server...")
+    async def shutdown() -> None:
+        """Stop services and owned resources in dependency order."""
+        nonlocal server, backend, policy_runner, gazebo_runtime
         if server is not None:
             await server.stop(grace=1.0)
         if policy_runner is not None:
             policy_runner.shutdown()
         if backend is not None:
             backend.shutdown()
-        try:
-            rclpy.shutdown()
-        except Exception:
-            pass
+        if gazebo_runtime is not None:
+            gazebo_runtime.stop()
+        if rclpy is not None:
+            try:
+                rclpy.shutdown()
+            except Exception:
+                pass
 
     loop = asyncio.get_running_loop()
-    should_shutdown = False
+    shutdown_requested = asyncio.Event()
 
     def shutdown_handler(sig: int, frame) -> None:
-        nonlocal should_shutdown
+        del frame
         print(f"\nReceived signal {sig}, initiating shutdown...")
-        should_shutdown = True
-        loop.call_soon_threadsafe(lambda: asyncio.create_task(shutdown_handler_async()))
+        loop.call_soon_threadsafe(shutdown_requested.set)
 
     try:
         signal.signal(signal.SIGINT, shutdown_handler)
@@ -162,7 +185,17 @@ async def serve_async(
 
         activity = ActivityCoordinator()
         if backend_type == "gazebo":
-            rclpy.init()
+            flush_ros_environment()
+            if csd_manifest is not None:
+                from robosim.backends.gazebo.runtime import GazeboRuntime
+
+                gazebo_runtime = GazeboRuntime(Path(csd_manifest), headless=headless)
+                gazebo_runtime.start()
+            import rclpy as gazebo_rclpy
+            from rclpy.signals import SignalHandlerOptions
+
+            rclpy = gazebo_rclpy
+            rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
         backend = create_backend(
             backend_type=backend_type,
             robot_name=robot_name,
@@ -186,22 +219,16 @@ async def serve_async(
         print(f"Capabilities: {backend.capabilities}")
         print("Press Ctrl+C to stop")
 
-        while not should_shutdown:
-            await asyncio.sleep(0.1)
+        await shutdown_requested.wait()
     except Exception as e:
         print(f"Server error: {e}")
-        if policy_runner is not None:
-            policy_runner.shutdown()
-        if backend is not None:
-            backend.shutdown()
-        try:
-            rclpy.shutdown()
-        except Exception:
-            pass
         raise
+    finally:
+        await shutdown()
 
 
-def main() -> None:
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    """Parse server command-line arguments."""
     parser = argparse.ArgumentParser(description="RoboSim gRPC Server")
     parser.add_argument(
         "--backend",
@@ -226,7 +253,7 @@ def main() -> None:
         "--scene",
         type=str,
         default=None,
-        help="Path to backend scene file (for mujoco or pybullet backend)",
+        help="Path to a backend-native scene file",
     )
     parser.add_argument(
         "--csd-manifest",
@@ -240,7 +267,12 @@ def main() -> None:
         default=True,
         help="Run supported backends without viewer",
     )
-    args = parser.parse_args()
+    return parser.parse_args(argv)
+
+
+def main() -> None:
+    """Start the gRPC server from command-line arguments."""
+    args = parse_args()
 
     asyncio.run(serve_async(
         backend_type=args.backend,

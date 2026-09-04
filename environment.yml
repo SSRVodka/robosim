@@ -52,6 +52,7 @@ dependencies:
 
   # Data collector
   - lerobot>=0.5
+  - datasets
   - pip
   # - pip:
   #     - evdev>=1.9,<2

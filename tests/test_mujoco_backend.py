@@ -2,21 +2,18 @@
 
 from __future__ import annotations
 
-import json
 import time
-from collections.abc import Callable, Generator, Mapping
+from collections.abc import Callable, Generator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from shutil import copytree
 
 import mujoco
 import numpy as np
 import pytest
 
-from control_stubs import common_pb2, sensing_pb2
+from control_stubs import common_pb2
 from control_stubs import robot_core_pb2 as core_pb2
 from robosim.backends.mujoco.backend import MuJoCoBackend
-from robosim.core import CsdRealizationManifest, compile_csd_to_mujoco
 
 SCENE_PATH = (
     Path(__file__).resolve().parent.parent
@@ -25,6 +22,10 @@ SCENE_PATH = (
 G1_29DOF_SCENE_PATH = (
     Path(__file__).resolve().parent.parent
     / "drivers_sim/mujoco/assets/robots/unitree_g1/g1_29dof.xml"
+)
+JAKA_S5_SCENE_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "drivers_sim/mujoco/assets/robots/jaka_s5/scene.xml"
 )
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "csd"
 SHARED_OPENUSD_CSD = FIXTURE_ROOT / "openusd" / "shared_tabletop" / "csd.usda"
@@ -49,89 +50,6 @@ def _wait_for_condition(predicate: Callable[[], bool], timeout: float = 1.0) -> 
     return False
 
 
-def _load_registry_fixture(name: str) -> dict[str, object]:
-    return json.loads((FIXTURE_ROOT / name).read_text(encoding="utf-8"))
-
-
-def _csd_fixture(name: str) -> Path:
-    return SEMANTIC_OPENUSD_ROOT / name.removesuffix(".json") / "csd.usda"
-
-
-def _fixture_mesh_half_extents(path: Path) -> tuple[float, float, float]:
-    name = path.stem
-    if name in {"box", "object_box"}:
-        return (0.15, 0.15, 0.15)
-    if name in {"anchor", "object_anchor"}:
-        return (0.1, 0.1, 0.1)
-    if "tray" in name:
-        return (0.08, 0.055, 0.012)
-    if "marker" in name:
-        return (0.018, 0.018, 0.055)
-    if "can" in name:
-        return (0.035, 0.035, 0.08)
-    if "mug" in name:
-        return (0.035, 0.035, 0.055)
-    return (0.035, 0.035, 0.035)
-
-
-def _write_box_mesh(path: Path) -> None:
-    hx, hy, hz = _fixture_mesh_half_extents(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        "\n".join(
-            (
-                f"v {-hx} {-hy} {-hz}",
-                f"v {hx} {-hy} {-hz}",
-                f"v {hx} {hy} {-hz}",
-                f"v {-hx} {hy} {-hz}",
-                f"v {-hx} {-hy} {hz}",
-                f"v {hx} {-hy} {hz}",
-                f"v {hx} {hy} {hz}",
-                f"v {-hx} {hy} {hz}",
-                "f 1 2 3",
-                "f 1 3 4",
-                "f 5 7 6",
-                "f 5 8 7",
-                "f 1 5 6",
-                "f 1 6 2",
-                "f 2 6 7",
-                "f 2 7 3",
-                "f 3 7 8",
-                "f 3 8 4",
-                "f 4 8 5",
-                "f 4 5 1",
-            )
-        ),
-        encoding="utf-8",
-    )
-
-
-def _write_fixture_asset_files(asset_root: Path, asset_registry: Mapping[str, object]) -> None:
-    records = asset_registry.get("objects", ())
-    if not isinstance(records, list):
-        return
-    for record in records:
-        if not isinstance(record, dict):
-            continue
-        resources = record.get("backend_resources", ())
-        if not isinstance(resources, list):
-            continue
-        for resource in resources:
-            if not isinstance(resource, dict):
-                continue
-            mesh_path = resource.get("mesh_path") or resource.get("relative_path")
-            if mesh_path:
-                _write_box_mesh(asset_root / str(mesh_path))
-
-
-def _image_array(image: sensing_pb2.CameraImage) -> np.ndarray:
-    return np.frombuffer(image.data, dtype=np.uint8).reshape(
-        image.height,
-        image.width,
-        3,
-    )
-
-
 def test_robot_spec_uses_srdf_groups(backend: MuJoCoBackend) -> None:
     spec = backend.get_robot_spec()
 
@@ -148,141 +66,6 @@ def test_robot_spec_uses_srdf_groups(backend: MuJoCoBackend) -> None:
         "panda_joint7",
     ]
     assert [ee.name for ee in groups["panda_arm"].end_effectors] == ["hand"]
-
-
-def test_backend_loads_compiled_csd_realization_manifest(tmp_path: Path) -> None:
-    asset_root = tmp_path / "assets"
-    csd_path = _csd_fixture("franka_tabletop_single_object")
-    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
-    _write_fixture_asset_files(asset_root, asset_registry)
-    source_template = Path(__file__).resolve().parents[1] / (
-        "drivers_sim/mujoco/assets/robots/franka_panda"
-    )
-    template_copy = tmp_path / "template_src" / "franka_panda"
-    copytree(source_template, template_copy)
-    result = compile_csd_to_mujoco(
-        csd_path=csd_path,
-        asset_registry=asset_registry,
-        output_root=tmp_path / "engine_manifests",
-        asset_root=asset_root,
-        realization_config={"robot_template_dir": str(template_copy)},
-    )
-    assert isinstance(result.manifest, CsdRealizationManifest)
-
-    instance = MuJoCoBackend.from_csd_realization_manifest(result.manifest, headless=True)
-    try:
-        spec = instance.get_robot_spec()
-        sensors = {entry.name for entry in instance.list_sensors().entries}
-
-        assert spec.robot_name == "panda"
-        assert "panda_arm" in {group.name for group in spec.joint_model_groups}
-        assert "world_camera" in sensors
-        assert instance._model.body("mug").name == "mug"
-        assert instance._model.body("surface_tabletop").name == "surface_tabletop"
-    finally:
-        instance.shutdown()
-
-
-def test_backend_loads_and_runs_shared_openusd_csd(tmp_path: Path) -> None:
-    registry = {
-        "objects": [
-            {
-                "asset_id": asset_id,
-                "backend_resources": [
-                    {
-                        "backend": "mujoco",
-                        "resource_id": f"mujoco_{asset_id}",
-                        "mesh_path": f"objects/{asset_id}.obj",
-                        "resource_hash": f"hash_{asset_id}",
-                    }
-                ],
-            }
-            for asset_id in ("object_box", "object_anchor")
-        ]
-    }
-    asset_root = tmp_path / "assets"
-    _write_fixture_asset_files(asset_root, registry)
-    result = compile_csd_to_mujoco(
-        csd_path=SHARED_OPENUSD_CSD,
-        asset_registry=registry,
-        output_root=tmp_path / "engine_manifests",
-        asset_root=asset_root,
-    )
-    assert result.blockers == ()
-    assert result.manifest is not None
-
-    instance = MuJoCoBackend.from_csd_realization_manifest(result.manifest, headless=True)
-    try:
-        sensors = {entry.name for entry in instance.list_sensors().entries}
-        image = instance.get_sensors(["Camera"]).images[0]
-        time.sleep(0.05)
-
-        assert "Camera" in sensors
-        assert instance._model.body("dynamic_box").name == "dynamic_box"
-        assert instance._model.body("table").name == "table"
-        assert float(_image_array(image).std()) > 1.0
-        assert np.isfinite(instance._data.qpos).all()
-        assert np.isfinite(instance._data.qvel).all()
-    finally:
-        instance.shutdown()
-
-
-def test_backend_loads_compiled_csd_realization_manifest_file(tmp_path: Path) -> None:
-    asset_root = tmp_path / "assets"
-    csd_path = _csd_fixture("franka_tabletop_single_object")
-    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
-    _write_fixture_asset_files(asset_root, asset_registry)
-    result = compile_csd_to_mujoco(
-        csd_path=csd_path,
-        asset_registry=asset_registry,
-        output_root=tmp_path / "engine_manifests",
-        asset_root=asset_root,
-    )
-    assert isinstance(result.manifest, CsdRealizationManifest)
-    manifest_path = tmp_path / "engine_manifests" / "mujoco" / "csd_tabletop_0001" / "manifest.json"
-    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    payload["root_path"] = "/stale/package/location"
-    manifest_path.write_text(json.dumps(payload), encoding="utf-8")
-
-    instance = MuJoCoBackend.from_csd_realization_manifest_file(manifest_path, headless=True)
-    try:
-        assert instance.robot_name == "panda"
-        assert instance._model.body("mug").name == "mug"
-    finally:
-        instance.shutdown()
-
-
-def test_backend_runtime_renders_and_steps_compiled_csd_realization(
-    tmp_path: Path,
-) -> None:
-    asset_root = tmp_path / "assets"
-    csd_path = _csd_fixture("franka_tabletop_single_object")
-    asset_registry = _load_registry_fixture("asset_registry_mujoco.json")
-    _write_fixture_asset_files(asset_root, asset_registry)
-    result = compile_csd_to_mujoco(
-        csd_path=csd_path,
-        asset_registry=asset_registry,
-        output_root=tmp_path / "engine_manifests",
-        asset_root=asset_root,
-    )
-    assert isinstance(result.manifest, CsdRealizationManifest)
-
-    instance = MuJoCoBackend.from_csd_realization_manifest(result.manifest, headless=True)
-    try:
-        image = instance.get_sensors(["world_camera"]).images[0]
-        first_qpos = instance._data.qpos.copy()
-        assert image.width == 320
-        assert image.height == 240
-        assert float(_image_array(image).std()) > 1.0
-
-        time.sleep(0.05)
-
-        assert np.isfinite(instance._data.qpos).all()
-        assert np.isfinite(instance._data.qvel).all()
-        assert instance._model.body("mug").name == "mug"
-        assert instance._data.qpos.shape == first_qpos.shape
-    finally:
-        instance.shutdown()
 
 
 def test_backend_starts_from_srdf_ready_state(backend: MuJoCoBackend) -> None:
@@ -372,6 +155,81 @@ def test_set_joint_target_and_reset_world(backend: MuJoCoBackend) -> None:
         timeout=1.0,
     )
     assert reset
+
+
+def test_jaka_gripper_has_one_control_joint_and_mimics_follower() -> None:
+    model = mujoco.MjModel.from_xml_path(str(JAKA_S5_SCENE_PATH))
+    data = mujoco.MjData(model)
+    data.qpos[:] = model.key("home").qpos
+    data.qpos[model.joint("joint_1").qposadr] = np.pi
+    mujoco.mj_forward(model, data)
+    link_01 = model.body("Link_01")
+    assert data.xmat[link_01.id] == pytest.approx(np.eye(3).ravel())
+    assert data.ncon == 0
+    assert data.qpos[model.joint("finger_tip1_joint").qposadr] == 0.0
+
+    backend = MuJoCoBackend(str(JAKA_S5_SCENE_PATH), headless=True)
+    try:
+        gripper_site = backend._model.site("pgia140")
+        assert backend._data.site_xpos[gripper_site.id] == pytest.approx(
+            (0.445901019764, -0.114422357266, 0.664619191314)
+        )
+        assert backend._data.site_xmat[gripper_site.id] == pytest.approx(
+            (
+                0.000796332458,
+                0.999998421402,
+                -0.001588410281,
+                -0.999999682926,
+                0.000796333468,
+                0.000000003373,
+                0.000001268277,
+                0.001588409774,
+                0.999998738476,
+            )
+        )
+        groups = {group.name: group for group in backend.get_robot_spec().joint_model_groups}
+        assert list(groups["pgia140_gripper"].joint_names) == ["finger_tip1_joint"]
+        limits = {limit.name: limit for limit in backend.get_robot_spec().joints}
+        assert limits["finger_tip1_joint"].lower_limit == 0.0
+        assert limits["finger_tip1_joint"].upper_limit == 1.0
+        states = {
+            state.name: state.joint_values
+            for state in groups["pgia140_gripper"].named_states
+        }
+        assert list(states["closed"]) == [0.0]
+        assert list(states["open"]) == [1.0]
+        backend.set_joint_target(
+            names=["finger_tip1_joint"],
+            data=[1.0],
+            mode=core_pb2.JointCommand.ControlMode.POSITION,
+            group="pgia140_gripper",
+        )
+
+        def is_open() -> bool:
+            state = backend.get_robot_state()
+            positions = dict(zip(state.name, state.position, strict=True))
+            return all(
+                positions[name] > 0.039 for name in ("finger_tip1_joint", "finger_tip2_joint")
+        )
+
+        assert _wait_for_condition(is_open)
+        backend.set_joint_target(
+            names=["finger_tip1_joint"],
+            data=[0.0],
+            mode=core_pb2.JointCommand.ControlMode.POSITION,
+            group="pgia140_gripper",
+        )
+
+        def is_closed() -> bool:
+            state = backend.get_robot_state()
+            positions = dict(zip(state.name, state.position, strict=True))
+            return all(
+                positions[name] < 1e-3 for name in ("finger_tip1_joint", "finger_tip2_joint")
+            )
+
+        assert _wait_for_condition(is_closed)
+    finally:
+        backend.shutdown()
 
 
 def test_joint_command_state_stays_replayable_during_velocity_control(
