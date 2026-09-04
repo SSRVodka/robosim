@@ -72,6 +72,10 @@ class SimulationStub:
         req = simulation_pb2.ObjectState(object_name=object_name, pose=pose)
         return self._stub.SetObjectPose(req)
 
+    def get_object_pose(self, object_name: str) -> simulation_pb2.ObjectPoseReply:
+        req = simulation_pb2.ObjectPoseRequest(object_name=object_name)
+        return self._stub.GetObjectPose(req)
+
 
 class SensingStub:
     """SensingService client stub."""
@@ -117,6 +121,27 @@ class RobotCoreStub:
     def get_end_effector_state(self, jmg_name: str) -> robot_core_pb2.EndEffectorState:
         req = robot_core_pb2.JointModelGroupRequest(jmg_name=jmg_name)
         return self._stub.GetEndEffectorState(req)
+
+    def execute_joint_trajectory(
+        self,
+        names: list[str],
+        points: list[tuple[float, list[float]]],
+        jmg_name: str | None = None,
+        timeout: float | None = None,
+    ) -> common_pb2.Status:
+        """Upload a full joint trajectory and block until the server has run it."""
+        group = robot_core_pb2.JointModelGroupRequest(jmg_name=jmg_name) if jmg_name else None
+        req = robot_core_pb2.JointTrajectory(
+            joint_names=names,
+            group=group,
+            points=[
+                robot_core_pb2.JointTrajectoryPoint(
+                    positions=positions, time_from_start=time_from_start
+                )
+                for time_from_start, positions in points
+            ],
+        )
+        return self._stub.ExecuteJointTrajectory(req, timeout=timeout)
 
     def servo_control_stream(
         self, commands: Iterator[robot_core_pb2.ServoCommand]

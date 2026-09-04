@@ -11,6 +11,7 @@ from control_stubs.common_pb2 import JointState
 from control_stubs.robot_core_pb2 import JointModelGroupSpec, RobotSpecification
 from control_stubs.sensing_pb2 import CameraImage
 from robosim.core.backend import SimulatorBackend
+from robosim.core.recorder import CaptureSnapshot
 
 
 def joint_state_vector(
@@ -121,8 +122,32 @@ class LerobotObservationAdapter:
     def runtime_spec(self) -> PolicyRuntimeSpec:
         return self._runtime_spec
 
+    @property
+    def sensor_names(self) -> list[str]:
+        return [
+            key.removeprefix("observation.images.")
+            for key in self._runtime_spec.image_keys
+        ]
+
     def capture_observation(self) -> dict[str, np.ndarray]:
         robot_state = self._backend.get_robot_state()
+        images = (
+            list(self._backend.get_sensors(self.sensor_names).images)
+            if self._runtime_spec.image_keys
+            else []
+        )
+        return self._build_observation(robot_state, images)
+
+    def observation_from_snapshot(self, snapshot: CaptureSnapshot) -> dict[str, np.ndarray]:
+        return self._build_observation(
+            snapshot.robot_state, list(snapshot.sensor_data.images)
+        )
+
+    def _build_observation(
+        self,
+        robot_state: JointState,
+        images: list[CameraImage],
+    ) -> dict[str, np.ndarray]:
         observation: dict[str, np.ndarray] = {}
 
         if self._runtime_spec.observation_joint_names:
@@ -133,11 +158,6 @@ class LerobotObservationAdapter:
             )
 
         if self._runtime_spec.image_keys:
-            sensor_names = [
-                key.removeprefix("observation.images.")
-                for key in self._runtime_spec.image_keys
-            ]
-            images = self._backend.get_sensors(sensor_names).images
             image_map = {
                 f"observation.images.{image.name}": decode_camera_image(image)
                 for image in images

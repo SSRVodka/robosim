@@ -35,8 +35,29 @@ service RobotCoreService {
   // B. or set the velocity of a specified end-effector in the world Cartesian coordinate system (TwistCommand), i.e., displacement increments;
   rpc ServoControlStream (stream ServoCommand) returns (stream robot_sim.common.JointState);
 
+  // Execute a full joint-position trajectory inside the simulator loop.
+  // Waypoints are applied by simulated time (time_from_start seconds after
+  // execution begins), so the rollout does not depend on client wall-clock
+  // pacing or per-step RPCs. Blocks until the last waypoint time has elapsed
+  // in simulation. Pausing the simulation pauses execution.
+  rpc ExecuteJointTrajectory (JointTrajectory) returns (robot_sim.common.Status);
+
   // --- Meta Operations: Safety ---
   rpc EmergencyStop (robot_sim.common.Empty) returns (robot_sim.common.Status);
+}
+
+message JointTrajectory {
+  repeated string joint_names = 1;
+  JointModelGroupRequest group = 2;
+  repeated JointTrajectoryPoint points = 3;
+}
+
+message JointTrajectoryPoint {
+  // Target positions aligned with JointTrajectory.joint_names.
+  repeated double positions = 1;
+  // Simulated seconds after execution start at which this point becomes the
+  // active position target (zero-order hold until the next point).
+  double time_from_start = 2;
 }
 
 message RobotSpecification {

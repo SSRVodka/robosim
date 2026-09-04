@@ -4,6 +4,7 @@ import contextlib
 import shutil
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -32,20 +33,12 @@ from robosim.core.impl.lerobot_io import (
     joint_state_vector,
     resolve_joint_group,
 )
-from robosim.core.recorder import DataRecorder
+from robosim.core.recorder import CaptureSnapshot, DataRecorder
 
 DEFAULT_RECORD_FPS = 30
 RGB_CHANNEL_NAMES = ["height", "width", "channels"]
 XYZ_NAMES = ["x", "y", "z"]
 QUAT_NAMES = ["x", "y", "z", "w"]
-
-
-@dataclass(slots=True)
-class CaptureSnapshot:
-    robot_state: JointState
-    joint_command_state: JointState
-    end_effector_states: dict[str, EndEffectorState]
-    sensor_data: SensorData
 
 
 @dataclass(slots=True)
@@ -98,8 +91,14 @@ class LerobotDataRecorder(DataRecorder):
 
             plan, snapshot = self._build_plan(options)
             dataset = self._open_dataset(plan)
-            first_frame = self._build_frame(plan, snapshot)
-            dataset.add_frame(first_frame)
+            start_capture = getattr(self._backend, "start_sim_capture", None)
+            if callable(start_capture):
+                # Simulation-time-aligned capture: every frame, including the
+                # first, comes from the backend sample stream.
+                start_capture(plan.fps)
+            else:
+                first_frame = self._build_frame(plan, snapshot)
+                dataset.add_frame(first_frame)
 
             stop_event = threading.Event()
             session = RecordingSession(
@@ -134,6 +133,9 @@ class LerobotDataRecorder(DataRecorder):
             session = self._session
 
         session.stop_event.set()
+        stop_capture = getattr(self._backend, "stop_sim_capture", None)
+        if callable(stop_capture):
+            stop_capture()
         session.thread.join()
 
         try:
@@ -281,6 +283,41 @@ class LerobotDataRecorder(DataRecorder):
         return dataset
 
     def _sampling_loop(
+        self,
+        plan: CapturePlan,
+        dataset: LeRobotDataset,
+        stop_event: threading.Event,
+    ) -> None:
+        next_capture = getattr(self._backend, "next_sim_capture", None)
+        if callable(next_capture):
+            self._sim_time_loop(plan, dataset, stop_event, next_capture)
+        else:
+            self._wall_clock_loop(plan, dataset, stop_event)
+
+    def _sim_time_loop(
+        self,
+        plan: CapturePlan,
+        dataset: LeRobotDataset,
+        stop_event: threading.Event,
+        next_capture: Callable[[list[str], list[str]], CaptureSnapshot | None],
+    ) -> None:
+        while not stop_event.is_set():
+            try:
+                snapshot = next_capture(plan.end_effector_groups, plan.sensor_names)
+                if snapshot is None:
+                    return
+                dataset.add_frame(self._build_frame(plan, snapshot))
+            except Exception as exc:
+                with self._lock:
+                    if self._session is not None and self._session.dataset is dataset:
+                        self._session.failure = exc
+                stop_capture = getattr(self._backend, "stop_sim_capture", None)
+                if callable(stop_capture):
+                    stop_capture()
+                stop_event.set()
+                return
+
+    def _wall_clock_loop(
         self,
         plan: CapturePlan,
         dataset: LeRobotDataset,

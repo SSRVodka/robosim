@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import itertools
 import json
+import queue
 import threading
 import time
 import xml.etree.ElementTree as ET
@@ -22,6 +24,7 @@ from control_stubs.sensing_pb2 import SensorType
 from robosim.core.backend import SimulatorBackend
 from robosim.core.capabilities import Capability
 from robosim.core.csd import CsdRealizationManifest
+from robosim.core.recorder import CaptureSnapshot
 
 JOINT_SENSOR_NAME = "joint_states"
 DEFAULT_CAMERA_WIDTH = 320
@@ -40,6 +43,58 @@ ROOT_TORQUE_LIMIT = 1000.0
 IDLE_HOLD_VELOCITY_EPS = 1e-6
 EE_JOINT_VELOCITY_LIMIT = 0.5
 FREE_BASE_JOINT_VELOCITY_LIMIT = 1.0
+SIM_CAPTURE_BUFFER_COUNT = 4
+SIM_CAPTURE_WAIT_SEC = 0.05
+RENDER_WAIT_SEC = 0.05
+
+
+@dataclass(slots=True)
+class _TrajectoryExecution:
+    """Server-side joint trajectory applied by simulated time."""
+
+    joint_names: list[str]
+    points: list[tuple[float, list[float]]]
+    start_time: float
+    next_index: int
+    done_event: threading.Event
+
+
+@dataclass(slots=True)
+class _SimCapture:
+    """Simulation-time-aligned state capture shared between threads.
+
+    The physics thread copies MjData into pooled buffers every ``interval``
+    simulated seconds; the consumer thread drains ``samples`` and returns
+    buffers to ``pool``. An empty pool blocks the physics thread, applying
+    backpressure so no capture frame is ever dropped.
+    """
+
+    interval: float
+    next_time: float
+    pool: queue.Queue[mujoco.MjData]
+    samples: queue.Queue[
+        tuple[mujoco.MjData, dict[str, tuple[core_pb2.JointCommand.ControlMode, float]]]
+    ]
+    stop_event: threading.Event
+
+
+@dataclass(slots=True)
+class _RenderRequest:
+    """One offscreen render dispatched to the backend's render thread.
+
+    MuJoCo renderers own a GL context that is bound to the thread that created
+    it, so every renderer must be created, used, and freed on one thread. The
+    requesting thread fills in the inputs, waits on ``done``, then reads
+    ``pixels`` or ``error``.
+    """
+
+    data: mujoco.MjData
+    camera_name: str
+    width: int
+    height: int
+    done: threading.Event
+    pixels: np.ndarray | None = None
+    error: Exception | None = None
 
 
 def _manifest_initial_positions(manifest: CsdRealizationManifest, root: Path) -> dict[str, float]:
@@ -144,7 +199,15 @@ class MuJoCoBackend(SimulatorBackend):
         self._capabilities = self._detect_capabilities()
 
         self._viewer: mujoco.viewer.Handle | None = None
-        self._renderers: dict[tuple[int, int, int], mujoco.Renderer] = {}
+        self._render_queue: queue.Queue[_RenderRequest | None] = queue.Queue()
+        self._render_thread = threading.Thread(
+            target=self._render_loop,
+            name="mujoco_backend_render",
+            daemon=True,
+        )
+        self._render_thread.start()
+        self._sim_capture: _SimCapture | None = None
+        self._trajectory: _TrajectoryExecution | None = None
         if not self._headless_mode:
             self._viewer = self._launch_viewer()
 
@@ -232,11 +295,13 @@ class MuJoCoBackend(SimulatorBackend):
             step_start = time.time()
             if not self._paused:
                 with self._state_lock:
+                    self._advance_trajectory_locked()
                     mujoco.mj_step1(self._model, self._data)
                     self._apply_controls_locked()
                     mujoco.mj_step2(self._model, self._data)
                     self._stabilize_idle_holds_locked()
                     self._sync_viewer_locked()
+                self._emit_capture_samples()
 
             delay = self._model.opt.timestep - (time.time() - step_start)
             if delay > 0:
@@ -336,21 +401,51 @@ class MuJoCoBackend(SimulatorBackend):
         return best_body_id
 
     def _collect_robot_body_ids(self) -> set[int]:
+        # 机器人边界以 SRDF 声明的关节为准：场景里的铰接家具（抽屉、柜门）同样
+        # 带 hinge/slide 关节，若按"含铰接关节即算机器人"归类，会污染状态向量
+        # 并被保持力矩焊死。SRDF 缺失时退回机器人根子树。
+        srdf_bodies = self._srdf_declared_body_ids()
+        if srdf_bodies:
+            return srdf_bodies
+        return self._collect_subtree_body_ids(self._robot_root_body_id)
+
+    def _srdf_declared_body_ids(self) -> set[int]:
+        """Bodies whose subtree chain is reachable from SRDF-declared joints."""
+        if self._srdf_path is None:
+            return set()
+        srdf_root = ET.parse(self._srdf_path).getroot()
+        joint_names = {
+            element.attrib["name"]
+            for tag in ("joint", "passive_joint")
+            for element in srdf_root.iter(tag)
+            if "name" in element.attrib
+        }
+        link_names = {
+            element.attrib[key]
+            for tag, keys in (("link", ("name",)), ("chain", ("base_link", "tip_link")))
+            for element in srdf_root.iter(tag)
+            for key in keys
+            if key in element.attrib
+        }
         body_ids: set[int] = set()
-        for body_id in range(1, self._model.nbody):
-            if int(self._model.body_parentid[body_id]) != 0:
-                continue
-            subtree_ids = self._collect_subtree_body_ids(body_id)
-            has_robot_joint = any(
-                int(self._model.jnt_bodyid[joint_id]) in subtree_ids
-                and self._is_robot_joint_type(int(self._model.jnt_type[joint_id]))
-                for joint_id in range(self._model.njnt)
-            )
-            if has_robot_joint:
-                body_ids.update(subtree_ids)
+        for joint_id in range(self._model.njnt):
+            if self._model.joint(joint_id).name in joint_names:
+                body_ids.add(int(self._model.jnt_bodyid[joint_id]))
+        for link_name in link_names:
+            if self._has_body(link_name):
+                body_ids.add(self._model.body(link_name).id)
         if not body_ids:
-            raise RuntimeError("Unable to identify robot bodies in MuJoCo scene")
-        return body_ids
+            return set()
+        # 补齐到根的父链，使运动学链完整（末端 link 常不带关节）。
+        closure = set(body_ids)
+        for body_id in body_ids:
+            current = body_id
+            while current > 0:
+                closure.add(current)
+                current = int(self._model.body_parentid[current])
+        for body_id in list(closure):
+            closure.update(self._collect_subtree_body_ids(body_id))
+        return closure
 
     def _collect_subtree_body_ids(self, body_id: int) -> set[int]:
         result = {body_id}
@@ -540,57 +635,71 @@ class MuJoCoBackend(SimulatorBackend):
 
     def get_robot_state(self) -> common_pb2.JointState:
         with self._state_lock:
-            names: list[str] = []
-            positions: list[float] = []
-            velocities: list[float] = []
-            efforts: list[float] = []
-            for info in self._joint_infos:
-                if not info.controllable:
-                    continue
-                names.append(info.name)
-                positions.append(float(self._data.qpos[info.qpos_adr]))
-                velocities.append(float(self._data.qvel[info.qvel_adr]))
-                efforts.append(float(self._data.qfrc_applied[info.qvel_adr]))
-            return common_pb2.JointState(
-                header=self._build_header(frame_id=self._model.body(self._robot_root_body_id).name),
-                name=names,
-                position=positions,
-                velocity=velocities,
-                effort=efforts,
-            )
+            return self._read_robot_state(self._data)
+
+    def _read_robot_state(self, data: mujoco.MjData) -> common_pb2.JointState:
+        names: list[str] = []
+        positions: list[float] = []
+        velocities: list[float] = []
+        efforts: list[float] = []
+        for info in self._joint_infos:
+            if not info.controllable:
+                continue
+            names.append(info.name)
+            positions.append(float(data.qpos[info.qpos_adr]))
+            velocities.append(float(data.qvel[info.qvel_adr]))
+            efforts.append(float(data.qfrc_applied[info.qvel_adr]))
+        return common_pb2.JointState(
+            header=self._build_header(
+                data, frame_id=self._model.body(self._robot_root_body_id).name
+            ),
+            name=names,
+            position=positions,
+            velocity=velocities,
+            effort=efforts,
+        )
 
     def get_joint_command_state(self) -> common_pb2.JointState:
         with self._state_lock:
-            names = list(self._controllable_joint_names)
-            # NOTE: DataRecorder will always use position.
-            # So if the current control mode is not POSITION,
-            # we need to convert the target to position.
-            position_by_name = {
-                info.name: float(self._data.qpos[info.qpos_adr])
-                for info in self._joint_infos
-                if info.controllable
-            }
-            positions = [position_by_name[name] for name in names]
-            velocities = [0.0] * len(names)
-            efforts = [0.0] * len(names)
-            for index, joint_name in enumerate(names):
-                mode_target = self._control_targets.get(joint_name)
-                if mode_target is None:
-                    continue
-                mode, target = mode_target
-                if mode == core_pb2.JointCommand.ControlMode.POSITION:
-                    positions[index] = target
-                elif mode == core_pb2.JointCommand.ControlMode.VELOCITY:
-                    velocities[index] = target
-                elif mode == core_pb2.JointCommand.ControlMode.TORQUE:
-                    efforts[index] = target
-            return common_pb2.JointState(
-                header=self._build_header(frame_id=self._model.body(self._robot_root_body_id).name),
-                name=names,
-                position=positions,
-                velocity=velocities,
-                effort=efforts,
-            )
+            return self._read_joint_command_state(self._data, self._control_targets)
+
+    def _read_joint_command_state(
+        self,
+        data: mujoco.MjData,
+        control_targets: dict[str, tuple[core_pb2.JointCommand.ControlMode, float]],
+    ) -> common_pb2.JointState:
+        names = list(self._controllable_joint_names)
+        # NOTE: DataRecorder will always use position.
+        # So if the current control mode is not POSITION,
+        # we need to convert the target to position.
+        position_by_name = {
+            info.name: float(data.qpos[info.qpos_adr])
+            for info in self._joint_infos
+            if info.controllable
+        }
+        positions = [position_by_name[name] for name in names]
+        velocities = [0.0] * len(names)
+        efforts = [0.0] * len(names)
+        for index, joint_name in enumerate(names):
+            mode_target = control_targets.get(joint_name)
+            if mode_target is None:
+                continue
+            mode, target = mode_target
+            if mode == core_pb2.JointCommand.ControlMode.POSITION:
+                positions[index] = target
+            elif mode == core_pb2.JointCommand.ControlMode.VELOCITY:
+                velocities[index] = target
+            elif mode == core_pb2.JointCommand.ControlMode.TORQUE:
+                efforts[index] = target
+        return common_pb2.JointState(
+            header=self._build_header(
+                data, frame_id=self._model.body(self._robot_root_body_id).name
+            ),
+            name=names,
+            position=positions,
+            velocity=velocities,
+            effort=efforts,
+        )
 
     def get_robot_spec(self) -> core_pb2.RobotSpecification:
         joints = [
@@ -712,15 +821,79 @@ class MuJoCoBackend(SimulatorBackend):
                 )
             yield self.get_robot_state()
 
+    def execute_joint_trajectory(
+        self,
+        names: list[str],
+        points: list[tuple[float, list[float]]],
+        group: str | None = None,
+    ) -> None:
+        """Run a position trajectory inside the simulation loop; blocks until done.
+
+        ``points`` are ``(time_from_start, positions)`` pairs in simulated
+        seconds, applied as zero-order-hold position targets.
+        """
+        if not points:
+            raise ValueError("trajectory must contain at least one point")
+        group_info = self._resolve_group(group, names)
+        allowed = set(group_info.joint_names)
+        for joint_name in names:
+            if joint_name not in allowed:
+                raise ValueError(
+                    f"Joint '{joint_name}' does not belong to group '{group_info.name}'"
+                )
+            info = self._joint_infos_by_name.get(joint_name)
+            if info is None or not info.controllable:
+                raise ValueError(f"Joint '{joint_name}' is not controllable")
+        times = [time_from_start for time_from_start, _ in points]
+        if times[0] < 0 or any(b < a for a, b in itertools.pairwise(times)):
+            raise ValueError("trajectory times must be non-negative and non-decreasing")
+        if any(len(positions) != len(names) for _, positions in points):
+            raise ValueError("trajectory point width does not match joint names")
+
+        execution = _TrajectoryExecution(
+            joint_names=list(names),
+            points=[(float(t), [float(v) for v in p]) for t, p in points],
+            start_time=0.0,
+            next_index=0,
+            done_event=threading.Event(),
+        )
+        with self._state_lock:
+            if self._trajectory is not None:
+                raise RuntimeError("a trajectory is already executing")
+            execution.start_time = float(self._data.time)
+            self._trajectory = execution
+        while not execution.done_event.wait(timeout=SIM_CAPTURE_WAIT_SEC):
+            if self._stop_event.is_set():
+                raise RuntimeError("backend shut down during trajectory execution")
+
+    def _advance_trajectory_locked(self) -> None:
+        execution = self._trajectory
+        if execution is None:
+            return
+        elapsed = self._data.time - execution.start_time
+        while (
+            execution.next_index < len(execution.points)
+            and execution.points[execution.next_index][0] <= elapsed
+        ):
+            _, positions = execution.points[execution.next_index]
+            for joint_name, target in zip(execution.joint_names, positions, strict=True):
+                self._control_targets[joint_name] = (
+                    core_pb2.JointCommand.ControlMode.POSITION,
+                    target,
+                )
+                self._idle_hold_joint_names.discard(joint_name)
+            execution.next_index += 1
+        if execution.next_index >= len(execution.points):
+            self._trajectory = None
+            execution.done_event.set()
+
     def get_end_effector_state(self, parent_group: str) -> core_pb2.EndEffectorState:
         ee = self._get_end_effector(parent_group)
         with self._state_lock:
-            pose = self._get_end_effector_pose_locked(ee)
+            pose = self._read_end_effector_pose(self._data, ee)
+            header = self._build_header(self._data, frame_id="world")
         return core_pb2.EndEffectorState(
-            pose_stamped=common_pb2.PoseStamped(
-                header=self._build_header(frame_id="world"),
-                pose=pose,
-            )
+            pose_stamped=common_pb2.PoseStamped(header=header, pose=pose)
         )
 
     def list_sensors(self) -> sensing_pb2.SensorMetaList:
@@ -732,44 +905,51 @@ class MuJoCoBackend(SimulatorBackend):
         )
 
     def get_sensors(self, names: list[str]) -> sensing_pb2.SensorData:
+        with self._state_lock:
+            return self._read_sensor_data(self._data, names)
+
+    def _read_sensor_data(
+        self,
+        data: mujoco.MjData,
+        names: list[str],
+    ) -> sensing_pb2.SensorData:
         requested = set(names) if names else set(self._sensors)
         images: list[sensing_pb2.CameraImage] = []
         joints: list[sensing_pb2.JointData] = []
         forces: list[sensing_pb2.WrenchData] = []
         torques: list[sensing_pb2.WrenchData] = []
 
-        with self._state_lock:
-            for name in sorted(requested):
-                sensor = self._sensors.get(name)
-                if sensor is None:
-                    continue
-                if sensor.source == "joint_state":
-                    joints.append(
-                        sensing_pb2.JointData(name=name, joint_states=self.get_robot_state())
+        for name in sorted(requested):
+            sensor = self._sensors.get(name)
+            if sensor is None:
+                continue
+            if sensor.source == "joint_state":
+                joints.append(
+                    sensing_pb2.JointData(name=name, joint_states=self._read_robot_state(data))
+                )
+                continue
+            if sensor.source == "camera":
+                images.append(self._render_camera(data, sensor))
+                continue
+            if sensor.source == "sensor" and sensor.source_id is not None:
+                sensor_slice = self._sensor_values(data, sensor.source_id)
+                header = self._build_header(data, frame_id="world")
+                if sensor.sensor_type == SensorType.FORCE:
+                    forces.append(
+                        sensing_pb2.WrenchData(
+                            header=header,
+                            name=name,
+                            vector=self._build_point(sensor_slice),
+                        )
                     )
-                    continue
-                if sensor.source == "camera":
-                    images.append(self._render_camera_locked(sensor))
-                    continue
-                if sensor.source == "sensor" and sensor.source_id is not None:
-                    sensor_slice = self._sensor_values(sensor.source_id)
-                    header = self._build_header(frame_id="world")
-                    if sensor.sensor_type == SensorType.FORCE:
-                        forces.append(
-                            sensing_pb2.WrenchData(
-                                header=header,
-                                name=name,
-                                vector=self._build_point(sensor_slice),
-                            )
+                elif sensor.sensor_type == SensorType.TORQUE:
+                    torques.append(
+                        sensing_pb2.WrenchData(
+                            header=header,
+                            name=name,
+                            vector=self._build_point(sensor_slice),
                         )
-                    elif sensor.sensor_type == SensorType.TORQUE:
-                        torques.append(
-                            sensing_pb2.WrenchData(
-                                header=header,
-                                name=name,
-                                vector=self._build_point(sensor_slice),
-                            )
-                        )
+                    )
 
         return sensing_pb2.SensorData(images=images, joints=joints, forces=forces, torques=torques)
 
@@ -777,6 +957,156 @@ class MuJoCoBackend(SimulatorBackend):
         while not self._stop_event.is_set():
             yield self.get_sensors(names)
             time.sleep(STREAM_INTERVAL_SEC)
+
+    def start_sim_capture(self, fps: float) -> None:
+        """Begin sampling backend state every 1/fps simulated seconds."""
+        if fps <= 0:
+            raise ValueError("capture fps must be positive")
+        with self._state_lock:
+            if self._sim_capture is not None:
+                raise RuntimeError("sim capture is already active")
+            buffer_pool: queue.Queue[mujoco.MjData] = queue.Queue()
+            for _ in range(SIM_CAPTURE_BUFFER_COUNT):
+                buffer_pool.put(mujoco.MjData(self._model))
+            self._sim_capture = _SimCapture(
+                interval=1.0 / fps,
+                next_time=float(self._data.time),
+                pool=buffer_pool,
+                samples=queue.Queue(),
+                stop_event=threading.Event(),
+            )
+
+    def next_sim_capture(
+        self,
+        end_effector_groups: list[str],
+        sensor_names: list[str],
+    ) -> CaptureSnapshot | None:
+        """Block until the next capture sample; None once capture is stopped.
+
+        Rendering happens here, on the consumer thread, outside the physics
+        lock, against the pooled MjData copy.
+        """
+        capture = self._sim_capture
+        if capture is None:
+            return None
+        while True:
+            if capture.stop_event.is_set():
+                return None
+            try:
+                data, control_targets = capture.samples.get(timeout=SIM_CAPTURE_WAIT_SEC)
+                break
+            except queue.Empty:
+                continue
+        snapshot = CaptureSnapshot(
+            robot_state=self._read_robot_state(data),
+            joint_command_state=self._read_joint_command_state(data, control_targets),
+            end_effector_states={
+                group_name: core_pb2.EndEffectorState(
+                    pose_stamped=common_pb2.PoseStamped(
+                        header=self._build_header(data, frame_id="world"),
+                        pose=self._read_end_effector_pose(
+                            data, self._get_end_effector(group_name)
+                        ),
+                    )
+                )
+                for group_name in end_effector_groups
+            },
+            sensor_data=(
+                self._read_sensor_data(data, sensor_names)
+                if sensor_names
+                else sensing_pb2.SensorData()
+            ),
+        )
+        capture.pool.put(data)
+        return snapshot
+
+    def stop_sim_capture(self) -> None:
+        """Stop sampling; unblocks both the physics and the consumer thread."""
+        capture = self._sim_capture
+        if capture is None:
+            return
+        capture.stop_event.set()
+        with self._state_lock:
+            self._sim_capture = None
+
+    def _emit_capture_samples(self) -> None:
+        """Copy due samples into pooled buffers, waiting for buffers unlocked.
+
+        Runs on the physics thread between steps. Waiting for a free buffer
+        outside the state lock pauses simulated time (backpressure) without
+        blocking other state readers.
+        """
+        capture = self._sim_capture
+        if capture is None:
+            return
+        while True:
+            with self._state_lock:
+                if self._sim_capture is not capture or self._data.time < capture.next_time:
+                    return
+            data = self._acquire_capture_buffer(capture)
+            if data is None:
+                return
+            with self._state_lock:
+                if self._sim_capture is not capture:
+                    return
+                mujoco.mj_copyData(data, self._model, self._data)
+                capture.samples.put((data, dict(self._control_targets)))
+                capture.next_time += capture.interval
+
+    def _acquire_capture_buffer(self, capture: _SimCapture) -> mujoco.MjData | None:
+        while not capture.stop_event.is_set():
+            try:
+                return capture.pool.get(timeout=SIM_CAPTURE_WAIT_SEC)
+            except queue.Empty:
+                continue
+        return None
+
+    def set_object_pose(self, object_name: str, pose: common_pb2.Pose) -> None:
+        with self._state_lock:
+            body_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_BODY, object_name)
+            if body_id < 0:
+                raise ValueError(f"Unknown MuJoCo body '{object_name}'")
+            joint_adr = int(self._model.body_jntadr[body_id])
+            if (
+                int(self._model.body_jntnum[body_id]) != 1
+                or int(self._model.jnt_type[joint_adr]) != int(mujoco.mjtJoint.mjJNT_FREE)
+            ):
+                raise ValueError(f"Body '{object_name}' has no free joint")
+            qpos_adr = int(self._model.jnt_qposadr[joint_adr])
+            dof_adr = int(self._model.jnt_dofadr[joint_adr])
+            self._data.qpos[qpos_adr : qpos_adr + 3] = [
+                pose.position.x,
+                pose.position.y,
+                pose.position.z,
+            ]
+            self._data.qpos[qpos_adr + 3 : qpos_adr + 7] = [
+                pose.orientation.w,
+                pose.orientation.x,
+                pose.orientation.y,
+                pose.orientation.z,
+            ]
+            self._data.qvel[dof_adr : dof_adr + 6] = 0.0
+            mujoco.mj_forward(self._model, self._data)
+            self._sync_viewer_locked()
+
+    def get_object_pose(self, object_name: str) -> common_pb2.Pose:
+        with self._state_lock:
+            body_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_BODY, object_name)
+            if body_id < 0:
+                raise ValueError(f"Unknown MuJoCo body '{object_name}'")
+            position = self._data.xpos[body_id]
+            quat_wxyz = self._data.xquat[body_id]
+            return common_pb2.Pose(
+                position=common_pb2.Point(
+                    x=float(position[0]), y=float(position[1]), z=float(position[2])
+                ),
+                orientation=common_pb2.Quaternion(
+                    x=float(quat_wxyz[1]),
+                    y=float(quat_wxyz[2]),
+                    z=float(quat_wxyz[3]),
+                    w=float(quat_wxyz[0]),
+                ),
+            )
 
     def reset_world(self, seed: int, randomization_params: dict[str, float]) -> None:
         del seed, randomization_params
@@ -791,22 +1121,27 @@ class MuJoCoBackend(SimulatorBackend):
 
     def emergency_stop(self) -> None:
         with self._state_lock:
+            execution = self._trajectory
+            self._trajectory = None
             self._control_targets.clear()
             self._data.ctrl[:] = 0
             self._data.qfrc_applied[:] = 0
             self._data.xfrc_applied[:] = 0
+        if execution is not None:
+            execution.done_event.set()
 
     def shutdown(self) -> None:
         self._stop_event.set()
+        self.stop_sim_capture()
         if self._step_thread.is_alive():
             self._step_thread.join(timeout=2.0)
+        self._render_queue.put(None)
+        if self._render_thread.is_alive():
+            self._render_thread.join(timeout=2.0)
         with self._state_lock:
             if self._viewer is not None:
                 self._viewer.close()
                 self._viewer = None
-            for renderer in self._renderers.values():
-                renderer.close()
-            self._renderers.clear()
 
     def get_robot_pose_in_map(self) -> common_pb2.PoseStamped:
         raise NotImplementedError("Navigation not supported for MuJoCo")
@@ -1066,15 +1401,17 @@ class MuJoCoBackend(SimulatorBackend):
             raise NotImplementedError(f"Joint model group '{parent_group}' has no end effector")
         return group.end_effectors[0]
 
-    def _get_end_effector_pose_locked(self, ee: EndEffectorInfo) -> common_pb2.Pose:
+    def _read_end_effector_pose(
+        self, data: mujoco.MjData, ee: EndEffectorInfo
+    ) -> common_pb2.Pose:
         if ee.body_name is not None:
-            body = self._data.body(ee.body_name)
+            body = data.body(ee.body_name)
             return common_pb2.Pose(
                 position=self._build_point(body.xpos),
                 orientation=self._build_quaternion(body.xquat),
             )
         if ee.site_name is not None:
-            site = self._data.site(ee.site_name)
+            site = data.site(ee.site_name)
             quat = np.empty(4, dtype=np.float64)
             mujoco.mju_mat2Quat(quat, site.xmat)
             return common_pb2.Pose(
@@ -1083,31 +1420,73 @@ class MuJoCoBackend(SimulatorBackend):
             )
         raise ValueError(f"End effector '{ee.name}' has no pose binding")
 
-    def _sensor_values(self, sensor_id: int) -> np.ndarray:
+    def _sensor_values(self, data: mujoco.MjData, sensor_id: int) -> np.ndarray:
         adr = int(self._model.sensor_adr[sensor_id])
         dim = int(self._model.sensor_dim[sensor_id])
-        return self._data.sensordata[adr : adr + dim].copy()
+        return data.sensordata[adr : adr + dim].copy()
 
-    def _render_camera_locked(self, sensor: SensorInfo) -> sensing_pb2.CameraImage:
+    def _render_camera(
+        self,
+        data: mujoco.MjData,
+        sensor: SensorInfo,
+    ) -> sensing_pb2.CameraImage:
         assert sensor.source_id is not None
         width, height = self._camera_resolution(sensor.source_id)
-        renderer_key = (threading.get_ident(), width, height)
-        renderer = self._renderers.get(renderer_key)
-        if renderer is None:
-            renderer = mujoco.Renderer(self._model, height=height, width=width)
-            self._renderers[renderer_key] = renderer
-        renderer.update_scene(self._data, camera=sensor.name)
-        pixels = renderer.render()
+        request = _RenderRequest(
+            data=data,
+            camera_name=sensor.name,
+            width=width,
+            height=height,
+            done=threading.Event(),
+        )
+        self._render_queue.put(request)
+        while not request.done.wait(RENDER_WAIT_SEC):
+            if self._stop_event.is_set():
+                raise RuntimeError("backend is shutting down")
+        if request.error is not None:
+            raise request.error
+        assert request.pixels is not None
         return sensing_pb2.CameraImage(
-            header=self._build_header(frame_id=sensor.name),
+            header=self._build_header(data, frame_id=sensor.name),
             name=sensor.name,
             height=height,
             width=width,
             encoding="rgb8",
             is_bigendian=False,
             step=width * 3,
-            data=pixels.tobytes(),
+            data=request.pixels.tobytes(),
         )
+
+    def _render_loop(self) -> None:
+        """Serve every offscreen render on this single long-lived thread.
+
+        Renderers are keyed by resolution only and are created, reused, and
+        freed here, satisfying GL context thread affinity no matter which
+        thread (gRPC handler, capture consumer) requests the render.
+        """
+        renderers: dict[tuple[int, int], mujoco.Renderer] = {}
+        try:
+            while True:
+                request = self._render_queue.get()
+                if request is None:
+                    return
+                try:
+                    key = (request.width, request.height)
+                    renderer = renderers.get(key)
+                    if renderer is None:
+                        renderer = mujoco.Renderer(
+                            self._model, height=request.height, width=request.width
+                        )
+                        renderers[key] = renderer
+                    renderer.update_scene(request.data, camera=request.camera_name)
+                    request.pixels = renderer.render()
+                except Exception as error:
+                    request.error = error
+                finally:
+                    request.done.set()
+        finally:
+            for renderer in renderers.values():
+                renderer.close()
 
     def _camera_resolution(self, camera_id: int) -> tuple[int, int]:
         raw_width = int(self._model.cam_resolution[camera_id][0])
@@ -1283,10 +1662,10 @@ class MuJoCoBackend(SimulatorBackend):
         }
         return mapping.get(sensor_type)
 
-    def _build_header(self, frame_id: str) -> common_pb2.Header:
+    def _build_header(self, data: mujoco.MjData, frame_id: str) -> common_pb2.Header:
         return common_pb2.Header(
             seq=0,
-            timestamp=float(self._data.time),
+            timestamp=float(data.time),
             frame_id=frame_id,
         )
 

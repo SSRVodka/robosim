@@ -1,0 +1,28 @@
+<!--
+Minimal scene reproducing provider-supplied layouts: a Panda robot plus a
+scene object whose own articulation (a drawer slide and a door hinge) must not
+be mistaken for robot joints.
+-->
+<mujoco model="articulated furniture scene">
+  <include file="../../../drivers_sim/mujoco/assets/robots/franka_panda/panda.xml"/>
+
+  <option gravity="0 0 -9.81"/>
+
+  <worldbody>
+    <light pos="0 0 1.5" dir="0 0 -1" directional="true"/>
+    <geom name="floor" size="0 0 0.05" type="plane" rgba="0.3 0.3 0.35 1"/>
+
+    <body name="cabinet/asset_root" pos="0.6 0.4 0.2">
+      <freejoint name="cabinet/freejoint"/>
+      <geom name="cabinet_shell" type="box" size="0.2 0.15 0.2" rgba="0.5 0.35 0.2 1" mass="8"/>
+      <body name="cabinet/drawer" pos="0 -0.15 0.05">
+        <joint name="cabinet/drawer_joint" type="slide" axis="0 -1 0" range="-0.2 0.0"/>
+        <geom name="cabinet_drawer" type="box" size="0.18 0.02 0.06" rgba="0.6 0.45 0.3 1" mass="1"/>
+      </body>
+      <body name="cabinet/door" pos="0.2 -0.15 -0.05">
+        <joint name="cabinet/door_joint" type="hinge" axis="0 0 1" range="0 1.5707963"/>
+        <geom name="cabinet_door" type="box" size="0.02 0.14 0.12" rgba="0.55 0.4 0.25 1" mass="1"/>
+      </body>
+    </body>
+  </worldbody>
+</mujoco>

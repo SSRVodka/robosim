@@ -3,9 +3,11 @@ from __future__ import annotations
 import contextlib
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import torch
 from lerobot.configs.policies import PreTrainedConfig
 from lerobot.datasets.dataset_metadata import LeRobotDatasetMetadata
@@ -165,6 +167,10 @@ class LerobotPolicyRunner:
                 )
             self._stop_event.set()
 
+        # Unblock a sim-capture wait even while the simulation is paused.
+        stop_capture = getattr(self._backend, "stop_sim_capture", None)
+        if stop_capture is not None:
+            stop_capture()
         thread.join()
         return common_pb2.Status(
             code=common_pb2.STATUS_SUCCESS,
@@ -207,12 +213,12 @@ class LerobotPolicyRunner:
 
     def _run_loop(self) -> None:
         try:
-            deadline = time.monotonic()
-            while not self._stop_event.is_set():
-                self._step_once()
-                loaded = self._require_loaded()
-                deadline += 1.0 / loaded.control_fps
-                precise_sleep(deadline - time.monotonic())
+            loaded = self._require_loaded()
+            start_capture = getattr(self._backend, "start_sim_capture", None)
+            if start_capture is not None:
+                self._sim_capture_loop(loaded, start_capture)
+            else:
+                self._wall_clock_loop(loaded)
         except Exception as exc:
             with self._lock:
                 self._last_error = str(exc)
@@ -223,10 +229,40 @@ class LerobotPolicyRunner:
             if self._activity is not None:
                 self._activity.release("policy")
 
-    def _step_once(self) -> None:
+    def _sim_capture_loop(
+        self,
+        loaded: LoadedPolicy,
+        start_capture: Callable[[float], None],
+    ) -> None:
+        """Consume observations every 1/control_fps simulated seconds.
+
+        Sample spacing then matches the training data exactly regardless of
+        rendering or inference wall time; capture backpressure slows the
+        simulation instead of skewing the control timeline.
+        """
+        next_capture = getattr(self._backend, "next_sim_capture", None)
+        stop_capture = getattr(self._backend, "stop_sim_capture", None)
+        assert next_capture is not None and stop_capture is not None
+        start_capture(float(loaded.control_fps))
+        try:
+            while not self._stop_event.is_set():
+                snapshot = next_capture([], loaded.adapter.sensor_names)
+                if snapshot is None:
+                    return
+                self._infer_and_apply(loaded.adapter.observation_from_snapshot(snapshot))
+        finally:
+            stop_capture()
+
+    def _wall_clock_loop(self, loaded: LoadedPolicy) -> None:
+        deadline = time.monotonic()
+        while not self._stop_event.is_set():
+            self._infer_and_apply(loaded.adapter.capture_observation())
+            deadline += 1.0 / loaded.control_fps
+            precise_sleep(deadline - time.monotonic())
+
+    def _infer_and_apply(self, observation: dict[str, np.ndarray]) -> None:
         with self._lock:
             loaded = self._require_loaded()
-            observation = loaded.adapter.capture_observation()
             prepared = prepare_observation_for_inference(
                 observation=observation,
                 device=torch.device(str(loaded.config.device)),
